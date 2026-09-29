@@ -4,6 +4,7 @@
 
 - `db.changes()` returns every row the scenario inserted, updated or deleted, per table, matched by primary key. `db.checkpoint()` excludes what the test arranged. A plain `toEqual` on it catches writes to tables you didn't expect.
 - Failure output now includes the database changes made during the scenario.
+- `db.reuse` (on by default outside CI): the Postgres container stays up between runs, and the migrated template is cached by a hash of the migration files. In the examples, a full run drops from 3.2 s to 1.7 s. `db.migrate.command` takes `inputs` to opt into the cache. Databases left behind by killed runs are cleaned up after a day.
 - YAML: `changes` and `checkpoint` steps, and `within: <ms>` on `db`, `sql`, `received` and `changes` steps to wait for asynchronous effects.
 
 ## 0.1.0

@@ -40,18 +40,33 @@ export interface DbOptions {
   schemas?: string[];
   /** Extra tables kept across resets, in addition to known migration bookkeeping tables. */
   keep?: string[];
+  /**
+   * Keep the Postgres container running between runs and cache the migrated
+   * template by the contents of the migrations, so a run with unchanged
+   * migrations skips both container start-up and migrating.
+   * Default: on, except when `CI` is set or `url` is given.
+   */
+  reuse?: boolean;
 }
 
 export type MigrateOptions =
   | { atlas: { dir: string } }
   | { sql: string }
-  | { command: string };
+  | {
+      command: string;
+      /**
+       * Files or directories the command reads (e.g. `["prisma/migrations"]`).
+       * With `reuse`, the migrated template is cached until one of them changes;
+       * without `inputs`, the command runs on every run.
+       */
+      inputs?: string[];
+    };
 
 /** Normalized shape passed from the plugin to globalSetup and workers. Must stay JSON-serializable. */
 export interface ResolvedOptions {
   root: string;
   app: Omit<AppOptions, "ready"> & { ready: { path: string } | { log: string; flags: string } };
-  db: Required<Pick<DbOptions, "image" | "schemas" | "keep">> & Omit<DbOptions, "image" | "schemas" | "keep">;
+  db: Required<Pick<DbOptions, "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   http?: RequestOptions;
 }
@@ -70,15 +85,21 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
             : { log: ready.log.source, flags: ready.log.flags }
           : ready,
     },
-    db: {
-      image: "postgres:17-alpine",
-      schemas: ["public"],
-      keep: [],
-      ...opts.db,
-      url: opts.db?.url ?? (process.env.SLICETEST_DATABASE_URL || undefined),
-    },
+    db: resolveDb(opts.db ?? {}),
     stubs: opts.stubs ?? [],
     http: opts.http,
+  };
+}
+
+function resolveDb(db: DbOptions): ResolvedOptions["db"] {
+  const url = db.url ?? (process.env.SLICETEST_DATABASE_URL || undefined);
+  return {
+    image: "postgres:17-alpine",
+    schemas: ["public"],
+    keep: [],
+    ...db,
+    url,
+    reuse: db.reuse ?? (!url && !process.env.CI),
   };
 }
 

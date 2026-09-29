@@ -73,7 +73,7 @@ export default defineConfig({
 
 ### How a run works
 
-1. **Once per run.** slicetest starts `postgres:17-alpine` and migrates a template database.
+1. **Once per run.** slicetest starts `postgres:17-alpine` and migrates a template database. Locally, the container is kept running and the migrated template is cached by the contents of your migrations, so the next run with unchanged migrations skips both steps (see `db.reuse`).
 2. **Once per worker.** It clones the template into the worker's own database.
 3. **Once per test file.** It starts the stub servers and your app.
 4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app crashed in the previous scenario, it is restarted.
@@ -230,12 +230,13 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
 | `app.readyTimeout` | `30000` | |
-| `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command }` (gets `DATABASE_URL`). |
+| `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs? }` (gets `DATABASE_URL`). |
 | `db.seed` | none | SQL file re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |
 | `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
 | `db.image` | `postgres:17-alpine` | |
+| `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
 | `stubs` | `[]` | Names of stubbed services. |
 | `http` | `{}` | Default `headers` / `query` for every request. |
 
@@ -335,4 +336,4 @@ npm run test:dist   # the built package, and the CLI with examples/slicetest.con
 
 ## Status
 
-Early prototype. Postgres only. CI runs on Linux and Windows. Planned: container reuse across runs, MySQL.
+Early. Postgres only. CI runs on Linux and Windows. Planned: MySQL.
