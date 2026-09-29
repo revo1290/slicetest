@@ -19,5 +19,8 @@
     "test",
     "examples/**/*.ts",
     "vitest.config.ts"
+  ],
+  "exclude": [
+    "examples/vitest.dist.config.ts"
   ]
 }
