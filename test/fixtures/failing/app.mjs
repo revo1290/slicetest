@@ -7,6 +7,14 @@ http
       process.exit(3);
     }
     if (req.url === "/json") return res.writeHead(200, { "content-type": "application/json" }).end('{"user":{"name":"alice"}}');
+    if (req.url === "/kill-sidecar") {
+      await fetch(`${process.env.SIDECAR_URL}/die`).catch(() => {});
+      return res.writeHead(200).end("sent");
+    }
+    if (req.url === "/sidecar") {
+      const r = await fetch(`${process.env.SIDECAR_URL}/`);
+      return res.writeHead(200).end(await r.text());
+    }
     if (req.url === "/log-something") console.log("handled log-something");
     if (req.url === "/notify") {
       const r = await fetch(`${process.env.MAIL_URL}/send`, { method: "POST" });

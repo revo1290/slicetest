@@ -2,7 +2,9 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import type { ResolvedOptions } from "./config.js";
+import type { ResolvedProcess } from "./config.js";
+
+type ProcessOptions = ResolvedProcess;
 
 const LOG_LINES = 200;
 /** How long to wait for stdout/stderr to drain after the process exits. */
@@ -12,7 +14,7 @@ const WINDOWS = process.platform === "win32";
 
 type Exit = { code: number | null; signal: NodeJS.Signals | null; error?: Error };
 
-/** The app under test, running as a real child process. */
+/** The app under test (or one of its `services`), running as a real child process. */
 export class App {
   #child: ChildProcess;
   #log: string[] = [];
@@ -20,13 +22,20 @@ export class App {
   #lineCount = 0;
   #exit?: Exit;
   #exited: Promise<Exit>;
-  #onLine?: (line: string) => void;
+  #listeners = new Set<(line: string) => void>();
+  /** `mark()` at the start of the current scenario. */
+  #scenarioMark = 0;
+
+  readonly url: string;
 
   private constructor(
     child: ChildProcess,
-    readonly url: string,
+    readonly port: number,
+    /** `app`, or `service <name>`, for messages. */
+    readonly label: string,
   ) {
     this.#child = child;
+    this.url = `http://127.0.0.1:${port}`;
     for (const stream of [child.stdout!, child.stderr!]) {
       // Keep partial lines (and split multi-byte characters) until the rest arrives.
       const decoder = new StringDecoder("utf8");
@@ -36,7 +45,7 @@ export class App {
         this.#log.push(line);
         this.#lineCount++;
         if (this.#log.length > LOG_LINES) this.#log.shift();
-        this.#onLine?.(line);
+        for (const listener of this.#listeners) listener(line);
       };
       stream.on("data", (chunk: Buffer) => {
         const lines = (partial + decoder.write(chunk)).split(/\r?\n/);
@@ -58,21 +67,26 @@ export class App {
     });
   }
 
-  static async start(opts: ResolvedOptions["app"], root: string, vars: Record<string, string>) {
-    const port = await freePort();
-    vars = { ...vars, "app.port": String(port) };
-    const env = opts.env ?? { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}" };
-    const child = spawn(interpolate(opts.command, vars, "app.command"), {
+  /**
+   * `key` names the process in placeholders and messages: `app`, or
+   * `service.<name>` for a service (its port is then `{{service.<name>.port}}`).
+   */
+  static async start(opts: ProcessOptions, root: string, vars: Record<string, string>, key = "app", fixedPort?: number) {
+    // A restarted service keeps its port, so URLs already handed to other processes stay valid.
+    const port = fixedPort ?? (await freePort());
+    vars = { ...vars, [`${key}.port`]: String(port) };
+    const env = opts.env ?? { PORT: `{{${key}.port}}`, DATABASE_URL: "{{db.url}}" };
+    const child = spawn(interpolate(opts.command, vars, `${key}.command`), {
       shell: true,
       cwd: path.resolve(root, opts.cwd ?? "."),
-      env: { ...process.env, ...mapValues(env, (v) => interpolate(v, vars, "app.env")) },
+      env: { ...process.env, ...mapValues(env, (v) => interpolate(v, vars, `${key}.env`)) },
       stdio: ["ignore", "pipe", "pipe"],
       // POSIX: own process group, so stop() also kills whatever the shell spawned.
       // Windows: detaching would open a console window; taskkill /T walks the tree instead.
       detached: !WINDOWS,
       windowsHide: true,
     });
-    const app = new App(child, `http://127.0.0.1:${port}`);
+    const app = new App(child, port, key === "app" ? "app" : key.replace(/^service\./, "service "));
     running.add(app);
     try {
       await app.#waitReady(opts);
@@ -110,6 +124,48 @@ export class App {
     return this.#lineCount;
   }
 
+  /** What the process printed during the current scenario. */
+  scenarioLogs() {
+    return this.logs(this.#scenarioMark);
+  }
+
+  /** Called before each scenario; `waitForLog()` only looks at output after this point. */
+  beginScenario() {
+    this.#scenarioMark = this.#lineCount;
+    return this.#scenarioMark;
+  }
+
+  /**
+   * Wait until the process prints a line matching `pattern` during the current
+   * scenario (lines printed earlier in the scenario count). Resolves with the line.
+   *
+   * ```ts
+   * await http.post("/orders", { ... });
+   * await service("worker").waitForLog(/order \d+ shipped/);
+   * ```
+   */
+  async waitForLog(pattern: string | RegExp, timeout = 5000): Promise<string> {
+    const re = typeof pattern === "string" ? new RegExp(escapeRegExp(pattern)) : new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
+    const n = Math.min(this.#lineCount - this.#scenarioMark, this.#log.length);
+    const seen = n > 0 ? this.#log.slice(-n).find((l) => re.test(l)) : undefined;
+    if (seen !== undefined) return seen;
+    return new Promise((resolve, reject) => {
+      const done = (fn: () => void) => {
+        clearTimeout(timer);
+        this.#listeners.delete(listener);
+        fn();
+      };
+      const listener = (line: string) => {
+        if (re.test(line)) done(() => resolve(line));
+      };
+      const timer = setTimeout(
+        () => done(() => reject(new Error(`slicetest: ${this.label} printed no line matching ${re} within ${timeout}ms. Output during this scenario:\n${this.logs(this.#scenarioMark) || "(none)"}`))),
+        timeout,
+      );
+      this.#listeners.add(listener);
+    });
+  }
+
   /**
    * POSIX: SIGTERM the whole process group, then SIGKILL whatever is left (including orphaned grandchildren).
    * Windows has no signals to ask politely with, so the tree is terminated at once.
@@ -140,22 +196,26 @@ export class App {
     else killGroup(pid, "SIGKILL");
   }
 
-  async #waitReady(opts: ResolvedOptions["app"]) {
+  async #waitReady(opts: ProcessOptions) {
     const timeout = opts.readyTimeout ?? 30_000;
     const deadline = Date.now() + timeout;
     const ready = opts.ready;
+    // A service without `ready` (e.g. a queue worker) counts as ready once it's spawned.
+    if (!ready) return;
     let logSeen = false;
+    let onLine: ((line: string) => void) | undefined;
     if ("log" in ready) {
       // Drop g/y so test() doesn't keep state between lines.
       const pattern = new RegExp(ready.log, ready.flags.replace(/[gy]/g, ""));
       logSeen = this.#log.some((l) => pattern.test(l));
-      this.#onLine = (line) => (logSeen ||= pattern.test(line));
+      onLine = (line) => (logSeen ||= pattern.test(line));
+      this.#listeners.add(onLine);
     }
     try {
       while (Date.now() < deadline) {
         if (this.#exit) {
           const why = this.#exit.error ? this.#exit.error.message : `code ${this.#exit.code}, signal ${this.#exit.signal}`;
-          throw new Error(`slicetest: app exited before becoming ready (${why})\n${this.logs()}`);
+          throw new Error(`slicetest: ${this.label} exited before becoming ready (${why})\n${this.logs()}`);
         }
         if ("log" in ready) {
           if (logSeen) return;
@@ -169,9 +229,9 @@ export class App {
         }
         await new Promise((r) => setTimeout(r, 50));
       }
-      throw new Error(`slicetest: app did not become ready within ${timeout}ms\n${this.logs()}`);
+      throw new Error(`slicetest: ${this.label} did not become ready within ${timeout}ms\n${this.logs()}`);
     } finally {
-      this.#onLine = undefined;
+      if (onLine) this.#listeners.delete(onLine);
     }
   }
 }
@@ -202,6 +262,10 @@ export function interpolate(template: string, vars: Record<string, string>, wher
     }
     return vars[key]!;
   });
+}
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function mapValues<T, U>(obj: Record<string, T>, fn: (v: T) => U) {

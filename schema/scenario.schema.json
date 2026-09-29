@@ -475,6 +475,32 @@
               "description": "Label shown when this step fails"
             }
           }
+        },
+        {
+          "type": "object",
+          "required": [
+            "log"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "log": {
+              "type": "string",
+              "description": "Regular expression; waits until the app (or `from:` a service) prints a matching line during this scenario"
+            },
+            "from": {
+              "type": "string",
+              "description": "Service name (from the `services` option). Default: the app"
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Milliseconds to wait. Default 5000"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            }
+          }
         }
       ]
     },

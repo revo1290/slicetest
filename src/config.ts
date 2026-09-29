@@ -18,7 +18,25 @@ export interface SlicetestOptions {
   openapi?: string | { spec: string; minCoverage?: number };
   /** Defaults for every request made with `http`, e.g. `{ headers: { accept: "application/json" } }`. */
   http?: RequestOptions;
+  /**
+   * Other processes the app needs: a queue worker, another microservice, a
+   * mock written in another language. They start before the app, in order, and
+   * are watched like the app: a crash fails the scenario and they're restarted.
+   * Their URL is `{{service.<name>}}` and their port `{{service.<name>.port}}`,
+   * usable in `app.env` and in the env of services declared after them.
+   */
+  services?: Record<string, ServiceOptions>;
 }
+
+export interface ServiceOptions extends Omit<AppOptions, "ready"> {
+  /** Default: no wait (for workers that don't listen). `{ path }` polls the service's own port. */
+  ready?: AppOptions["ready"];
+}
+
+type ResolvedReady = { path: string } | { log: string; flags: string };
+
+/** A process to start, with `ready` made JSON-serializable. The app always has `ready`; services may not. */
+export type ResolvedProcess = Omit<AppOptions, "ready"> & { ready?: ResolvedReady };
 
 export interface AppOptions {
   /** Command that starts the app, run through the shell. */
@@ -76,7 +94,8 @@ export type MigrateOptions =
 /** Normalized shape passed from the plugin to globalSetup and workers. Must stay JSON-serializable. */
 export interface ResolvedOptions {
   root: string;
-  app: Omit<AppOptions, "ready"> & { ready: { path: string } | { log: string; flags: string } };
+  app: Omit<AppOptions, "ready"> & { ready: ResolvedReady };
+  services: Record<string, ResolvedProcess>;
   db: Required<Pick<DbOptions, "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
@@ -86,18 +105,12 @@ export interface ResolvedOptions {
 
 export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOptions {
   validate(opts);
-  const ready = opts.app.ready ?? { path: "/" };
   return {
     root,
-    app: {
-      ...opts.app,
-      ready:
-        "log" in ready
-          ? typeof ready.log === "string"
-            ? { log: escapeRegExp(ready.log), flags: "" }
-            : { log: ready.log.source, flags: ready.log.flags }
-          : ready,
-    },
+    app: { ...opts.app, ready: resolveReady(opts.app.ready ?? { path: "/" }) },
+    services: Object.fromEntries(
+      Object.entries(opts.services ?? {}).map(([name, s]) => [name, { ...s, ready: s.ready && resolveReady(s.ready) }]),
+    ),
     db: resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
     openapi: {
@@ -107,6 +120,11 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     },
     http: opts.http,
   };
+}
+
+function resolveReady(ready: NonNullable<AppOptions["ready"]>): ResolvedReady {
+  if (!("log" in ready)) return ready;
+  return typeof ready.log === "string" ? { log: escapeRegExp(ready.log), flags: "" } : { log: ready.log.source, flags: ready.log.flags };
 }
 
 function resolveDb(db: DbOptions): ResolvedOptions["db"] {
@@ -128,9 +146,16 @@ function validate(opts: SlicetestOptions) {
   if (!opts?.app || typeof opts.app.command !== "string" || !opts.app.command.trim()) {
     fail("app.command is required, e.g. { app: { command: \"node server.js\" } }");
   }
-  const ready = opts.app.ready;
-  if (ready !== undefined && !("path" in ready) && !("log" in ready)) fail("app.ready must be { path } or { log }");
-  if (ready && "path" in ready && !ready.path.startsWith("/")) fail(`app.ready.path must start with "/", got "${ready.path}"`);
+  const checkReady = (ready: AppOptions["ready"], where: string) => {
+    if (ready !== undefined && !("path" in ready) && !("log" in ready)) fail(`${where}.ready must be { path } or { log }`);
+    if (ready && "path" in ready && !ready.path.startsWith("/")) fail(`${where}.ready.path must start with "/", got "${ready.path}"`);
+  };
+  checkReady(opts.app.ready, "app");
+  for (const [name, s] of Object.entries(opts.services ?? {})) {
+    if (!/^[\w-]+$/.test(name)) fail(`service name "${name}" may only contain letters, digits, "_" and "-"`);
+    if (!s || typeof s.command !== "string" || !s.command.trim()) fail(`services.${name}.command is required`);
+    checkReady(s.ready, `services.${name}`);
+  }
   const migrate = opts.db?.migrate;
   if (migrate) {
     const keys = Object.keys(migrate).filter((k) => ["atlas", "sql", "command"].includes(k));

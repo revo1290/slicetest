@@ -14,11 +14,12 @@ export interface ScenarioContext {
   db: Db;
   stub: (name: string) => Stub;
   app: App;
+  /** A process from the `services` option: its `url`, `logs()` and `waitForLog()`. */
+  service: (name: string) => App;
 }
 
 /** Everything one test file needs: its own database, stub servers and app process. */
 export class Runtime {
-  #logMark = 0;
   #http: HttpClient;
   /** Responses from the app that don't match its OpenAPI spec, this scenario. */
   #contract: string[] = [];
@@ -27,6 +28,7 @@ export class Runtime {
 
   private constructor(
     public app: App,
+    readonly services: Map<string, App>,
     readonly db: Db,
     readonly stubs: Map<string, Stub>,
     private readonly opts: ResolvedOptions,
@@ -62,6 +64,7 @@ export class Runtime {
   static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string }) {
     const url = await ensureWorkerDatabase(shared.adminUrl, shared.template, shared.prefix);
     const stubs = new Map<string, Stub>();
+    const services = new Map<string, App>();
     let db: Db | undefined;
     try {
       // Loaded first: a broken spec should fail before anything is started.
@@ -78,9 +81,16 @@ export class Runtime {
       });
       const vars: Record<string, string> = { "db.url": url };
       for (const [name, stub] of stubs) vars[`stub.${name}`] = stub.url;
+      for (const [name, service] of Object.entries(opts.services)) {
+        const started = await App.start(service, opts.root, vars, `service.${name}`);
+        services.set(name, started);
+        vars[`service.${name}`] = started.url;
+        vars[`service.${name}.port`] = String(started.port);
+      }
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, db, stubs, opts, vars, specs, shared.coverageDir);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir);
     } catch (e) {
+      await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
       await Promise.all([...stubs.values()].map((s) => s.close()));
       throw e;
@@ -99,11 +109,28 @@ export class Runtime {
         }
         return stub;
       },
+      service: (name) => {
+        const service = this.services.get(name);
+        if (!service) {
+          throw new Error(`slicetest: unknown service "${name}". Declared services: ${[...this.services.keys()].join(", ") || "(none)"}`);
+        }
+        return service;
+      },
     };
   }
 
+  /** The app and every service, for checks that apply to all of them. */
+  #processes() {
+    return [this.app, ...this.services.values()];
+  }
+
   async beforeScenario() {
-    // A crash already failed the scenario that caused it; give the next one a fresh app.
+    // A crash already failed the scenario that caused it; give the next one a fresh process.
+    for (const [name, service] of this.services) {
+      if (!service.exited) continue;
+      await service.stop();
+      this.services.set(name, await App.start(this.opts.services[name]!, this.opts.root, this.vars, `service.${name}`, service.port));
+    }
     if (this.app.exited) {
       await this.app.stop();
       this.app = await App.start(this.opts.app, this.opts.root, this.vars);
@@ -113,12 +140,12 @@ export class Runtime {
     await this.db.reset();
     for (const stub of this.stubs.values()) stub.reset();
     this.http.reset();
-    this.#logMark = this.app.mark();
+    for (const p of this.#processes()) p.beginScenario();
   }
 
   /** Failures that the scenario body can't see on its own. */
   async afterScenario() {
-    await this.app.settle();
+    await Promise.all(this.#processes().map((p) => p.settle()));
     this.#assertAlive();
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) {
@@ -173,8 +200,10 @@ export class Runtime {
   /** What happened during the current scenario, printed when it fails. */
   async diagnostics() {
     const sections: string[] = [];
-    const exit = this.app.exited;
-    if (exit) sections.push(`the app exited (code ${exit.code}, signal ${exit.signal}); it will be restarted for the next scenario`);
+    for (const p of this.#processes()) {
+      const exit = p.exited;
+      if (exit) sections.push(`the ${p.label} exited (code ${exit.code}, signal ${exit.signal}); it will be restarted for the next scenario`);
+    }
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) sections.push(`stub calls with no matching route:\n${unmatched.join("\n")}`);
     const contract = this.#contractViolations();
@@ -186,8 +215,12 @@ export class Runtime {
     } catch (e) {
       sections.push(`database changes during this scenario: unavailable (${(e as Error).message})`);
     }
-    const logs = this.app.logs(this.#logMark);
+    const logs = this.app.scenarioLogs();
     sections.push(logs ? `app output during this scenario:\n${logs}` : "app output during this scenario: (none)");
+    for (const [name, service] of this.services) {
+      const out = service.scenarioLogs();
+      sections.push(out ? `service ${name} output during this scenario:\n${out}` : `service ${name} output during this scenario: (none)`);
+    }
     return sections.join("\n\n");
   }
 
@@ -197,6 +230,7 @@ export class Runtime {
     }
     const results = await Promise.allSettled([
       this.app.stop(),
+      ...[...this.services.values()].map((s) => s.stop()),
       this.db.close(),
       ...[...this.stubs.values()].map((s) => s.close()),
     ]);
@@ -205,9 +239,9 @@ export class Runtime {
   }
 
   #assertAlive() {
-    const exit = this.app.exited;
-    if (exit) {
-      throw new Error(`slicetest: app process exited (code ${exit.code}, signal ${exit.signal})\n${this.app.logs()}`);
+    for (const p of this.#processes()) {
+      const exit = p.exited;
+      if (exit) throw new Error(`slicetest: ${p.label} process exited (code ${exit.code}, signal ${exit.signal})\n${p.logs()}`);
     }
   }
 }

@@ -7,14 +7,17 @@ export default defineConfig({
   resolve: { alias: [{ find: /^slicetest$/, replacement: path.resolve(import.meta.dirname, "../../../src/index.ts") }] },
   plugins: [
     slicetest({
+      services: {
+        pricing: { command: "node pricing.mjs", ready: { path: "/" } },
+        worker: { command: "node worker.mjs" },
+      },
       app: {
         command: "node app.mjs",
-        env: { PORT: "{{app.port}}", MAIL_URL: "{{stub.mail}}", SIDECAR_URL: "{{service.sidecar}}" },
-        ready: { log: "fixture ready" },
+        env: { PORT: "{{app.port}}", PRICING_URL: "{{service.pricing}}" },
+        ready: { log: "app ready" },
       },
-      stubs: ["mail"],
-      services: { sidecar: { command: "node sidecar.mjs", ready: { log: "sidecar up" } } },
+      db: { migrate: { sql: "schema.sql" } },
     }),
   ],
-  test: { include: ["*.scenario.ts"], sequence: { concurrent: false } },
+  test: { name: "services", include: ["*.scenario.ts", "*.scenario.yaml"] },
 });

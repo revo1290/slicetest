@@ -23,7 +23,8 @@ export function defineYamlScenarios(doc: YamlFile) {
 async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: ScenarioContext, vars: Vars) {
   for (const [i, step] of steps.entries()) {
     try {
-      await retry("within" in step ? step.within : undefined, () => runStep(step, ctx, vars));
+      // A log step waits by itself; `within` is its timeout.
+      await retry("within" in step && !("log" in step) ? step.within : undefined, () => runStep(step, ctx, vars));
     } catch (e) {
       const label = step.name ?? describeStep(step);
       const where = `${doc.file}:${step.line} (${sc.name}, step ${i + 1}: ${label})`;
@@ -44,6 +45,7 @@ function describeStep(step: Step) {
   if ("db" in step) return `db ${step.db}`;
   if ("changes" in step) return "changes";
   if ("checkpoint" in step) return "checkpoint";
+  if ("log" in step) return `log ${step.from ? `from ${step.from} ` : ""}/${step.log}/`;
   return "sql";
 }
 
@@ -67,6 +69,12 @@ async function retry(within: number | undefined, fn: () => Promise<void>) {
 async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
   if ("checkpoint" in step) {
     await ctx.db.checkpoint();
+    return;
+  }
+
+  if ("log" in step) {
+    const target = step.from ? ctx.service(step.from) : ctx.app;
+    await target.waitForLog(new RegExp(interpolate(step.log, vars) as string), step.within ?? 5000);
     return;
   }
 

@@ -1,0 +1,10 @@
+scenarios:
+  - name: a YAML log step waits for the worker
+    steps:
+      - insert: jobs
+        rows: { name: thumbnail }
+      - log: job 1 \(thumbnail\) done
+        from: worker
+        within: 3000
+      - db: jobs
+        expect: { rows: [{ id: 1, done: true }] }

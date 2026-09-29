@@ -19,3 +19,11 @@ scenario("a failing assertion prints requests and this scenario's app output", a
   await http.get("/log-something");
   expect((await http.get("/")).status).toBe(418);
 });
+
+scenario("a service crash fails the scenario", async ({ http }) => {
+  await http.get("/kill-sidecar");
+});
+
+scenario("the crashed service is restarted on the same port", async ({ http }) => {
+  expect((await http.get("/sidecar")).text).toBe("sidecar ok");
+});

@@ -24,7 +24,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep) & {
+export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep) & {
   line: number;
   name?: string;
 };
@@ -104,6 +104,14 @@ export interface ChangesStep {
   within?: number;
 }
 
+/** Wait until the app (or `from:` a service) prints a line matching `log` (a regex) during the scenario. */
+export interface LogStep {
+  log: string;
+  from?: string;
+  /** Milliseconds to wait. Default 5000. */
+  within?: number;
+}
+
 /** Later `changes` steps only see what happens after this step. */
 export interface CheckpointStep {
   checkpoint: true;
@@ -117,6 +125,7 @@ const KINDS = {
   db: ["where", "orderBy", "expect", "capture", "within"],
   received: ["call", "when", "times", "within"],
   changes: ["within"],
+  log: ["from", "within"],
   checkpoint: [],
 } as const;
 type Kind = keyof typeof KINDS;
@@ -251,6 +260,14 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       break;
     case "insert":
       if (!raw.rows || typeof raw.rows !== "object") fail(at("rows"), "an insert step needs `rows` (a mapping or a list of mappings)");
+      break;
+    case "log":
+      try {
+        new RegExp(raw.log as string);
+      } catch (e) {
+        fail(at("log"), `\`log\` must be a regular expression: ${(e as Error).message}`);
+      }
+      if (raw.from !== undefined && typeof raw.from !== "string") fail(at("from"), "`from` must be a service name");
       break;
     case "received":
       call("call");

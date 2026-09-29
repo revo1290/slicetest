@@ -109,7 +109,7 @@ Only this scenario's app output is shown, not the whole log. The database sectio
 
 ## API
 
-Every scenario receives `{ http, db, stub, app }`.
+Every scenario receives `{ http, db, stub, app, service }`.
 
 ### `http` — talk to the app
 
@@ -234,6 +234,36 @@ await expect(db).toHaveRow("votes", { poll_id: 1 }, 3);          // exactly thre
 
 Failure messages list the calls the stub actually received, or the first rows of the table.
 
+### Services: workers and other processes
+
+Real apps are rarely one process. Declare the others under `services` and slicetest starts them before the app (in order), watches them like the app, and restarts one that crashed — on the same port, so URLs handed to other processes stay valid:
+
+```ts
+slicetest({
+  services: {
+    pricing: { command: "go run ./cmd/pricing", ready: { path: "/health" } }, // another HTTP service
+    worker: { command: "bundle exec sidekiq" },                                 // no port, no ready check
+  },
+  app: {
+    command: "node server.js",
+    env: { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}", PRICING_URL: "{{service.pricing}}" },
+  },
+});
+```
+
+Each service gets `PORT` = `{{service.<name>.port}}` and `DATABASE_URL` unless you pass `env`. A crash fails the scenario, and each service's output during the scenario is part of the failure output.
+
+```ts
+scenario("uploading an image queues a thumbnail job", async ({ http, db, service }) => {
+  await http.post("/images", { url: "https://example.com/cat.png" });
+
+  await service("worker").waitForLog(/thumbnail \d+ done/);   // this scenario's output only
+  await expect(db).toHaveRow("images", { thumbnail_ready: true });
+});
+```
+
+`waitForLog(pattern, timeout = 5000)` resolves with the matching line and also works on `app`. In YAML: `- log: thumbnail \d+ done` with `from: worker` and `within: <ms>`.
+
 ### Asynchronous side effects
 
 If the app does work in the background (a job queue, a fire-and-forget webhook), wait for the effect with Vitest's own helpers. slicetest doesn't need its own:
@@ -274,6 +304,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
 | `db.image` | `postgres:17-alpine` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
+| `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi }` to check calls and replies against the provider's spec. |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
 | `http` | `{}` | Default `headers` / `query` for every request. |
@@ -332,6 +363,7 @@ scenarios:
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |
 | `received: <stub>` | `call: METHOD /path`, `when`, `times` (exact; default at least once) |
+| `log: <regex>` | `from` (a service; default the app), `within` (ms, default 5000). Waits for a matching line printed during the scenario. |
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
 

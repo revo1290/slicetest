@@ -32,6 +32,7 @@ test.each([
   ["scenarios:\n  - name: a\n    steps:\n      - changes: { polls: { added: 1 } }\n", 'unknown key "added" in changes of "polls"'],
   ["scenarios:\n  - name: a\n    steps:\n      - changes: { polls: { inserted: yes } }\n", "polls.inserted must be a count or a list of rows"],
   ["scenarios:\n  - name: a\n    steps:\n      - checkpoint: db\n", "use `checkpoint: true`"],
+  ["scenarios:\n  - name: a\n    steps:\n      - log: \"(\"\n", "`log` must be a regular expression"],
   ["scenarios:\n  - name: a\n    steps:\n      - db: t\n        within: 0\n", "`within` must be a positive number of milliseconds"],
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 100\n", 'unknown key "within" in a request step'],
 ])("rejects %j", (text, message) => {

@@ -35,6 +35,12 @@ test("a failed scenario prints its requests and only its own app output", () => 
   expect(block).toContain("database changes during this scenario: (none)");
 });
 
+test("a crashed service fails the scenario with its output, and is restarted on the same port", () => {
+  expect(output).toMatch(/service sidecar process exited \(code 9/);
+  expect(output).toContain("sidecar: exiting on request");
+  expect(output).toMatch(/[✓√] .*the crashed service is restarted on the same port/);
+});
+
 test("YAML steps fail with the file, line and step that failed", () => {
   expect(output).toMatch(/failing\.scenario\.yaml:4 \(yaml wrong status, step 1: GET \/\)\n.*expected GET \/ to respond 201, got 200/);
   expect(output).toMatch(/failing\.scenario\.yaml:9 \(yaml wrong json, step 1: GET \/json\)/);
