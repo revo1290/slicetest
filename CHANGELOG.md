@@ -2,6 +2,7 @@
 
 ## 0.2.0
 
+- Fix: the matcher types (`toHaveStatus`, `toHaveReceived`, `toHaveRow`, …) are now part of the package's public types. In 0.1.0 they only resolved inside this repository, so TypeScript users of the npm package got "Property 'toHaveStatus' does not exist".
 - `npx slicetest init`: detects the app's stack (Node, Django, FastAPI, Flask, Rails, Go, Rust), its migrations (Atlas, Prisma, Alembic, Django, Rails, Drizzle, Knex, SQL) and an OpenAPI file, and writes `slicetest.config.yaml` plus a first scenario.
 - `services`: start workers and other processes next to the app. They're referenced as `{{service.<name>}}` / `{{service.<name>.port}}`, watched for crashes, restarted on the same port, and their scenario output appears in failures. `app.waitForLog()` / `service(name).waitForLog()` and the YAML `log` step wait for a line printed during the scenario.
 - OpenAPI coverage: when `openapi` is set, the run ends with a table of the documented responses (per operation and status) that the scenarios produced, merged across workers. `openapi: { spec, minCoverage }` fails the run below a percentage.

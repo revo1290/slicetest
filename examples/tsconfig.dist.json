@@ -1,0 +1,14 @@
+{
+  // Typechecks the example scenarios against the built package, as a user of
+  // the npm package would see it (run by `npm run test:dist`).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "paths": { "slicetest": ["../dist/index.d.ts"] }
+  },
+  "include": ["scenarios/**/*.ts", "vitest.dist.config.ts"]
+}
