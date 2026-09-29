@@ -14,6 +14,8 @@ export interface RecordedCall {
   params: Record<string, string>;
   /** Whether a registered route answered this call. */
   matched: boolean;
+  /** What the stub answered, once it has. */
+  response?: { status: number; headers: Record<string, string>; body: string };
 }
 
 export interface StubResponse {
@@ -208,8 +210,14 @@ export class Stub {
       if (!raw && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) {
         headers["content-type"] = "application/json";
       }
+      const payload = raw ? (out.body as string | Uint8Array | undefined) : JSON.stringify(out.body);
+      call.response = {
+        status: out.status ?? 200,
+        headers: Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])),
+        body: payload === undefined ? "" : typeof payload === "string" ? payload : Buffer.from(payload).toString("utf8"),
+      };
       res.writeHead(out.status ?? 200, headers);
-      res.end(raw ? (out.body as string | Uint8Array | undefined) : JSON.stringify(out.body));
+      res.end(payload);
     } catch (e) {
       res.writeHead(500).end(`slicetest: stub handler threw: ${e}`);
     }

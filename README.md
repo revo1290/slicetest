@@ -27,7 +27,7 @@ No browser, no mocked database, no hooks inside your app. The app only has to re
 
 - **Unit tests** mock the database and the network, so broken SQL, migrations and request payloads slip through.
 - **End-to-end tests** drive a browser against a deployed stack. They are slow and hard to make deterministic.
-- **slicetest** keeps the real HTTP server, the real SQL and the real migrations, and replaces only the things you don't own: third-party APIs.
+- **slicetest** keeps the real HTTP server, the real SQL and the real migrations, and replaces only the things you don't own: third-party APIs. With OpenAPI specs, it also checks that those replacements behave like the real thing.
 
 The database is reset between scenarios with a single `TRUNCATE ... RESTART IDENTITY CASCADE` (about 1.5 ms). The app keeps its connections, so this works with any driver or ORM. Resetting by dropping and re-creating the database takes about 130 ms, and it crashed some apps when their pooled connections were cut.
 
@@ -182,6 +182,31 @@ stub("slack").calls("POST", "/hook");                         // recorded calls:
 
 Later routes win. `path` may also be a RegExp, and `method` may be `*`. Unanswered calls get a `501` and fail the scenario.
 
+### OpenAPI contracts — for your app and for the services you stub
+
+Point slicetest at OpenAPI 3.0 / 3.1 files and every scenario doubles as a contract test, with no extra assertions:
+
+```ts
+slicetest({
+  openapi: "openapi.yaml",                                       // your app's spec
+  stubs: ["slack", { name: "stripe", openapi: "specs/stripe.yaml" }], // a provider's spec
+  // ...
+});
+```
+
+- **Your app's responses** must be documented (path, method, status) and match the schema.
+- **The app's requests to a stub** must match the provider's spec: required query parameters, content type and request body. Spec paths are matched with or without the server's base path (`/v1`).
+- **Your stubs' replies** must be something the real service could send. A stub that returns `200 { ok: true }` where the provider documents `202 { messageId }` makes tests pass against an API that doesn't exist; slicetest fails the scenario instead.
+
+```
+slicetest: traffic doesn't match the OpenAPI spec:
+  app: GET /users/{id} → 200: /id must be integer
+  app → mail: POST /mail/send request: body must have required property 'subject'
+  stub mail reply (the real service wouldn't answer this way): POST /mail/send responded 200, which specs/mail.yaml doesn't document (documented: 202)
+```
+
+The example apps in `examples/` run every scenario against `examples/openapi.yaml`, and their Slack calls against `examples/slack.openapi.yaml`.
+
 ### Matchers
 
 Registered automatically:
@@ -237,7 +262,8 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
 | `db.image` | `postgres:17-alpine` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
-| `stubs` | `[]` | Names of stubbed services. |
+| `stubs` | `[]` | Names of stubbed services, or `{ name, openapi }` to check calls and replies against the provider's spec. |
+| `openapi` | none | The app's OpenAPI 3 spec. Every response must match it. |
 | `http` | `{}` | Default `headers` / `query` for every request. |
 
 The config is validated up front: a missing `app.command`, an ambiguous `db.migrate` or a duplicate stub name fails with a clear message instead of a timeout.

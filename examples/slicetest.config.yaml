@@ -9,4 +9,6 @@ app:
 db:
   migrate: { sql: migrations/20260929000000_init.sql }
   seed: seed.sql
-stubs: [slack]
+stubs:
+  - { name: slack, openapi: slack.openapi.yaml }
+openapi: openapi.yaml

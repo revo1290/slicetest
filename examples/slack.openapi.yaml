@@ -1,0 +1,21 @@
+# The part of Slack's incoming-webhook API the example apps use. The apps'
+# calls to the slack stub, and the stub's replies, are checked against it.
+openapi: 3.1.0
+info: { title: Slack incoming webhook, version: "1" }
+paths:
+  /hook:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties: { text: { type: string, minLength: 1 } }
+      responses:
+        "200":
+          description: accepted
+          content:
+            text/plain: { schema: { type: string } }
+        5XX: { description: Slack is down }

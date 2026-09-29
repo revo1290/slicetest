@@ -1,0 +1,20 @@
+openapi: 3.1.0
+info: { title: mail provider, version: "3" }
+servers: [{ url: "https://api.mail.example/v3" }]
+paths:
+  /mail/send:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, subject]
+              properties: { to: { type: string, format: email }, subject: { type: string } }
+      responses:
+        "202":
+          description: queued
+          content:
+            application/json:
+              schema: { type: object, required: [messageId], properties: { messageId: { type: string } } }

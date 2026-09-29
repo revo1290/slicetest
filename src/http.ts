@@ -21,6 +21,7 @@ export interface RequestOptions {
 class Session {
   cookies = new Map<string, string>();
   history: HttpResponse[] = [];
+  listeners: ((res: HttpResponse) => void)[] = [];
 }
 
 const HISTORY = 20;
@@ -119,7 +120,13 @@ export class HttpClient {
       durationMs: Math.round(performance.now() - started),
     };
     this.#record(out);
+    for (const listener of this.#session.listeners) listener(out);
     return out;
+  }
+
+  /** Call `fn` with every response this client (or one derived with `with()`) receives. */
+  onResponse(fn: (res: HttpResponse) => void) {
+    this.#session.listeners.push(fn);
   }
 
   #record(res: HttpResponse) {

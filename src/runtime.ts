@@ -3,8 +3,9 @@ import pg from "pg";
 import { App } from "./app.js";
 import type { ResolvedOptions } from "./config.js";
 import { Db, formatChanges, withDatabase } from "./db.js";
-import { formatHistory, HttpClient } from "./http.js";
-import { Stub } from "./stub.js";
+import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
+import { OpenApiSpec } from "./openapi.js";
+import { Stub, type RecordedCall } from "./stub.js";
 
 export interface ScenarioContext {
   http: HttpClient;
@@ -17,6 +18,8 @@ export interface ScenarioContext {
 export class Runtime {
   #logMark = 0;
   #http: HttpClient;
+  /** Responses from the app that don't match its OpenAPI spec, this scenario. */
+  #contract: string[] = [];
 
   private constructor(
     public app: App,
@@ -24,8 +27,24 @@ export class Runtime {
     readonly stubs: Map<string, Stub>,
     private readonly opts: ResolvedOptions,
     private readonly vars: Record<string, string>,
+    private readonly specs: { app?: OpenApiSpec; stubs: Map<string, OpenApiSpec> },
   ) {
-    this.#http = new HttpClient(app.url, opts.http);
+    this.#http = this.#client();
+  }
+
+  #client() {
+    const http = new HttpClient(this.app.url, this.opts.http);
+    const spec = this.specs.app;
+    if (spec) {
+      http.onResponse((res) => {
+        try {
+          this.#contract.push(...spec.checkResponse(res.method, res.url.split("?")[0]!, message(res)));
+        } catch (e) {
+          this.#contract.push(`${res.method} ${res.url}: couldn't check against ${spec.file}: ${(e as Error).message}`);
+        }
+      });
+    }
+    return http;
   }
 
   get http() {
@@ -37,6 +56,12 @@ export class Runtime {
     const stubs = new Map<string, Stub>();
     let db: Db | undefined;
     try {
+      // Loaded first: a broken spec should fail before anything is started.
+      const specs = {
+        app: opts.openapi.app ? await OpenApiSpec.load(path.resolve(opts.root, opts.openapi.app), opts.openapi.app) : undefined,
+        stubs: new Map<string, OpenApiSpec>(),
+      };
+      for (const [name, file] of Object.entries(opts.openapi.stubs)) specs.stubs.set(name, await OpenApiSpec.load(path.resolve(opts.root, file), file));
       for (const name of opts.stubs) stubs.set(name, await Stub.start(name));
       db = await Db.connect(url, {
         schemas: opts.db.schemas,
@@ -46,7 +71,7 @@ export class Runtime {
       const vars: Record<string, string> = { "db.url": url };
       for (const [name, stub] of stubs) vars[`stub.${name}`] = stub.url;
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, db, stubs, opts, vars);
+      return new Runtime(app, db, stubs, opts, vars, specs);
     } catch (e) {
       await db?.close();
       await Promise.all([...stubs.values()].map((s) => s.close()));
@@ -74,8 +99,9 @@ export class Runtime {
     if (this.app.exited) {
       await this.app.stop();
       this.app = await App.start(this.opts.app, this.opts.root, this.vars);
-      this.#http = new HttpClient(this.app.url, this.opts.http);
+      this.#http = this.#client();
     }
+    this.#contract = [];
     await this.db.reset();
     for (const stub of this.stubs.values()) stub.reset();
     this.http.reset();
@@ -90,6 +116,38 @@ export class Runtime {
     if (unmatched.length > 0) {
       throw new Error(`slicetest: the app called stubbed services with no matching route:\n${unmatched.join("\n")}`);
     }
+    const contract = this.#contractViolations();
+    if (contract.length > 0) {
+      throw new Error(`slicetest: traffic doesn't match the OpenAPI spec:\n${contract.map((c) => `  ${c}`).join("\n")}`);
+    }
+  }
+
+  /** The app's responses against its spec, and its calls to stubs (and the stubs' replies) against theirs. */
+  #contractViolations() {
+    const out = this.#contract.map((c) => `app: ${c}`);
+    for (const [name, spec] of this.specs.stubs) {
+      for (const call of this.stubs.get(name)!.calls()) {
+        try {
+          out.push(...this.#checkStubCall(name, spec, call));
+        } catch (e) {
+          out.push(`app → ${name}: ${call.method} ${call.path}: couldn't check against ${spec.file}: ${(e as Error).message}`);
+        }
+      }
+    }
+    return [...new Set(out)];
+  }
+
+  #checkStubCall(name: string, spec: OpenApiSpec, call: RecordedCall) {
+    if (!call.matched) return []; // already reported as an unmatched call
+    const req = { contentType: header(call.headers["content-type"]), body: call.json ?? call.body, query: call.query };
+    const out = spec.checkRequest(call.method, call.path, req).map((c) => `app → ${name}: ${c}`);
+    const res = call.response;
+    if (res) {
+      const body = res.body ? (parseJson(res.body) ?? res.body) : "";
+      const problems = spec.checkResponse(call.method, call.path, { status: res.status, contentType: res.headers["content-type"], body });
+      out.push(...problems.map((c) => `stub ${name} reply (the real service wouldn't answer this way): ${c}`));
+    }
+    return out;
   }
 
   #unmatched() {
@@ -111,6 +169,8 @@ export class Runtime {
     if (exit) sections.push(`the app exited (code ${exit.code}, signal ${exit.signal}); it will be restarted for the next scenario`);
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) sections.push(`stub calls with no matching route:\n${unmatched.join("\n")}`);
+    const contract = this.#contractViolations();
+    if (contract.length > 0) sections.push(`OpenAPI mismatches:\n${contract.map((c) => `  ${c}`).join("\n")}`);
     if (this.http.history.length > 0) sections.push(`requests to the app:\n${formatHistory(this.http.history)}`);
     try {
       const changes = formatChanges(await this.db.changesSinceStart());
@@ -153,4 +213,20 @@ async function ensureWorkerDatabase(adminUrl: string, template: string, prefix: 
     await admin.end();
   }
   return withDatabase(adminUrl, name);
+}
+
+function message(res: HttpResponse) {
+  return { status: res.status, contentType: res.headers.get("content-type") ?? undefined, body: res.json ?? res.text };
+}
+
+function header(v: string | string[] | undefined) {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }

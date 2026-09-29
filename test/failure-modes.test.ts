@@ -1,24 +1,10 @@
-import { execFile } from "node:child_process";
-import path from "node:path";
-import { promisify } from "node:util";
 import { beforeAll, expect, test } from "vitest";
+import { runFailingFixture } from "./run-fixture.js";
 
-const exec = promisify(execFile);
 let output = "";
 
 beforeAll(async () => {
-  const config = path.join(import.meta.dirname, "fixtures/failing/vitest.config.ts");
-  try {
-    // node + the vitest entry, rather than `npx`, which is npx.cmd on Windows.
-    const root = path.join(import.meta.dirname, "..");
-    const vitest = path.join(root, "node_modules/vitest/vitest.mjs");
-    await exec(process.execPath, [vitest, "run", "--config", config, "--reporter", "verbose"], { cwd: root });
-    throw new Error("fixture run was expected to fail");
-  } catch (e) {
-    const err = e as { stdout?: string; stderr?: string };
-    // CI forces colors; strip them so the assertions see plain text.
-    output = `${err.stdout}\n${err.stderr}`.replace(/\x1b\[[0-9;]*m/g, "");
-  }
+  output = await runFailingFixture("failing");
 }, 120_000);
 
 test("a call to a stub with no matching route fails the scenario and lists the registered routes", () => {

@@ -1,0 +1,75 @@
+# The polls API that both example apps implement. Every response in every
+# scenario is checked against this file (the `openapi` option).
+openapi: 3.0.3
+info: { title: Polls, version: "1" }
+paths:
+  /health:
+    get:
+      responses:
+        "200": { description: up }
+  /polls:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, a, b]
+              properties: { title: { type: string }, a: { type: string }, b: { type: string } }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                additionalProperties: false
+                properties: { id: { type: integer } }
+        "400": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+  /polls/{id}:
+    get:
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: the poll with its vote counts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Poll" }
+        "404": { $ref: "#/components/responses/Error" }
+  /polls/{id}/votes:
+    post:
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: counted }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+components:
+  schemas:
+    Poll:
+      type: object
+      required: [id, title, options, votes]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        options:
+          type: object
+          required: [a, b]
+          properties: { a: { type: string }, b: { type: string } }
+        votes:
+          type: object
+          required: [a, b]
+          properties: { a: { type: integer, minimum: 0 }, b: { type: integer, minimum: 0 } }
+  responses:
+    Error:
+      description: error
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties: { error: { type: string } }
