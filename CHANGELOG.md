@@ -3,7 +3,6 @@
 ## 0.2.0
 
 - `autoReply: true` on a stub with an OpenAPI spec answers calls that no route matches from the spec: its examples, or values built from the schema. `stub.fallback(fn)` is the underlying API.
-
 - Fix: the matcher types (`toHaveStatus`, `toHaveReceived`, `toHaveRow`, …) are now part of the package's public types. In 0.1.0 they only resolved inside this repository, so TypeScript users of the npm package got "Property 'toHaveStatus' does not exist".
 - `npx slicetest init`: detects the app's stack (Node, Django, FastAPI, Flask, Rails, Go, Rust), its migrations (Atlas, Prisma, Alembic, Django, Rails, Drizzle, Knex, SQL) and an OpenAPI file, and writes `slicetest.config.yaml` plus a first scenario.
 - `services`: start workers and other processes next to the app. They're referenced as `{{service.<name>}}` / `{{service.<name>.port}}`, watched for crashes, restarted on the same port, and their scenario output appears in failures. `app.waitForLog()` / `service(name).waitForLog()` and the YAML `log` step wait for a line printed during the scenario.
