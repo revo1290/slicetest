@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import pg from "pg";
+import type { Driver, Row, Table } from "./drivers/driver.js";
+import { PostgresDriver } from "./drivers/postgres.js";
 
 /** Tables that record applied migrations. Truncating them would make tools re-run migrations. */
 const MIGRATION_TABLES = [
@@ -28,9 +29,7 @@ export function withDatabase(url: string, database: string) {
   return u.toString();
 }
 
-export interface Row {
-  [column: string]: unknown;
-}
+export type { Row } from "./drivers/driver.js";
 
 /**
  * Column filters. `null` means IS NULL and an array means IN (...);
@@ -44,20 +43,6 @@ export interface RowsOptions {
   limit?: number;
 }
 
-const INT8 = 20;
-
-/** int8 columns (bigserial ids, count(*)) come back as numbers when they fit, instead of strings. */
-const types = {
-  getTypeParser(oid: number, format?: "text" | "binary") {
-    if (oid === INT8 && format !== "binary") {
-      return (v: string) => {
-        const n = Number(v);
-        return Number.isSafeInteger(n) ? n : v;
-      };
-    }
-    return pg.types.getTypeParser(oid, format as "text");
-  },
-};
 
 /** Rows added, changed and removed in one table. */
 export interface TableChanges<T extends Row = Row> {
@@ -73,18 +58,12 @@ export interface TableChanges<T extends Row = Row> {
 /** Changed tables only, keyed by table name (`schema.table` outside `public`). */
 export type Changes = Record<string, TableChanges>;
 
-interface Table {
-  /** Display name: `name` in public, else `schema.name`. */
-  name: string;
-  quoted: string;
-  key: string[];
-}
 
 type Snapshot = Map<string, Row[]>;
 
 /** Test-side handle to the database the app under test is using. */
 export class Db {
-  #client: pg.Client;
+  #driver: Driver;
   #tables?: Table[];
   #seed?: string;
   /** Contents right after the reset (and seed); undefined means every table was empty. */
@@ -92,30 +71,27 @@ export class Db {
   #checkpoint?: Snapshot | "start";
 
   private constructor(
-    client: pg.Client,
+    driver: Driver,
     readonly url: string,
     private readonly opts: { schemas: string[]; keep: string[] },
   ) {
-    this.#client = client;
+    this.#driver = driver;
   }
 
   static async connect(url: string, opts: { schemas: string[]; keep: string[]; seedFile?: string }) {
-    const client = new pg.Client({ connectionString: url, types });
-    // Without a listener, a dropped connection would crash the worker; the next query reports it instead.
-    client.on("error", () => {});
-    await client.connect();
-    const db = new Db(client, url, opts);
+    const db = new Db(await PostgresDriver.connect(url), url, opts);
     if (opts.seedFile) db.#seed = await readFile(opts.seedFile, "utf8");
     return db;
   }
 
   async query<T extends Row = Row>(sql: string, params: unknown[] = []): Promise<T[]> {
-    return (await this.#client.query<T>(sql, params)).rows;
+    return this.#driver.query<T>(sql, params);
   }
 
   /** Rows of a table, optionally filtered, ordered by the first column unless `orderBy` is given. */
   async rows<T extends Row = Row>(table: string, where: Where = {}, opts: RowsOptions = {}): Promise<T[]> {
-    const { clause, params } = whereClause(where);
+    const { clause, params } = this.#where(where);
+    const ident = (c: string) => this.#driver.ident(c);
     const order = [opts.orderBy ?? []]
       .flat()
       .map((c) => (c.startsWith("-") ? `${ident(c.slice(1))} DESC` : ident(c)))
@@ -134,13 +110,13 @@ export class Db {
 
   /** Tagged-template query: values become bind parameters. */
   sql<T extends Row = Row>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T[]> {
-    const text = strings.reduce((acc, s, i) => acc + `$${i}` + s);
+    const text = strings.reduce((acc, s, i) => acc + this.#driver.param(i) + s);
     return this.query<T>(text, values);
   }
 
   async count(table: string, where: Where = {}): Promise<number> {
-    const { clause, params } = whereClause(where);
-    const [row] = await this.query<{ n: string }>(`SELECT count(*) AS n FROM ${ident(table)}${clause}`, params);
+    const { clause, params } = this.#where(where);
+    const [row] = await this.query<{ n: string }>(`SELECT count(*) AS n FROM ${this.#driver.ident(table)}${clause}`, params);
     return Number(row!.n);
   }
 
@@ -148,29 +124,18 @@ export class Db {
   async insert<T extends Row = Row>(table: string, rows: Row | Row[]): Promise<T[]> {
     const list = Array.isArray(rows) ? rows : [rows];
     const out: T[] = [];
-    for (const row of list) {
-      const cols = Object.keys(row);
-      const sql =
-        cols.length === 0
-          ? `INSERT INTO ${ident(table)} DEFAULT VALUES RETURNING *`
-          : `INSERT INTO ${ident(table)} (${cols.map(ident).join(", ")}) VALUES (${cols
-              .map((_, i) => `$${i + 1}`)
-              .join(", ")}) RETURNING *`;
-      out.push(...(await this.query<T>(sql, Object.values(row))));
-    }
+    for (const row of list) out.push(...((await this.#driver.insert(table, row)) as T[]));
     return out;
   }
 
   /** Empty every data table without dropping the app's connections, then re-apply the seed. */
   async reset() {
     this.#tables ??= await this.#listTables();
-    if (this.#tables.length > 0) {
-      await this.#client.query(`TRUNCATE ${this.#tables.map((t) => t.quoted).join(", ")} RESTART IDENTITY CASCADE`);
-    }
+    await this.#driver.truncate(this.#tables);
     this.#start = undefined;
     this.#checkpoint = undefined;
     if (this.#seed) {
-      await this.#client.query(this.#seed);
+      await this.#driver.exec(this.#seed);
       this.#start = await this.#snapshot();
     }
   }
@@ -204,12 +169,9 @@ export class Db {
   async #snapshot(): Promise<Snapshot> {
     const tables = (this.#tables ??= await this.#listTables());
     const snap: Snapshot = new Map();
-    if (tables.length === 0) return snap;
-    const order = (t: Table) => (t.key.length ? ` ORDER BY ${t.key.map((c) => `"${c.replace(/"/g, `""`)}"`).join(", ")}` : "");
-    const sql = tables.map((t) => `SELECT * FROM ${t.quoted}${order(t)}`).join(";\n");
-    const res = (await this.#client.query(sql)) as unknown as pg.QueryResult<Row> | pg.QueryResult<Row>[];
-    const results = Array.isArray(res) ? res : [res];
-    tables.forEach((t, i) => snap.set(t.name, results[i]!.rows));
+    const order = (t: Table) => (t.key.length ? ` ORDER BY ${t.key.map((c) => this.#driver.column(c)).join(", ")}` : "");
+    const results = await this.#driver.queryAll(tables.map((t) => `SELECT * FROM ${t.quoted}${order(t)}`));
+    tables.forEach((t, i) => snap.set(t.name, results[i]!));
     return snap;
   }
 
@@ -219,35 +181,27 @@ export class Db {
    * such as PostGIS's `spatial_ref_sys`.
    */
   async #listTables(): Promise<Table[]> {
-    const keep = [...MIGRATION_TABLES, ...this.opts.keep];
-    const rows = await this.query<{ schema: string; name: string; key: string[] | null }>(
-      `SELECT n.nspname AS schema, c.relname AS name,
-              (SELECT array_agg(a.attname::text ORDER BY k.ord)
-                 FROM pg_index i
-                 CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
-                 JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.attnum
-                WHERE i.indrelid = c.oid AND i.indisprimary) AS key
-         FROM pg_class c
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relkind IN ('r', 'p')
-          AND NOT c.relispartition
-          AND n.nspname = ANY($1)
-          AND NOT (c.relname = ANY($2) OR n.nspname || '.' || c.relname = ANY($2))
-          AND NOT EXISTS (
-            SELECT 1 FROM pg_depend d
-             WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')
-        ORDER BY 1, 2`,
-      [this.opts.schemas, keep],
-    );
-    return rows.map((r) => ({
-      name: r.schema === "public" ? r.name : `${r.schema}.${r.name}`,
-      quoted: `${ident(r.schema)}.${ident(r.name)}`,
-      key: r.key ?? [],
-    }));
+    return this.#driver.listTables(this.opts.schemas, [...MIGRATION_TABLES, ...this.opts.keep]);
+  }
+
+  /** `WHERE ...` for a filter: `null` is IS NULL, an array is IN (...), anything else `=`. */
+  #where(where: Where) {
+    const d = this.#driver;
+    const conds: string[] = [];
+    const params: unknown[] = [];
+    for (const [col, value] of Object.entries(where)) {
+      if (value === null || value === undefined) conds.push(`${d.ident(col)} IS NULL`);
+      else if (Array.isArray(value)) conds.push(d.inList(col, value, params));
+      else {
+        params.push(value);
+        conds.push(`${d.ident(col)} = ${d.param(params.length)}`);
+      }
+    }
+    return { clause: conds.length ? ` WHERE ${conds.join(" AND ")}` : "", params };
   }
 
   async close() {
-    await this.#client.end();
+    await this.#driver.close();
   }
 }
 
@@ -331,27 +285,4 @@ function truncate(s: string, max = 200) {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-function whereClause(where: Where) {
-  const conds: string[] = [];
-  const params: unknown[] = [];
-  for (const [col, value] of Object.entries(where)) {
-    if (value === null || value === undefined) {
-      conds.push(`${ident(col)} IS NULL`);
-    } else if (Array.isArray(value)) {
-      params.push(value);
-      conds.push(`${ident(col)} = ANY($${params.length})`);
-    } else {
-      params.push(value);
-      conds.push(`${ident(col)} = $${params.length}`);
-    }
-  }
-  return { clause: conds.length ? ` WHERE ${conds.join(" AND ")}` : "", params };
-}
 
-/** Quote an identifier; `schema.table` is split on the dot. */
-function ident(name: string) {
-  return name
-    .split(".")
-    .map((part) => `"${part.replace(/"/g, '""')}"`)
-    .join(".");
-}
