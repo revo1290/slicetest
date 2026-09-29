@@ -104,8 +104,9 @@ export class App {
   /**
    * The exit event is delivered asynchronously, so a crash caused by the last
    * request may not be visible yet. Give it a moment before trusting `exited`.
+   * Windows reports it later (the process runs under cmd.exe), so it waits longer.
    */
-  async settle(ms = 20) {
+  async settle(ms = WINDOWS ? 100 : 20) {
     if (this.#exit) return this.#exit;
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([this.#exited, new Promise((r) => (timer = setTimeout(r, ms)))]);
