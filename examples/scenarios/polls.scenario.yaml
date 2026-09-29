@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=../../schema/scenario.schema.json
+# The YAML version of polls.test.ts. Runs against both the Node and the Python app.
+scenarios:
+  - name: 投票を作るとDBに保存され、Slackに通知される（YAML）
+    steps:
+      - stub: slack
+        on: POST /hook
+        reply: { status: 200, body: ok }
+
+      - request: POST /polls
+        json: { title: 犬か猫か, a: 犬, b: 猫 }
+        expect:
+          status: 201
+          json: { id: { $type: number } }
+        capture:
+          pollId: json.id
+
+      - db: polls
+        where: { title: 犬か猫か }
+        expect:
+          rows:
+            - { id: "{{pollId}}", option_a: 犬, option_b: 猫 }
+
+      - received: slack
+        call: POST /hook
+        times: 1
+        when:
+          json: { text: "新しい投票: 犬か猫か（犬 vs 猫）" }
+          headers: { content-type: { $regex: json } }
+
+  - name: Slack通知に失敗したら投票は作られない（YAML）
+    steps:
+      - stub: slack
+        on: POST /hook
+        reply: { status: 500 }
+      - request: POST /polls
+        json: { title: 山か海か, a: 山, b: 海 }
+        expect: { status: 502 }
+      - db: polls
+        where: { title: 山か海か }
+        expect: { count: 0 }
+
+  - name: seed の投票に票を入れると集計が返る（YAML）
+    steps:
+      - db: polls
+        where: { title: 朝食は？ }
+        capture: { pollId: row.id }
+      - insert: votes
+        rows:
+          - { poll_id: "{{pollId}}", choice: a }
+          - { poll_id: "{{pollId}}", choice: a }
+          - { poll_id: "{{pollId}}", choice: b }
+      - request: GET /polls/{{pollId}}
+        expect:
+          status: 200
+          json:
+            title: 朝食は？
+            options: { a: ごはん, b: パン }
+            votes: { a: 2, b: 1 }
+
+  - name: poll {{poll}} に {{choice}} で投票すると {{status}}（YAML）
+    each:
+      - { poll: 1, choice: a, status: 204, stored: 1 }
+      - { poll: 1, choice: x, status: 400, stored: 0 }
+      - { poll: 999, choice: a, status: 404, stored: 0 }
+    steps:
+      - request: POST /polls/{{poll}}/votes
+        json: { choice: "{{choice}}" }
+        expect: { status: "{{status}}" }
+      - sql: SELECT count(*)::int AS n FROM votes WHERE poll_id = $1 AND choice = $2
+        params: ["{{poll}}", "{{choice}}"]
+        expect:
+          rows: [{ n: "{{stored}}" }]

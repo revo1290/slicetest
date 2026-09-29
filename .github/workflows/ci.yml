@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - uses: ariga/setup-atlas@v0
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: python -m venv examples/python-api/.venv && examples/python-api/.venv/bin/pip install "psycopg[binary]"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test # Postgres via Testcontainers (Docker is available on ubuntu runners)
+      - run: npm run test:dist
+
+  windows:
+    # Windows runners can't run Linux containers, so use the preinstalled Postgres via SLICETEST_DATABASE_URL.
+    runs-on: windows-latest
+    env:
+      SLICETEST_DATABASE_URL: postgresql://postgres:root@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - name: Start PostgreSQL
+        shell: pwsh
+        run: |
+          $pg = Get-Service -Name postgresql*
+          Set-Service -InputObject $pg -Status running -StartupType automatic
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx vitest run --project unit # includes the crash / diagnostics / YAML failure fixtures
+      - run: npm run test:dist # built package + `slicetest` CLI with YAML scenarios

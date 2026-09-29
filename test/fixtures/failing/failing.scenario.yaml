@@ -1,0 +1,23 @@
+scenarios:
+  - name: yaml wrong status
+    steps:
+      - request: GET /
+        expect: { status: 201 }
+
+  - name: yaml wrong json
+    steps:
+      - request: GET /json
+        expect:
+          json: { user: { name: bob } }
+
+  - name: yaml unknown variable
+    steps:
+      - request: GET /users/{{userId}}
+
+  - name: yaml stub never called
+    steps:
+      - stub: mail
+        on: POST /send
+        reply: { status: 202 }
+      - received: mail
+        call: POST /send

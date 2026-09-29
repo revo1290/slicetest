@@ -1,0 +1,52 @@
+{
+  "name": "slicetest",
+  "version": "0.0.0",
+  "description": "Framework-agnostic slice tests: drive a real app process over HTTP with a real Postgres and stubbed outbound APIs.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vitest": {
+      "types": "./dist/vitest.d.ts",
+      "default": "./dist/vitest.js"
+    },
+    "./yaml": {
+      "types": "./dist/yaml.d.ts",
+      "default": "./dist/yaml.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schema"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:dist": "npm run build && vitest run --config examples/vitest.dist.config.ts && node dist/cli.js --config examples/slicetest.config.yaml"
+  },
+  "peerDependencies": {
+    "vitest": ">=5"
+  },
+  "dependencies": {
+    "@testcontainers/postgresql": "^12.2.0",
+    "pg": "^8.23.0",
+    "testcontainers": "^12.2.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  },
+  "bin": {
+    "slicetest": "dist/cli.js"
+  }
+}

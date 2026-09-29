@@ -1,0 +1,73 @@
+import http from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterAll, beforeAll, expect, test } from "vitest";
+import { HttpClient } from "../src/http.js";
+import "../src/matchers.js";
+
+let server: http.Server;
+let baseUrl: string;
+
+beforeAll(async () => {
+  server = http.createServer(async (req, res) => {
+    let body = "";
+    for await (const c of req) body += c;
+    if (req.url?.startsWith("/login")) return res.writeHead(204, { "set-cookie": "sid=abc; Path=/; HttpOnly" }).end();
+    if (req.url === "/logout") return res.writeHead(204, { "set-cookie": "sid=; Max-Age=0; Path=/" }).end();
+    res.writeHead(200, { "content-type": "application/json" }).end(
+      JSON.stringify({ url: req.url, cookie: req.headers.cookie ?? null, type: req.headers["content-type"] ?? null, body }),
+    );
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+});
+afterAll(() => new Promise((r) => server.close(r)));
+
+test("sends objects as JSON and parses JSON responses", async () => {
+  const res = await new HttpClient(baseUrl).post("/x", { a: 1 }, { query: { page: 2 } });
+
+  expect(res.status).toBe(200);
+  expect(res.json).toMatchObject({ url: "/x?page=2", type: "application/json", body: '{"a":1}' });
+});
+
+test("keeps cookies until cleared", async () => {
+  const client = new HttpClient(baseUrl);
+  await client.post("/login");
+
+  expect((await client.get("/me")).json.cookie).toBe("sid=abc");
+  client.clearCookies();
+  expect((await client.get("/me")).json.cookie).toBeNull();
+});
+
+test("with() adds defaults and shares cookies; form() sends urlencoded fields", async () => {
+  const client = new HttpClient(baseUrl, { headers: { "x-a": "1" } });
+  const api = client.with({ headers: { authorization: "Bearer t" }, query: { v: 2 } });
+  await api.post("/login");
+
+  const res = await client.post("/f", client.form({ name: "あ b", n: 1 }));
+
+  expect(res.json).toMatchObject({ type: "application/x-www-form-urlencoded;charset=UTF-8", body: "name=%E3%81%82+b&n=1", cookie: "sid=abc" });
+  expect((await api.get("/q")).json.url).toBe("/q?v=2");
+  expect(client.history.map((r) => `${r.method} ${r.url} ${r.status}`)).toEqual(["POST /login?v=2 204", "POST /f 200", "GET /q?v=2 200"]);
+});
+
+test("expired cookies are dropped", async () => {
+  const client = new HttpClient(baseUrl);
+  await client.post("/login");
+  await client.post("/logout");
+
+  expect(client.cookies.has("sid")).toBe(false);
+});
+
+test("refuses to send requests (and cookies) anywhere but the app", async () => {
+  const client = new HttpClient(baseUrl);
+
+  await expect(client.get("//example.com/x")).rejects.toThrow("only talks to the app under test");
+  await expect(client.get("https://example.com/")).rejects.toThrow("only talks to the app under test");
+});
+
+test("toHaveStatus shows the response body on failure", async () => {
+  const res = await new HttpClient(baseUrl).get("/x");
+
+  expect(res).toHaveStatus(200);
+  expect(() => expect(res).toHaveStatus(201)).toThrow(/expected GET \/x to respond 201, got 200\nResponse body:\n {2}\{"url":"\/x"/);
+});

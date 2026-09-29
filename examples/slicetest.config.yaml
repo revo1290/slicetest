@@ -1,0 +1,12 @@
+# Config for `npx slicetest` (no JavaScript needed). Paths are relative to this file.
+app:
+  command: node node-api/server.mjs
+  env:
+    PORT: "{{app.port}}"
+    DATABASE_URL: "{{db.url}}"
+    SLACK_WEBHOOK_URL: "{{stub.slack}}/hook"
+  ready: { path: /health }
+db:
+  migrate: { sql: migrations/20260929000000_init.sql }
+  seed: seed.sql
+stubs: [slack]

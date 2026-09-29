@@ -1,0 +1,294 @@
+# slicetest
+
+Tests that sit between unit tests and end-to-end tests, for apps written in any language or framework.
+
+slicetest starts your app as a real process, points it at a real Postgres and at stub servers for the services it calls, and lets you check all three sides in one scenario:
+
+```ts
+import { expect } from "vitest";
+import { scenario } from "slicetest";
+
+scenario("creating a poll stores it and notifies Slack", async ({ http, db, stub }) => {
+  stub("slack").on("POST", "/hook").reply(200, "ok");
+
+  const res = await http.post("/polls", { title: "Dogs or cats?", a: "Dogs", b: "Cats" });
+
+  expect(res).toHaveStatus(201);
+  await expect(db).toHaveRow("polls", { title: "Dogs or cats?" });
+  expect(stub("slack")).toHaveReceived("POST", "/hook", { json: { text: "New poll: Dogs or cats?" } });
+});
+```
+
+No browser, no mocked database, no hooks inside your app. The app only has to read its port, database URL and outbound base URLs from environment variables.
+
+## Why
+
+- **Unit tests** mock the database and the network, so broken SQL, migrations and request payloads slip through.
+- **End-to-end tests** drive a browser against a deployed stack. They are slow and hard to make deterministic.
+- **slicetest** keeps the real HTTP server, the real SQL and the real migrations, and replaces only the things you don't own: third-party APIs.
+
+The database is reset between scenarios with a single `TRUNCATE ... RESTART IDENTITY CASCADE` (about 1.5 ms). The app keeps its connections, so this works with any driver or ORM. Resetting by dropping and re-creating the database takes about 130 ms, and it crashed some apps when their pooled connections were cut.
+
+## Install
+
+```sh
+npm i -D slicetest vitest
+```
+
+You also need Docker or Podman. slicetest finds a running Podman machine on its own (on Windows too). Alternatively, pass `db.url` or set `SLICETEST_DATABASE_URL` to use an existing Postgres server, for example a CI service container.
+
+Works on macOS, Linux and Windows. On Windows the app's process tree is stopped with `taskkill /T`, and `app.command` / `db.migrate.command` run through `cmd.exe`.
+
+## Configure
+
+```ts
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+import { slicetest } from "slicetest/vitest";
+
+export default defineConfig({
+  plugins: [
+    slicetest({
+      app: {
+        command: "python server.py", // any language
+        env: {
+          PORT: "{{app.port}}",
+          DATABASE_URL: "{{db.url}}",
+          SLACK_WEBHOOK_URL: "{{stub.slack}}/hook",
+        },
+        ready: { path: "/health" }, // or { log: "listening" }
+      },
+      db: {
+        migrate: { atlas: { dir: "file://migrations" } }, // or { sql: "schema.sql" } / { command: "npm run migrate" }
+        seed: "seed.sql", // re-applied after every reset
+      },
+      stubs: ["slack"],
+    }),
+  ],
+  test: { include: ["scenarios/**/*.test.ts"] },
+});
+```
+
+### How a run works
+
+1. **Once per run.** slicetest starts `postgres:17-alpine` and migrates a template database.
+2. **Once per worker.** It clones the template into the worker's own database.
+3. **Once per test file.** It starts the stub servers and your app.
+4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app crashed in the previous scenario, it is restarted.
+5. **After each scenario.** The scenario fails if the app crashed or called a stub route you didn't register.
+
+Database names are unique per run, so several projects or CI jobs can share one Postgres server via `db.url`.
+
+### When a scenario fails
+
+slicetest prints what happened during that scenario, next to Vitest's own error:
+
+```
+--- slicetest ---
+stub calls with no matching route:
+  mail: POST /send
+    registered on mail: POST /other
+
+requests to the app:
+  POST /signup → 500 (14ms)  {"error":"internal"}
+
+app output during this scenario:
+TypeError: Cannot read properties of undefined (reading 'email')
+-----------------
+```
+
+Only this scenario's app output is shown, not the whole log. Requests that never got a response (for example because the app crashed) appear as `failed`.
+
+## API
+
+Every scenario receives `{ http, db, stub, app }`.
+
+### `http` — talk to the app
+
+```ts
+const res = await http.post("/polls", { title: "x" });   // objects are sent as JSON
+res.status; res.headers; res.text; res.json; res.durationMs;
+
+await http.get("/polls", { query: { page: 2 }, headers: { accept: "text/html" } });
+await http.post("/login", http.form({ user: "a", pass: "b" }));  // urlencoded; FormData, Blob and bytes also work
+await http.get("/old-path", { follow: true });                    // redirects are NOT followed by default
+
+const admin = http.with({ headers: { authorization: `Bearer ${token}` } }); // shares cookies with http
+http.cookies.get("session");                                     // cookies persist within a scenario
+```
+
+Requests may only go to the app under test; absolute URLs to other hosts are rejected. Defaults for every request can be set with `http: { headers }` in the plugin config.
+
+### `db` — arrange and inspect the real database
+
+```ts
+await db.insert("users", [{ name: "a" }, { name: "b" }]);          // returns the stored rows
+const user = await db.one("users", { email: "a@example.com" });    // throws unless exactly one row
+await db.rows("votes", { poll_id: [1, 2], deleted_at: null }, { orderBy: "-id", limit: 10 });
+await db.count("votes", { choice: "a" });
+await db.sql`SELECT * FROM users WHERE id = ${user.id}`;          // values become bind parameters
+await db.query("UPDATE users SET name = $1", ["b"]);
+```
+
+In `where`, `null` means `IS NULL` and an array means `IN (...)`. `bigint` columns (bigserial ids, `count(*)`) come back as numbers when they fit safely.
+
+### `stub(name)` — fake the services the app calls
+
+```ts
+stub("github").on("GET", "/repos/:owner/:repo").reply((call) => ({ body: { name: call.params.repo } }));
+
+stub("stripe")
+  .on("POST", "/v1/charges", {
+    query: { expand: "customer" },
+    headers: { authorization: /^Bearer / },
+    json: { amount: expect.any(Number) },   // subset match; asymmetric matchers and RegExps work anywhere
+  })
+  .reply(200, { id: "ch_1" });
+
+stub("slack").on("POST", "/hook").once().reply(500);          // first call fails, then falls through…
+stub("slack").on("POST", "/hook").reply(200);                 // …to this route: test your retry logic
+stub("pay").on("GET", "/status").replySequence([{ status: 503 }, { status: 200 }]);
+stub("pay").on("POST", "/charge").delay(5_000).reply(200);    // exercise the app's timeouts
+stub("pay").on("POST", "/charge").networkError();             // drop the connection
+
+stub("slack").calls("POST", "/hook");                         // recorded calls: method, path, params, query, headers, body, json
+```
+
+Later routes win. `path` may also be a RegExp, and `method` may be `*`. Unanswered calls get a `501` and fail the scenario.
+
+### Matchers
+
+Registered automatically:
+
+```ts
+expect(res).toHaveStatus(201);                                   // failure shows the response body
+expect(stub("slack")).toHaveReceived("POST", "/hook", { json: { text: "hi" } });
+expect(stub("slack")).toHaveReceivedTimes(1, "POST", "/hook");
+expect(stub("mail")).not.toHaveReceived("POST", "/send");
+await expect(db).toHaveRow("polls", { title: "x" });             // at least one row
+await expect(db).toHaveRow("votes", { poll_id: 1 }, 3);          // exactly three
+```
+
+Failure messages list the calls the stub actually received, or the first rows of the table.
+
+### Scenarios
+
+```ts
+scenario("name", async ({ http, db, stub, app }) => { ... }, timeoutMs?);
+scenario.only / scenario.skip / scenario.todo
+scenario.each([{ choice: "a", status: 204 }, { choice: "x", status: 400 }])(
+  "voting $choice returns $status",
+  async ({ choice, status }, { http }) => { ... },
+);
+```
+
+Scenarios in one file share an app and a database, so they always run one at a time; `.concurrent` is rejected.
+
+### Configuration reference
+
+| Option | Default | |
+|---|---|---|
+| `app.command` | (required) | Shell command. May use `{{app.port}}` and the other placeholders. |
+| `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. The rest of `process.env` is inherited. |
+| `app.cwd` | vitest root | |
+| `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
+| `app.readyTimeout` | `30000` | |
+| `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command }` (gets `DATABASE_URL`). |
+| `db.seed` | none | SQL file re-run after every reset. |
+| `db.schemas` | `["public"]` | Schemas whose tables are reset. |
+| `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |
+| `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
+| `db.image` | `postgres:17-alpine` | |
+| `stubs` | `[]` | Names of stubbed services. |
+| `http` | `{}` | Default `headers` / `query` for every request. |
+
+The config is validated up front: a missing `app.command`, an ambiguous `db.migrate` or a duplicate stub name fails with a clear message instead of a timeout.
+
+## YAML scenarios
+
+Everything above is also available as data, for teams that don't write JavaScript. Files named `*.scenario.yaml` are picked up automatically, next to your `.test.ts` files, and run with the same app, database and stubs:
+
+```yaml
+# yaml-language-server: $schema=../node_modules/slicetest/schema/scenario.schema.json
+scenarios:
+  - name: creating a poll stores it and notifies Slack
+    steps:
+      - stub: slack
+        on: POST /hook
+        reply: { status: 200, body: ok }
+
+      - request: POST /polls
+        json: { title: Dogs or cats?, a: Dogs, b: Cats }
+        expect:
+          status: 201
+          json: { id: { $type: number } }
+        capture: { pollId: json.id }
+
+      - db: polls
+        where: { title: Dogs or cats? }
+        expect:
+          rows: [{ id: "{{pollId}}", option_a: Dogs }]
+
+      - received: slack
+        call: POST /hook
+        times: 1
+        when:
+          json: { text: "New poll: Dogs or cats?" }
+
+  - name: voting {{choice}} returns {{status}}
+    each:
+      - { choice: a, status: 204 }
+      - { choice: x, status: 400 }
+    steps:
+      - request: POST /polls/1/votes
+        json: { choice: "{{choice}}" }
+        expect: { status: "{{status}}" }
+```
+
+| Step | Keys |
+|---|---|
+| `stub: <name>` | `on: METHOD /path` (`:params` allowed), `when: { query, headers, json, body }`, one of `reply: { status, headers, body }` / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`. |
+| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture` |
+| `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
+| `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
+| `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |
+| `received: <stub>` | `call: METHOD /path`, `when`, `times` (exact; default at least once) |
+
+- `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.
+- Expected `json`, `rows` and `headers` are subsets: extra keys are fine. `{ $type: number }`, `{ $regex: "^ch_" }`, `{ $contains: "..." }` and `{ $any: true }` match loosely.
+- A file-level `setup:` list runs at the start of every scenario. `skip`, `only` and `timeout` work per scenario.
+- Mistakes are reported with the file and line before anything runs (`polls.scenario.yaml:12: unknown key "stauts" in expect`). A failing step reports its file, line and step number. The JSON Schema in `schema/` gives editors completion and inline errors.
+
+### Without any JavaScript: `npx slicetest`
+
+Put the plugin options in `slicetest.config.yaml` and run the CLI. It needs Node, but no `package.json` scripts, TypeScript or Vitest config:
+
+```yaml
+# slicetest.config.yaml
+app:
+  command: python server.py
+  env: { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}", SLACK_WEBHOOK_URL: "{{stub.slack}}/hook" }
+  ready: { path: /health }
+db:
+  migrate: { command: alembic upgrade head }
+stubs: [slack]
+```
+
+```sh
+npx slicetest                 # every *.scenario.yaml under the config's directory
+npx slicetest polls -t voting # filter by file and scenario name
+npx slicetest --watch
+```
+
+## Examples
+
+`examples/` has a Node app (`node:http` + `pg`) and a Python app (`http.server` + `psycopg`) with the same API. **The same scenario files (`polls.test.ts` and `polls.scenario.yaml`) run against both**:
+
+```sh
+npm test            # unit tests + both example apps
+npm run test:dist   # the built package, and the CLI with examples/slicetest.config.yaml
+```
+
+## Status
+
+Early prototype. Postgres only. CI runs on Linux and Windows. Planned: container reuse across runs, MySQL.
