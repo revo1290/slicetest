@@ -431,6 +431,10 @@ npm test            # unit tests + both example apps
 npm run test:dist   # the built package, and the CLI with examples/slicetest.config.yaml
 ```
 
+## Using a coding agent
+
+[`.claude/skills/slicetest-write-tests`](.claude/skills/slicetest-write-tests/SKILL.md) teaches Claude Code (or any agent that reads skills) how to write slicetest scenarios. Copy it into your project's `.claude/skills/`. Contributors: see [`AGENTS.md`](AGENTS.md).
+
 ## Status
 
 Early. Postgres only. CI runs on Linux and Windows. Planned: MySQL.
