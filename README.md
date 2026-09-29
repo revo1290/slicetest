@@ -40,6 +40,14 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 
 `init` recognises Node (`npm start`), Django, FastAPI, Flask, Rails, Go and Rust apps; Atlas, Prisma, Alembic, Django, Rails, Drizzle, Knex and plain SQL migrations; and an `openapi.yaml`. It lists every guess as a comment in the config so you know what to check.
 
+## What you get that's hard to find elsewhere
+
+- **One scenario, three boundaries.** Assert on the HTTP response, the rows in the real database and the calls to third-party APIs in the same test, in any language the app is written in.
+- **`db.changes()`**: a diff of every row the scenario inserted, updated or deleted. `toEqual` on it catches writes you didn't expect.
+- **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test.
+- **OpenAPI coverage** of your own API, per operation and status, across all scenarios.
+- **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
+
 ## Install
 
 ```sh
@@ -84,9 +92,9 @@ export default defineConfig({
 
 1. **Once per run.** slicetest starts `postgres:17-alpine` and migrates a template database. Locally, the container is kept running and the migrated template is cached by the contents of your migrations, so the next run with unchanged migrations skips both steps (see `db.reuse`).
 2. **Once per worker.** It clones the template into the worker's own database.
-3. **Once per test file.** It starts the stub servers and your app.
-4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app crashed in the previous scenario, it is restarted.
-5. **After each scenario.** The scenario fails if the app crashed or called a stub route you didn't register.
+3. **Once per test file.** It starts the stub servers, your `services` and your app.
+4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app or a service crashed in the previous scenario, it is restarted.
+5. **After each scenario.** The scenario fails if the app or a service crashed, the app called a stub route you didn't register, or (with `openapi`) any traffic didn't match the spec.
 
 Database names are unique per run, so several projects or CI jobs can share one Postgres server via `db.url`.
 
