@@ -11,4 +11,4 @@ db:
   seed: seed.sql
 stubs:
   - { name: slack, openapi: slack.openapi.yaml }
-openapi: openapi.yaml
+openapi: { spec: openapi.yaml, minCoverage: 100 }

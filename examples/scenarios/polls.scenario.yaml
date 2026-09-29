@@ -85,3 +85,20 @@ scenarios:
             inserted: [{ poll_id: 1, choice: a }]
             deleted: 0
         within: 2000
+
+  - name: ヘルスチェックに応答する（YAML）
+    steps:
+      - request: GET /health
+        expect: { status: 200 }
+
+  - name: 必須項目がない投票は 400 で、DBには何も書かれない（YAML）
+    steps:
+      - request: POST /polls
+        json: { title: 選択肢なし }
+        expect: { status: 400, json: { error: { $type: string } } }
+      - changes: {}
+
+  - name: 存在しない投票は 404（YAML）
+    steps:
+      - request: GET /polls/999
+        expect: { status: 404 }
