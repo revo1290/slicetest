@@ -1,7 +1,30 @@
 {
   "name": "slicetest",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Framework-agnostic slice tests: drive a real app process over HTTP with a real Postgres and stubbed outbound APIs.",
+  "keywords": [
+    "testing",
+    "integration-testing",
+    "slice-test",
+    "api-testing",
+    "postgres",
+    "stub",
+    "mock-server",
+    "vitest",
+    "vitest-plugin",
+    "yaml",
+    "testcontainers",
+    "language-agnostic"
+  ],
+  "author": "pon-bok",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/revo1290/slicetest.git"
+  },
+  "homepage": "https://github.com/revo1290/slicetest#readme",
+  "bugs": {
+    "url": "https://github.com/revo1290/slicetest/issues"
+  },
   "type": "module",
   "license": "MIT",
   "exports": {
@@ -29,7 +52,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:dist": "npm run build && vitest run --config examples/vitest.dist.config.ts && node dist/cli.js --config examples/slicetest.config.yaml"
+    "test:dist": "npm run build && vitest run --config examples/vitest.dist.config.ts && node dist/cli.js --config examples/slicetest.config.yaml",
+    "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
     "vitest": ">=5"

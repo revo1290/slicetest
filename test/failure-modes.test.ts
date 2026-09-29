@@ -16,7 +16,8 @@ beforeAll(async () => {
     throw new Error("fixture run was expected to fail");
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string };
-    output = `${err.stdout}\n${err.stderr}`;
+    // CI forces colors; strip them so the assertions see plain text.
+    output = `${err.stdout}\n${err.stderr}`.replace(/\x1b\[[0-9;]*m/g, "");
   }
 }, 120_000);
 
@@ -36,7 +37,8 @@ test("requests that got no response still show up in the diagnostics", () => {
 });
 
 test("the app is restarted after a crash, so later scenarios still run", () => {
-  expect(output).toMatch(/✓ .*the next scenario gets a restarted app/);
+  // Vitest prints √ instead of ✓ on some Windows consoles.
+  expect(output).toMatch(/[✓√] .*the next scenario gets a restarted app/);
 });
 
 test("a failed scenario prints its requests and only its own app output", () => {

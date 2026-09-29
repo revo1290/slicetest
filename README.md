@@ -209,7 +209,7 @@ The config is validated up front: a missing `app.command`, an ambiguous `db.migr
 Everything above is also available as data, for teams that don't write JavaScript. Files named `*.scenario.yaml` are picked up automatically, next to your `.test.ts` files, and run with the same app, database and stubs:
 
 ```yaml
-# yaml-language-server: $schema=../node_modules/slicetest/schema/scenario.schema.json
+# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
 scenarios:
   - name: creating a poll stores it and notifies Slack
     steps:
