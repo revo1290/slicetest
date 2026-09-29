@@ -38,3 +38,30 @@ export interface Driver {
   insert(table: string, row: Row): Promise<Row[]>;
   close(): Promise<void>;
 }
+
+/** Server-level operations: the databases slicetest creates for templates and workers. */
+export interface Admin {
+  /** Names of databases starting with `prefix`. */
+  databases(prefix: string): Promise<string[]>;
+  create(name: string): Promise<void>;
+  /** Create `name` as a copy of `template` (schema and data). */
+  clone(template: string, name: string): Promise<void>;
+  /** Drop `name`, disconnecting anyone still using it. */
+  drop(name: string): Promise<void>;
+  /** Run `fn` while holding a server-wide lock, so concurrent runs build a shared template once. */
+  withLock<T>(key: string, fn: () => Promise<T>): Promise<T>;
+  /** Connection URL for database `name` on this server. */
+  urlFor(name: string): string;
+  close(): Promise<void>;
+}
+
+export interface Engine {
+  name: string;
+  /** Container image used when no `db.url` is given. */
+  defaultImage: string;
+  startContainer(image: string, reuse: boolean): Promise<{ url: string; stop(): Promise<unknown> }>;
+  admin(url: string): Promise<Admin>;
+  driver(url: string): Promise<Driver>;
+  /** The URL to hand Atlas for database `url`. */
+  atlasUrl(url: string): string;
+}

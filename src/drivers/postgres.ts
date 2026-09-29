@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { Driver, Row, Table } from "./driver.js";
+import type { Admin, Driver, Engine, Row, Table } from "./driver.js";
 
 const INT8 = 20;
 
@@ -107,3 +107,79 @@ export class PostgresDriver implements Driver {
     await this.client.end();
   }
 }
+
+function withDatabase(url: string, database: string) {
+  const u = new URL(url);
+  u.pathname = `/${database}`;
+  return u.toString();
+}
+
+function quote(name: string) {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+class PostgresAdmin implements Admin {
+  constructor(
+    private readonly client: pg.Client,
+    private readonly url: string,
+  ) {}
+
+  async databases(prefix: string) {
+    const { rows } = await this.client.query<{ datname: string }>("SELECT datname FROM pg_database WHERE starts_with(datname, $1)", [prefix]);
+    return rows.map((r) => r.datname);
+  }
+
+  async create(name: string) {
+    await this.client.query(`CREATE DATABASE ${quote(name)}`);
+  }
+
+  async clone(template: string, name: string) {
+    await this.client.query(`CREATE DATABASE ${quote(name)} TEMPLATE ${quote(template)}`);
+  }
+
+  async drop(name: string) {
+    await this.client.query(`DROP DATABASE IF EXISTS ${quote(name)} WITH (FORCE)`);
+  }
+
+  async withLock<T>(key: string, fn: () => Promise<T>) {
+    await this.client.query("SELECT pg_advisory_lock(hashtext($1))", [key]);
+    try {
+      return await fn();
+    } finally {
+      await this.client.query("SELECT pg_advisory_unlock(hashtext($1))", [key]);
+    }
+  }
+
+  urlFor(name: string) {
+    return withDatabase(this.url, name);
+  }
+
+  async close() {
+    await this.client.end();
+  }
+}
+
+export const postgres: Engine = {
+  name: "postgres",
+  defaultImage: "postgres:17-alpine",
+  async startContainer(image, reuse) {
+    const { PostgreSqlContainer } = await import("@testcontainers/postgresql");
+    const definition = new PostgreSqlContainer(image);
+    // A reused container is left running and found again by its configuration on the next run.
+    if (reuse) definition.withReuse();
+    const container = await definition.start();
+    return { url: container.getConnectionUri(), stop: () => container.stop() };
+  },
+  async admin(url) {
+    const client = new pg.Client({ connectionString: url });
+    client.on("error", () => {});
+    await client.connect();
+    return new PostgresAdmin(client, url);
+  },
+  driver: (url) => PostgresDriver.connect(url),
+  atlasUrl(url) {
+    const u = new URL(url);
+    if (!u.searchParams.has("sslmode")) u.searchParams.set("sslmode", "disable");
+    return u.toString();
+  },
+};

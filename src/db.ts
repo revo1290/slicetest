@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import type { Driver, Row, Table } from "./drivers/driver.js";
-import { PostgresDriver } from "./drivers/postgres.js";
 
 /** Tables that record applied migrations. Truncating them would make tools re-run migrations. */
 const MIGRATION_TABLES = [
@@ -23,11 +22,6 @@ const MIGRATION_TABLES = [
   "__EFMigrationsHistory",
 ];
 
-export function withDatabase(url: string, database: string) {
-  const u = new URL(url);
-  u.pathname = `/${database}`;
-  return u.toString();
-}
 
 export type { Row } from "./drivers/driver.js";
 
@@ -78,8 +72,8 @@ export class Db {
     this.#driver = driver;
   }
 
-  static async connect(url: string, opts: { schemas: string[]; keep: string[]; seedFile?: string }) {
-    const db = new Db(await PostgresDriver.connect(url), url, opts);
+  static async connect(driver: Driver, url: string, opts: { schemas: string[]; keep: string[]; seedFile?: string }) {
+    const db = new Db(driver, url, opts);
     if (opts.seedFile) db.#seed = await readFile(opts.seedFile, "utf8");
     return db;
   }

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import pg from "pg";
 import { App } from "./app.js";
 import type { ResolvedOptions } from "./config.js";
-import { Db, formatChanges, withDatabase } from "./db.js";
+import { Db, formatChanges } from "./db.js";
+import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { OpenApiSpec } from "./openapi.js";
 import { Stub, type RecordedCall } from "./stub.js";
@@ -62,7 +62,8 @@ export class Runtime {
   }
 
   static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string }) {
-    const url = await ensureWorkerDatabase(shared.adminUrl, shared.template, shared.prefix);
+    const engine = engineFor(opts);
+    const url = await ensureWorkerDatabase(engine, shared.adminUrl, shared.template, shared.prefix);
     const stubs = new Map<string, Stub>();
     const services = new Map<string, App>();
     let db: Db | undefined;
@@ -78,7 +79,7 @@ export class Runtime {
         const spec = specs.stubs.get(name)!;
         stubs.get(name)!.fallback((call) => spec.exampleResponse(call.method, call.path));
       }
-      db = await Db.connect(url, {
+      db = await Db.connect(await engine.driver(url), url, {
         schemas: opts.db.schemas,
         keep: opts.db.keep,
         seedFile: opts.db.seed && path.resolve(opts.root, opts.db.seed),
@@ -251,17 +252,15 @@ export class Runtime {
 }
 
 /** One database per vitest worker, cloned from the migrated template and reused across its test files. */
-async function ensureWorkerDatabase(adminUrl: string, template: string, prefix: string) {
+async function ensureWorkerDatabase(engine: Engine, adminUrl: string, template: string, prefix: string) {
   const name = `${prefix}_w${process.env.VITEST_POOL_ID ?? process.pid}`;
-  const admin = new pg.Client({ connectionString: adminUrl });
-  await admin.connect();
+  const admin = await engine.admin(adminUrl);
   try {
-    const { rowCount } = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [name]);
-    if (!rowCount) await admin.query(`CREATE DATABASE "${name}" TEMPLATE "${template}"`);
+    if (!(await admin.databases(name)).includes(name)) await admin.clone(template, name);
+    return admin.urlFor(name);
   } finally {
-    await admin.end();
+    await admin.close();
   }
-  return withDatabase(adminUrl, name);
 }
 
 function message(res: HttpResponse) {

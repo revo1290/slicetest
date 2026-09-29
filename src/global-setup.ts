@@ -4,19 +4,20 @@ import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import pg from "pg";
 import type { TestProject } from "vitest/node";
 import type { ResolvedOptions } from "./config.js";
 import { configureContainerRuntime } from "./container-runtime.js";
-import { withDatabase } from "./db.js";
+import { engineFor } from "./drivers/index.js";
+import type { Admin, Engine } from "./drivers/index.js";
 import { formatCoverage, OpenApiSpec } from "./openapi.js";
 import "./provided.js";
 
 const exec = promisify(execFile);
 
-/** Runs once per vitest run: start Postgres, migrate a template database, hand its location to the workers. */
+/** Runs once per vitest run: start the database server, migrate a template database, hand its location to the workers. */
 export default async function setup(project: TestProject) {
   const opts = project.getProvidedContext().slicetestOptions;
+  const engine = engineFor(opts);
   let adminUrl: string;
   let stopContainer: (() => Promise<unknown>) | undefined;
 
@@ -24,30 +25,27 @@ export default async function setup(project: TestProject) {
     adminUrl = opts.db.url;
   } else {
     configureContainerRuntime();
-    const { PostgreSqlContainer } = await import("@testcontainers/postgresql");
-    const definition = new PostgreSqlContainer(opts.db.image);
-    // A reused container is left running and found again by its configuration on the next run.
-    if (opts.db.reuse) definition.withReuse();
-    const container = await definition.start();
-    adminUrl = container.getConnectionUri();
-    if (!opts.db.reuse) stopContainer = () => container.stop();
+    const container = await engine.startContainer(opts.db.image, opts.db.reuse);
+    adminUrl = container.url;
+    if (!opts.db.reuse) stopContainer = container.stop;
   }
 
   // Unique per run and project, so parallel runs and projects sharing one server never collide.
   // The timestamp lets a later run recognise databases left behind by a run that was killed.
   const prefix = `${RUN_PREFIX}${Date.now().toString(36)}_${randomBytes(3).toString("hex")}`;
-  const admin = new pg.Client({ connectionString: adminUrl });
+  let admin: Admin | undefined;
   let template: string;
   try {
-    await admin.connect();
+    admin = await engine.admin(adminUrl);
     if (!stopContainer) await dropStale(admin);
     const key = opts.db.reuse ? await migrationKey(opts) : undefined;
-    template = key ? await cachedTemplate(admin, adminUrl, opts, key, prefix) : await freshTemplate(admin, adminUrl, opts, prefix);
+    template = key ? await cachedTemplate(admin, engine, opts, key) : await freshTemplate(admin, engine, opts, prefix);
   } catch (e) {
-    await admin.end().catch(() => {});
+    await admin?.close().catch(() => {});
     await stopContainer?.();
     throw e;
   }
+  const server = admin;
 
   // Each worker writes the documented responses it saw here; they are merged when the run ends.
   const coverageDir = opts.openapi.app ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;
@@ -57,14 +55,10 @@ export default async function setup(project: TestProject) {
     try {
       if (!stopContainer) {
         // Shared server: drop only the databases this run created.
-        const { rows } = await admin.query<{ datname: string }>(
-          "SELECT datname FROM pg_database WHERE starts_with(datname, $1)",
-          [`${prefix}_`],
-        );
-        for (const { datname } of rows) await admin.query(`DROP DATABASE "${datname}" WITH (FORCE)`);
+        for (const name of await server.databases(`${prefix}_`)) await server.drop(name);
       }
     } finally {
-      await admin.end();
+      await server.close();
       await stopContainer?.();
       if (coverageDir) await reportCoverage(opts, coverageDir);
     }
@@ -97,29 +91,31 @@ const RUN_PREFIX = "slicetest_r";
 const TEMPLATE_PREFIX = "slicetest_tpl_";
 const STALE_MS = 24 * 60 * 60 * 1000;
 
-async function freshTemplate(admin: pg.Client, adminUrl: string, opts: ResolvedOptions, prefix: string) {
+async function freshTemplate(admin: Admin, engine: Engine, opts: ResolvedOptions, prefix: string) {
   const template = `${prefix}_template`;
-  await admin.query(`CREATE DATABASE "${template}"`);
-  await migrate(opts, withDatabase(adminUrl, template));
+  await admin.create(template);
+  await migrate(opts, engine, admin.urlFor(template));
   return template;
 }
 
 /**
- * The template for these migrations, built once and kept on the server. Two runs
- * building the same one at once each migrate a private copy; the first rename wins.
+ * The template for these migrations, built once and kept on the server. The
+ * lock makes concurrent runs wait for the first one instead of building their own.
  */
-async function cachedTemplate(admin: pg.Client, adminUrl: string, opts: ResolvedOptions, key: string, prefix: string) {
+async function cachedTemplate(admin: Admin, engine: Engine, opts: ResolvedOptions, key: string) {
   const name = `${TEMPLATE_PREFIX}${key}`;
-  const exists = async () => ((await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [name])).rowCount ?? 0) > 0;
-  if (await exists()) return name;
-  const building = await freshTemplate(admin, adminUrl, opts, prefix);
-  try {
-    await admin.query(`ALTER DATABASE "${building}" RENAME TO "${name}"`);
-  } catch (e) {
-    if (!(await exists())) throw e;
-    // Another run finished first; its template is the same. Ours is dropped with this run's databases.
-  }
-  return name;
+  return admin.withLock(name, async () => {
+    if ((await admin.databases(name)).includes(name)) return name;
+    await admin.create(name);
+    try {
+      await migrate(opts, engine, admin.urlFor(name));
+    } catch (e) {
+      // Never leave a half-migrated template behind for later runs to reuse.
+      await admin.drop(name).catch(() => {});
+      throw e;
+    }
+    return name;
+  });
 }
 
 /**
@@ -157,35 +153,31 @@ function atlasDirPath(dir: string, root: string) {
 }
 
 /** Databases from runs that were killed before cleaning up, recognised by the timestamp in their name. */
-async function dropStale(admin: pg.Client) {
-  const { rows } = await admin.query<{ datname: string }>("SELECT datname FROM pg_database WHERE starts_with(datname, $1)", [RUN_PREFIX]);
-  for (const { datname } of rows) {
+async function dropStale(admin: Admin) {
+  for (const datname of await admin.databases(RUN_PREFIX)) {
     const started = parseInt(datname.slice(RUN_PREFIX.length).split("_")[0]!, 36);
     if (Number.isFinite(started) && Date.now() - started > STALE_MS) {
-      await admin.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`).catch(() => {});
+      await admin.drop(datname).catch(() => {});
     }
   }
 }
 
-async function migrate(opts: ResolvedOptions, url: string) {
+async function migrate(opts: ResolvedOptions, engine: Engine, url: string) {
   const m = opts.db.migrate;
   if (!m) return;
   if ("atlas" in m) {
     const dir = atlasDirUrl(m.atlas.dir, opts.root);
-    const u = new URL(url);
-    if (!u.searchParams.has("sslmode")) u.searchParams.set("sslmode", "disable");
-    await run("atlas", ["migrate", "apply", "--url", u.toString(), "--dir", dir], opts.root);
+    await run("atlas", ["migrate", "apply", "--url", engine.atlasUrl(url), "--dir", dir], opts.root);
   } else if ("sql" in m) {
     const target = path.resolve(opts.root, m.sql);
     const files = (await stat(target)).isDirectory()
       ? (await readdir(target)).filter((f) => f.endsWith(".sql")).sort().map((f) => path.join(target, f))
       : [target];
-    const client = new pg.Client({ connectionString: url });
-    await client.connect();
+    const driver = await engine.driver(url);
     try {
-      for (const file of files) await client.query(await readFile(file, "utf8"));
+      for (const file of files) await driver.exec(await readFile(file, "utf8"));
     } finally {
-      await client.end();
+      await driver.close();
     }
   } else {
     // Through the platform shell (sh or cmd.exe), like app.command.
