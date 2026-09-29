@@ -59,11 +59,37 @@ const types = {
   },
 };
 
+/** Rows added, changed and removed in one table. */
+export interface TableChanges<T extends Row = Row> {
+  inserted: T[];
+  /**
+   * Matched by primary key (`key`); `changed` lists the columns that differ.
+   * Tables without a primary key only report inserts and deletes.
+   */
+  updated: { key: Row; before: T; after: T; changed: string[] }[];
+  deleted: T[];
+}
+
+/** Changed tables only, keyed by table name (`schema.table` outside `public`). */
+export type Changes = Record<string, TableChanges>;
+
+interface Table {
+  /** Display name: `name` in public, else `schema.name`. */
+  name: string;
+  quoted: string;
+  key: string[];
+}
+
+type Snapshot = Map<string, Row[]>;
+
 /** Test-side handle to the database the app under test is using. */
 export class Db {
   #client: pg.Client;
-  #tables?: string[];
+  #tables?: Table[];
   #seed?: string;
+  /** Contents right after the reset (and seed); undefined means every table was empty. */
+  #start?: Snapshot;
+  #checkpoint?: Snapshot | "start";
 
   private constructor(
     client: pg.Client,
@@ -139,9 +165,52 @@ export class Db {
   async reset() {
     this.#tables ??= await this.#listTables();
     if (this.#tables.length > 0) {
-      await this.#client.query(`TRUNCATE ${this.#tables.join(", ")} RESTART IDENTITY CASCADE`);
+      await this.#client.query(`TRUNCATE ${this.#tables.map((t) => t.quoted).join(", ")} RESTART IDENTITY CASCADE`);
     }
-    if (this.#seed) await this.#client.query(this.#seed);
+    this.#start = undefined;
+    this.#checkpoint = undefined;
+    if (this.#seed) {
+      await this.#client.query(this.#seed);
+      this.#start = await this.#snapshot();
+    }
+  }
+
+  /**
+   * What changed in the database since the scenario started (after the seed),
+   * or since the last `checkpoint()`: inserted, updated and deleted rows per table.
+   *
+   * ```ts
+   * await db.checkpoint();                 // ignore the rows the test arranged
+   * await http.post("/polls", { ... });
+   * expect(await db.changes()).toEqual({ polls: { inserted: [expect.objectContaining({ title: "x" })], updated: [], deleted: [] } });
+   * ```
+   */
+  async changes(): Promise<Changes> {
+    const base = this.#checkpoint === undefined || this.#checkpoint === "start" ? this.#start : this.#checkpoint;
+    return diff(this.#tables ?? [], base, await this.#snapshot());
+  }
+
+  /** Make `changes()` report only what happens from now on. */
+  async checkpoint() {
+    this.#checkpoint = await this.#snapshot();
+  }
+
+  /** Changes since the scenario started, regardless of checkpoints. Used for failure output. */
+  async changesSinceStart(): Promise<Changes> {
+    return diff(this.#tables ?? [], this.#start, await this.#snapshot());
+  }
+
+  /** Every tracked table's rows, in one round trip. */
+  async #snapshot(): Promise<Snapshot> {
+    const tables = (this.#tables ??= await this.#listTables());
+    const snap: Snapshot = new Map();
+    if (tables.length === 0) return snap;
+    const order = (t: Table) => (t.key.length ? ` ORDER BY ${t.key.map((c) => `"${c.replace(/"/g, `""`)}"`).join(", ")}` : "");
+    const sql = tables.map((t) => `SELECT * FROM ${t.quoted}${order(t)}`).join(";\n");
+    const res = (await this.#client.query(sql)) as unknown as pg.QueryResult<Row> | pg.QueryResult<Row>[];
+    const results = Array.isArray(res) ? res : [res];
+    tables.forEach((t, i) => snap.set(t.name, results[i]!.rows));
+    return snap;
   }
 
   /**
@@ -149,10 +218,15 @@ export class Db {
    * bookkeeping, `keep` (bare or `schema.table`) and tables owned by extensions
    * such as PostGIS's `spatial_ref_sys`.
    */
-  async #listTables() {
+  async #listTables(): Promise<Table[]> {
     const keep = [...MIGRATION_TABLES, ...this.opts.keep];
-    const rows = await this.query<{ schema: string; name: string }>(
-      `SELECT n.nspname AS schema, c.relname AS name
+    const rows = await this.query<{ schema: string; name: string; key: string[] | null }>(
+      `SELECT n.nspname AS schema, c.relname AS name,
+              (SELECT array_agg(a.attname::text ORDER BY k.ord)
+                 FROM pg_index i
+                 CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
+                 JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.attnum
+                WHERE i.indrelid = c.oid AND i.indisprimary) AS key
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE c.relkind IN ('r', 'p')
@@ -165,12 +239,96 @@ export class Db {
         ORDER BY 1, 2`,
       [this.opts.schemas, keep],
     );
-    return rows.map((r) => `${ident(r.schema)}.${ident(r.name)}`);
+    return rows.map((r) => ({
+      name: r.schema === "public" ? r.name : `${r.schema}.${r.name}`,
+      quoted: `${ident(r.schema)}.${ident(r.name)}`,
+      key: r.key ?? [],
+    }));
   }
 
   async close() {
     await this.#client.end();
   }
+}
+
+function diff(tables: Table[], before: Snapshot | undefined, after: Snapshot): Changes {
+  const out: Changes = {};
+  for (const table of tables) {
+    const a = before?.get(table.name) ?? [];
+    const b = after.get(table.name) ?? [];
+    const changes = table.key.length > 0 ? diffByKey(a, b, table.key) : diffAsBags(a, b);
+    if (changes.inserted.length || changes.updated.length || changes.deleted.length) out[table.name] = changes;
+  }
+  return out;
+}
+
+function diffByKey(before: Row[], after: Row[], key: string[]): TableChanges {
+  const keyOf = (r: Row) => serialize(key.map((k) => r[k]));
+  const old = new Map(before.map((r) => [keyOf(r), r]));
+  const changes: TableChanges = { inserted: [], updated: [], deleted: [] };
+  for (const row of after) {
+    const k = keyOf(row);
+    const prev = old.get(k);
+    old.delete(k);
+    if (!prev) {
+      changes.inserted.push(row);
+      continue;
+    }
+    const changed = [...new Set([...Object.keys(prev), ...Object.keys(row)])].filter((c) => serialize(prev[c]) !== serialize(row[c]));
+    if (changed.length) changes.updated.push({ key: Object.fromEntries(key.map((k) => [k, row[k]])), before: prev, after: row, changed });
+  }
+  changes.deleted.push(...old.values());
+  return changes;
+}
+
+/** Without a primary key, rows are compared as a multiset: an update shows up as a delete plus an insert. */
+function diffAsBags(before: Row[], after: Row[]): TableChanges {
+  const left = new Map<string, Row[]>();
+  for (const r of before) {
+    const k = serialize(r);
+    left.set(k, [...(left.get(k) ?? []), r]);
+  }
+  const inserted: Row[] = [];
+  for (const r of after) {
+    const same = left.get(serialize(r));
+    if (same?.length) same.pop();
+    else inserted.push(r);
+  }
+  return { inserted, updated: [], deleted: [...left.values()].flat() };
+}
+
+function serialize(v: unknown) {
+  return JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
+}
+
+/** Short summary of `changes()` for failure output. */
+export function formatChanges(changes: Changes, maxRows = 3) {
+  const lines: string[] = [];
+  const show = (sign: string, rows: unknown[]) => {
+    for (const r of rows.slice(0, maxRows)) lines.push(`    ${sign} ${truncate(serialize(r))}`);
+    if (rows.length > maxRows) lines.push(`    ${sign} …and ${rows.length - maxRows} more`);
+  };
+  for (const [table, c] of Object.entries(changes)) {
+    const counts = [
+      c.inserted.length && `${c.inserted.length} inserted`,
+      c.updated.length && `${c.updated.length} updated`,
+      c.deleted.length && `${c.deleted.length} deleted`,
+    ].filter(Boolean);
+    lines.push(`  ${table}: ${counts.join(", ")}`);
+    show("+", c.inserted);
+    for (const u of c.updated.slice(0, maxRows)) {
+      const key = Object.entries(u.key).map(([k, v]) => `${k}=${serialize(v)}`).join(" ");
+      const cols = u.changed.map((col) => `${col}: ${serialize(u.before[col])} → ${serialize(u.after[col])}`).join(", ");
+      lines.push(`    ~ ${key}  ${truncate(cols)}`);
+    }
+    if (c.updated.length > maxRows) lines.push(`    ~ …and ${c.updated.length - maxRows} more`);
+    show("-", c.deleted);
+  }
+  return lines.join("\n");
+}
+
+function truncate(s: string, max = 200) {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
 function whereClause(where: Where) {

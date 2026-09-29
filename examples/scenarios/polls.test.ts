@@ -65,3 +65,38 @@ scenario("シナリオごとにDBはseed直後の状態へ戻る（IDも1から�
   expect(await db.count("votes")).toBe(0);
   expect(await db.rows("polls")).toMatchObject([{ id: 1, title: "朝食は？" }]);
 });
+
+scenario("db.changes() はシナリオ中にアプリが書いた行だけを返す", async ({ http, db, stub }) => {
+  stub("slack").on("POST", "/hook").reply(200, "ok");
+  await db.insert("votes", { poll_id: 1, choice: "a" });
+  await db.checkpoint(); // ここまでの準備は差分に含めない
+
+  const res = await http.post("/polls", { title: "右か左か", a: "右", b: "左" });
+
+  expect(res).toHaveStatus(201);
+  expect(await db.changes()).toEqual({
+    polls: { inserted: [{ id: res.json.id, title: "右か左か", option_a: "右", option_b: "左" }], updated: [], deleted: [] },
+  });
+});
+
+scenario("db.changes() は更新と削除を主キーで突き合わせる", async ({ db }) => {
+  const [inserted] = await db.insert("polls", { title: "夕食は？", option_a: "和", option_b: "洋" });
+  await db.checkpoint();
+  await db.query("UPDATE polls SET option_b = '中' WHERE id = $1", [inserted!.id]);
+
+  expect(await db.changes()).toEqual({
+    polls: {
+      inserted: [],
+      updated: [{ key: { id: inserted!.id }, before: inserted, after: { ...inserted, option_b: "中" }, changed: ["option_b"] }],
+      deleted: [],
+    },
+  });
+});
+
+scenario("db.changes() は seed の行の削除も報告する", async ({ db }) => {
+  await db.query("DELETE FROM polls WHERE id = 1");
+
+  expect(await db.changes()).toEqual({
+    polls: { inserted: [], updated: [], deleted: [{ id: 1, title: "朝食は？", option_a: "ごはん", option_b: "パン" }] },
+  });
+});

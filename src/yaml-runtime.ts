@@ -1,9 +1,10 @@
 import { expect } from "vitest";
+import { formatChanges } from "./db.js";
 import "./matchers.js";
 import type { ScenarioContext } from "./runtime.js";
 import { scenario } from "./scenario.js";
 import type { MatchOptions, RecordedCall, StubResponse } from "./stub.js";
-import type { Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
+import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
 
 type Vars = Record<string, unknown>;
 
@@ -22,7 +23,7 @@ export function defineYamlScenarios(doc: YamlFile) {
 async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: ScenarioContext, vars: Vars) {
   for (const [i, step] of steps.entries()) {
     try {
-      await runStep(step, ctx, vars);
+      await retry("within" in step ? step.within : undefined, () => runStep(step, ctx, vars));
     } catch (e) {
       const label = step.name ?? describeStep(step);
       const where = `${doc.file}:${step.line} (${sc.name}, step ${i + 1}: ${label})`;
@@ -41,10 +42,55 @@ function describeStep(step: Step) {
   if ("received" in step) return `received ${step.received}${step.call ? ` ${step.call}` : ""}`;
   if ("insert" in step) return `insert ${step.insert}`;
   if ("db" in step) return `db ${step.db}`;
+  if ("changes" in step) return "changes";
+  if ("checkpoint" in step) return "checkpoint";
   return "sql";
 }
 
+/** Run `fn` until it passes or `within` ms have passed, then rethrow its last error. */
+async function retry(within: number | undefined, fn: () => Promise<void>) {
+  if (!within) return fn();
+  const deadline = Date.now() + within;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (Date.now() >= deadline) {
+        if (e instanceof Error) e.message = `${e.message}\n(still failing after retrying for ${within}ms)`;
+        throw e;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+}
+
 async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
+  if ("checkpoint" in step) {
+    await ctx.db.checkpoint();
+    return;
+  }
+
+  if ("changes" in step) {
+    const actual = await ctx.db.changes();
+    const expected = interpolate(step.changes, vars) as Record<string, ChangeSpec>;
+    const unexpected = Object.keys(actual).filter((t) => !(t in expected));
+    if (unexpected.length) {
+      throw new Error(`unexpected changes in ${unexpected.join(", ")}:\n${formatChanges(Object.fromEntries(unexpected.map((t) => [t, actual[t]!])))}`);
+    }
+    for (const [table, spec] of Object.entries(expected)) {
+      const got = actual[table] ?? { inserted: [], updated: [], deleted: [] };
+      for (const kind of ["inserted", "updated", "deleted"] as const) {
+        const want = spec[kind];
+        if (want === undefined) continue;
+        const rows = kind === "updated" ? got.updated.map((u) => u.after) : got[kind];
+        if (typeof want === "number") {
+          if (rows.length !== want) throw new Error(`expected ${want} row(s) ${kind} in ${table}, got ${rows.length}\n${formatChanges({ [table]: got }) || "  (no changes)"}`);
+        } else check(rows, want, vars, `${kind} rows of ${table}`);
+      }
+    }
+    return;
+  }
+
   if ("stub" in step) {
     const [method, path] = splitCall(step.on);
     let route = ctx.stub(step.stub).on(method, interpolate(path, vars) as string, conditions(step.when, vars));

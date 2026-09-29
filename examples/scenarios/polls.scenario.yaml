@@ -71,3 +71,17 @@ scenarios:
         params: ["{{poll}}", "{{choice}}"]
         expect:
           rows: [{ n: "{{stored}}" }]
+
+  - name: 投票すると votes にだけ1行増える（YAML の changes）
+    steps:
+      - insert: votes
+        rows: { poll_id: 1, choice: b }
+      - checkpoint: true
+      - request: POST /polls/1/votes
+        json: { choice: a }
+        expect: { status: 204 }
+      - changes:
+          votes:
+            inserted: [{ poll_id: 1, choice: a }]
+            deleted: 0
+        within: 2000

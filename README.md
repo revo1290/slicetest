@@ -94,12 +94,18 @@ stub calls with no matching route:
 requests to the app:
   POST /signup → 500 (14ms)  {"error":"internal"}
 
+database changes during this scenario:
+  users: 1 inserted
+    + {"id":1,"email":"a@example.com","verified":false}
+  audit_log: 1 updated
+    ~ id=7  status: "pending" → "failed"
+
 app output during this scenario:
 TypeError: Cannot read properties of undefined (reading 'email')
 -----------------
 ```
 
-Only this scenario's app output is shown, not the whole log. Requests that never got a response (for example because the app crashed) appear as `failed`.
+Only this scenario's app output is shown, not the whole log. The database section is a diff against the state right after the reset and seed, so you see what the app actually wrote. Requests that never got a response (for example because the app crashed) appear as `failed`.
 
 ## API
 
@@ -132,7 +138,25 @@ await db.sql`SELECT * FROM users WHERE id = ${user.id}`;          // values beco
 await db.query("UPDATE users SET name = $1", ["b"]);
 ```
 
-In `where`, `null` means `IS NULL` and an array means `IN (...)`. `bigint` columns (bigserial ids, `count(*)`) come back as numbers when they fit safely.
+In `where`, `null` means `IS NULL` and an array means `IN (...)`.
+
+#### `db.changes()` — assert on everything the app wrote
+
+Instead of guessing which tables to query, ask for the diff. Rows are matched by primary key, so updates show which columns changed:
+
+```ts
+await db.insert("users", { email: "a@example.com" });
+await db.checkpoint();                                   // ignore what the test itself arranged
+
+await http.post("/users/1/verify");
+
+expect(await db.changes()).toEqual({
+  users: { inserted: [], deleted: [], updated: [expect.objectContaining({ changed: ["verified"] })] },
+  audit_log: { inserted: [expect.objectContaining({ action: "verify" })], updated: [], deleted: [] },
+});
+```
+
+`toEqual` fails if the app wrote to a table you didn't list, which catches unexpected side effects. Each entry in `updated` has `key`, `before`, `after` and `changed`. Tables without a primary key report an update as one deleted row plus one inserted row. `bigint` columns (bigserial ids, `count(*)`) come back as numbers when they fit safely.
 
 ### `stub(name)` — fake the services the app calls
 
@@ -172,6 +196,17 @@ await expect(db).toHaveRow("votes", { poll_id: 1 }, 3);          // exactly thre
 ```
 
 Failure messages list the calls the stub actually received, or the first rows of the table.
+
+### Asynchronous side effects
+
+If the app does work in the background (a job queue, a fire-and-forget webhook), wait for the effect with Vitest's own helpers. slicetest doesn't need its own:
+
+```ts
+await vi.waitFor(() => expect(stub("mail")).toHaveReceived("POST", "/send"));
+await expect.poll(() => db.count("jobs", { status: "done" })).toBe(1);
+```
+
+In YAML, add `within: <ms>` to a `db`, `sql`, `received` or `changes` step.
 
 ### Scenarios
 
@@ -237,6 +272,9 @@ scenarios:
         when:
           json: { text: "New poll: Dogs or cats?" }
 
+      - changes:                  # and nothing else was written
+          polls: { inserted: 1 }
+
   - name: voting {{choice}} returns {{status}}
     each:
       - { choice: a, status: 204 }
@@ -255,6 +293,10 @@ scenarios:
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |
 | `received: <stub>` | `call: METHOD /path`, `when`, `times` (exact; default at least once) |
+| `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
+| `checkpoint: true` | Later `changes` steps only see what happens after this step. |
+
+`db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously.
 
 - `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.
 - Expected `json`, `rows` and `headers` are subsets: extra keys are fine. `{ $type: number }`, `{ $regex: "^ch_" }`, `{ $contains: "..." }` and `{ $any: true }` match loosely.

@@ -277,6 +277,11 @@
               "additionalProperties": {
                 "type": "string"
               }
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retry this step for up to this many milliseconds, for effects the app applies asynchronously"
             }
           }
         },
@@ -325,6 +330,11 @@
               "additionalProperties": {
                 "type": "string"
               }
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retry this step for up to this many milliseconds, for effects the app applies asynchronously"
             }
           }
         },
@@ -368,6 +378,101 @@
               "type": "integer",
               "minimum": 0,
               "description": "Exact count; default: at least once"
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retry this step for up to this many milliseconds, for effects the app applies asynchronously"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "changes"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "changes": {
+              "type": "object",
+              "description": "The database changed exactly in these tables since the scenario started (or the last checkpoint). Unlisted tables must be unchanged.",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "inserted": {
+                    "oneOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    ],
+                    "description": "Count, or subset rows"
+                  },
+                  "updated": {
+                    "oneOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    ],
+                    "description": "Count, or subset rows (after the update)"
+                  },
+                  "deleted": {
+                    "oneOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    ],
+                    "description": "Count, or subset rows"
+                  }
+                }
+              }
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retry this step for up to this many milliseconds, for effects the app applies asynchronously"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "checkpoint"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint": {
+              "const": true,
+              "description": "Later `changes` steps only see what happens after this step"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
             }
           }
         }

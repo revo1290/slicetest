@@ -24,7 +24,10 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep) & { line: number; name?: string };
+export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep) & {
+  line: number;
+  name?: string;
+};
 
 export interface StubStep {
   stub: string;
@@ -67,6 +70,7 @@ export interface SqlStep {
   params?: unknown[];
   expect?: { rows?: unknown[]; count?: number };
   capture?: Record<string, string>;
+  within?: number;
 }
 
 export interface DbStep {
@@ -75,6 +79,8 @@ export interface DbStep {
   orderBy?: string | string[];
   expect?: { rows?: unknown[]; count?: number };
   capture?: Record<string, string>;
+  /** Retry for up to this many milliseconds, for effects the app applies asynchronously. */
+  within?: number;
 }
 
 export interface ReceivedStep {
@@ -83,15 +89,35 @@ export interface ReceivedStep {
   when?: Conditions;
   /** Exact number of matching calls. Default: at least one. */
   times?: number;
+  within?: number;
+}
+
+/** Expected rows per table: a count, or a list of subset rows. */
+export type ChangeSpec = { inserted?: number | unknown[]; updated?: number | unknown[]; deleted?: number | unknown[] };
+
+/**
+ * The database changed exactly in these tables since the scenario started (or
+ * the last checkpoint). Tables that aren't listed must be unchanged.
+ */
+export interface ChangesStep {
+  changes: Record<string, ChangeSpec>;
+  within?: number;
+}
+
+/** Later `changes` steps only see what happens after this step. */
+export interface CheckpointStep {
+  checkpoint: true;
 }
 
 const KINDS = {
   stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
   request: ["headers", "query", "json", "form", "body", "follow", "expect", "capture"],
   insert: ["rows", "capture"],
-  sql: ["params", "expect", "capture"],
-  db: ["where", "orderBy", "expect", "capture"],
-  received: ["call", "when", "times"],
+  sql: ["params", "expect", "capture", "within"],
+  db: ["where", "orderBy", "expect", "capture", "within"],
+  received: ["call", "when", "times", "within"],
+  changes: ["within"],
+  checkpoint: [],
 } as const;
 type Kind = keyof typeof KINDS;
 
@@ -101,6 +127,7 @@ const EXPECT_KEYS: Record<string, string[]> = {
   db: ["rows", "count"],
 };
 const CONDITION_KEYS = ["query", "headers", "json", "body"];
+const CHANGE_KEYS = ["inserted", "updated", "deleted"];
 const RESPONSE_KEYS = ["status", "headers", "body"];
 const SCENARIO_KEYS = ["name", "steps", "each", "skip", "only", "timeout"];
 const CALL = /^([A-Za-z]+|\*)\s+(\/\S*)$/;
@@ -170,7 +197,19 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
   for (const key of Object.keys(raw)) {
     if (!allowed.has(key)) fail(at(key), `unknown key "${key}" in a ${kind} step (allowed: ${[...allowed].join(", ")})`);
   }
-  if (typeof raw[kind] !== "string" || !raw[kind]) fail(at(kind), `\`${kind}:\` must be a non-empty string`);
+  if (kind === "changes") {
+    const tables = raw.changes;
+    if (!tables || typeof tables !== "object" || Array.isArray(tables)) fail(at(kind), "`changes:` must map table names to { inserted, updated, deleted }");
+    for (const [table, spec] of Object.entries(tables as object)) {
+      if (!spec || typeof spec !== "object" || Array.isArray(spec)) fail(at(kind), `changes of "${table}" must be a mapping such as { inserted: 1 }`);
+      for (const [k, v] of Object.entries(spec as object)) {
+        if (!CHANGE_KEYS.includes(k)) fail(at(kind), `unknown key "${k}" in changes of "${table}" (allowed: ${CHANGE_KEYS.join(", ")})`);
+        if (!Array.isArray(v) && !(typeof v === "number" && v >= 0)) fail(at(kind), `${table}.${k} must be a count or a list of rows`);
+      }
+    }
+  } else if (kind === "checkpoint") {
+    if (raw.checkpoint !== true) fail(at(kind), "use `checkpoint: true`");
+  } else if (typeof raw[kind] !== "string" || !raw[kind]) fail(at(kind), `\`${kind}:\` must be a non-empty string`);
 
   const keysOf = (key: string, allowedKeys: string[]) => {
     const v = raw[key];
@@ -183,6 +222,7 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
   const call = (key: string) => {
     if (raw[key] !== undefined && !CALL.test(String(raw[key]))) fail(at(key), `\`${key}\` must look like "POST /path", got "${raw[key]}"`);
   };
+  if (raw.within !== undefined && (typeof raw.within !== "number" || raw.within <= 0)) fail(at("within"), "`within` must be a positive number of milliseconds");
   const number = (key: string) => {
     if (raw[key] !== undefined && (typeof raw[key] !== "number" || (raw[key] as number) < 0)) fail(at(key), `\`${key}\` must be a non-negative number`);
   };

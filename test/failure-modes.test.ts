@@ -46,6 +46,7 @@ test("a failed scenario prints its requests and only its own app output", () => 
   expect(block).toMatch(/^requests to the app:\n {2}GET \/log-something → 200 \(\d+ms\) {2}ok\n {2}GET \/ → 200/);
   expect(block).toMatch(/app output during this scenario:\nhandled log-something/);
   expect(block.split("-----------------")[0]).not.toContain("boom: about to crash");
+  expect(block).toContain("database changes during this scenario: (none)");
 });
 
 test("YAML steps fail with the file, line and step that failed", () => {

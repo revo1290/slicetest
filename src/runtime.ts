@@ -2,7 +2,7 @@ import path from "node:path";
 import pg from "pg";
 import { App } from "./app.js";
 import type { ResolvedOptions } from "./config.js";
-import { Db, withDatabase } from "./db.js";
+import { Db, formatChanges, withDatabase } from "./db.js";
 import { formatHistory, HttpClient } from "./http.js";
 import { Stub } from "./stub.js";
 
@@ -105,13 +105,19 @@ export class Runtime {
   }
 
   /** What happened during the current scenario, printed when it fails. */
-  diagnostics() {
+  async diagnostics() {
     const sections: string[] = [];
     const exit = this.app.exited;
     if (exit) sections.push(`the app exited (code ${exit.code}, signal ${exit.signal}); it will be restarted for the next scenario`);
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) sections.push(`stub calls with no matching route:\n${unmatched.join("\n")}`);
     if (this.http.history.length > 0) sections.push(`requests to the app:\n${formatHistory(this.http.history)}`);
+    try {
+      const changes = formatChanges(await this.db.changesSinceStart());
+      sections.push(changes ? `database changes during this scenario:\n${changes}` : "database changes during this scenario: (none)");
+    } catch (e) {
+      sections.push(`database changes during this scenario: unavailable (${(e as Error).message})`);
+    }
     const logs = this.app.logs(this.#logMark);
     sections.push(logs ? `app output during this scenario:\n${logs}` : "app output during this scenario: (none)");
     return sections.join("\n\n");

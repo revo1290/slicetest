@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `db.changes()` returns every row the scenario inserted, updated or deleted, per table, matched by primary key. `db.checkpoint()` excludes what the test arranged. A plain `toEqual` on it catches writes to tables you didn't expect.
+- Failure output now includes the database changes made during the scenario.
+- YAML: `changes` and `checkpoint` steps, and `within: <ms>` on `db`, `sql`, `received` and `changes` steps to wait for asynchronous effects.
+
 ## 0.1.0
 
 First public release.

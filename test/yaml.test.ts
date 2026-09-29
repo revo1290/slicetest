@@ -29,8 +29,25 @@ test.each([
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        db: t\n", "a step can only be one of request / db"],
   ["scenarios:\n  - name: a\n    step: []\n", 'unknown scenario key "step"'],
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n    json: {\n", "s.scenario.yaml:6: Flow map"],
+  ["scenarios:\n  - name: a\n    steps:\n      - changes: { polls: { added: 1 } }\n", 'unknown key "added" in changes of "polls"'],
+  ["scenarios:\n  - name: a\n    steps:\n      - changes: { polls: { inserted: yes } }\n", "polls.inserted must be a count or a list of rows"],
+  ["scenarios:\n  - name: a\n    steps:\n      - checkpoint: db\n", "use `checkpoint: true`"],
+  ["scenarios:\n  - name: a\n    steps:\n      - db: t\n        within: 0\n", "`within` must be a positive number of milliseconds"],
+  ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 100\n", 'unknown key "within" in a request step'],
 ])("rejects %j", (text, message) => {
   expect(() => parse(text)).toThrow(message);
+});
+
+test("parses changes, checkpoint and within", () => {
+  const doc = parse(`
+scenarios:
+  - name: a
+    steps:
+      - checkpoint: true
+      - changes: { votes: { inserted: [{ choice: a }], deleted: 0 } }
+        within: 500
+`);
+  expect(doc.scenarios[0]!.steps).toMatchObject([{ checkpoint: true }, { changes: { votes: { inserted: [{ choice: "a" }], deleted: 0 } }, within: 500 }]);
 });
 
 test("interpolation keeps the type of whole-value placeholders", () => {

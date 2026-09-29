@@ -26,8 +26,8 @@ function define(register: typeof test | typeof test.only | typeof test.skip) {
             "slicetest: scenarios share one app and database per file, so they can't run concurrently. Remove .concurrent / sequence.concurrent.",
           );
         }
-        onTestFailed(() => {
-          console.error(`--- slicetest ---\n${runtime.diagnostics()}\n-----------------`);
+        onTestFailed(async () => {
+          console.error(`--- slicetest ---\n${await runtime.diagnostics()}\n-----------------`);
         });
         await runtime.beforeScenario();
         await body(runtime.context());
