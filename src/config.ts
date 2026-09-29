@@ -11,9 +11,11 @@ export interface SlicetestOptions {
   /**
    * The app's own OpenAPI 3 spec (YAML or JSON, relative to the root). Every
    * response the app gives during a scenario must be documented and match its
-   * schema, or the scenario fails.
+   * schema, or the scenario fails. At the end of the run, slicetest prints which
+   * documented responses the scenarios produced; with `minCoverage` (percent),
+   * a lower coverage fails the run.
    */
-  openapi?: string;
+  openapi?: string | { spec: string; minCoverage?: number };
   /** Defaults for every request made with `http`, e.g. `{ headers: { accept: "application/json" } }`. */
   http?: RequestOptions;
 }
@@ -78,7 +80,7 @@ export interface ResolvedOptions {
   db: Required<Pick<DbOptions, "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
-  openapi: { app?: string; stubs: Record<string, string> };
+  openapi: { app?: string; minCoverage?: number; stubs: Record<string, string> };
   http?: RequestOptions;
 }
 
@@ -99,7 +101,8 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     db: resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
     openapi: {
-      app: opts.openapi,
+      app: typeof opts.openapi === "object" ? opts.openapi.spec : opts.openapi,
+      minCoverage: typeof opts.openapi === "object" ? opts.openapi.minCoverage : undefined,
       stubs: Object.fromEntries((opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.openapi ? [[s.name, s.openapi]] : []))),
     },
     http: opts.http,
@@ -133,7 +136,13 @@ function validate(opts: SlicetestOptions) {
     const keys = Object.keys(migrate).filter((k) => ["atlas", "sql", "command"].includes(k));
     if (keys.length !== 1) fail(`db.migrate takes exactly one of atlas / sql / command, got ${keys.join(", ") || "none"}`);
   }
-  if (opts.openapi !== undefined && (typeof opts.openapi !== "string" || !opts.openapi)) fail("openapi must be the path of an OpenAPI file");
+  const oas = opts.openapi;
+  if (oas !== undefined) {
+    const spec = typeof oas === "object" && oas ? oas.spec : oas;
+    if (typeof spec !== "string" || !spec) fail('openapi must be the path of an OpenAPI file, or { spec, minCoverage }');
+    const min = typeof oas === "object" ? oas.minCoverage : undefined;
+    if (min !== undefined && !(typeof min === "number" && min >= 0 && min <= 100)) fail("openapi.minCoverage must be a percentage between 0 and 100");
+  }
   for (const s of opts.stubs ?? []) {
     if (typeof s !== "string" && (!s || typeof s.name !== "string")) fail(`each stub must be a name or { name, openapi }, got ${JSON.stringify(s)}`);
   }

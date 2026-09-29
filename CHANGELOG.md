@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- OpenAPI coverage: when `openapi` is set, the run ends with a table of the documented responses (per operation and status) that the scenarios produced, merged across workers. `openapi: { spec, minCoverage }` fails the run below a percentage.
+
 ## 0.2.0
 
 - OpenAPI contracts: `openapi: "openapi.yaml"` checks every response the app gives against its spec, and `stubs: [{ name, openapi }]` checks the app's requests to a stubbed service, and the stub's canned replies, against the provider's spec. Mismatches fail the scenario and are listed in the failure output. OpenAPI 3.0 (including `nullable`) and 3.1.

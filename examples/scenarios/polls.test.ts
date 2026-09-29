@@ -100,3 +100,19 @@ scenario("db.changes() は seed の行の削除も報告する", async ({ db }) 
     polls: { inserted: [], updated: [], deleted: [{ id: 1, title: "朝食は？", option_a: "ごはん", option_b: "パン" }] },
   });
 });
+
+scenario("ヘルスチェックに応答する", async ({ http }) => {
+  expect(await http.get("/health")).toHaveStatus(200);
+});
+
+scenario("必須項目がない投票は 400 で、DBにもSlackにも何も起きない", async ({ http, db, stub }) => {
+  const res = await http.post("/polls", { title: "選択肢なし" });
+
+  expect(res).toHaveStatus(400);
+  expect(await db.changes()).toEqual({});
+  expect(stub("slack")).toHaveReceivedTimes(0);
+});
+
+scenario("存在しない投票は 404", async ({ http }) => {
+  expect(await http.get("/polls/999")).toHaveStatus(404);
+});

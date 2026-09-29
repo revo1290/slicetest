@@ -33,6 +33,7 @@ export class OpenApiSpec {
   #validators = new Map<string, ValidateFunction>();
   #ops: { re: RegExp; op: Operation }[] = [];
   #basePaths: string[];
+  #documentOrder: Operation[] = [];
 
   private constructor(
     readonly file: string,
@@ -44,6 +45,9 @@ export class OpenApiSpec {
     for (const f of ["int32", "int64", "float", "double", "byte", "binary", "password"]) this.#ajv.addFormat(f, true);
     this.#ajv.addSchema(v31 ? doc : nullableToType(structuredClone(doc)), "spec");
 
+    for (const [template, item] of Object.entries<Record<string, any>>(doc.paths ?? {})) {
+      for (const method of METHODS) if (item[method]) this.#documentOrder.push({ template, method, op: item[method] });
+    }
     // Concrete segments before templated ones, so /polls/new wins over /polls/{id}.
     const templates = Object.keys(doc.paths ?? {}).sort((a, b) => a.split("{").length - b.split("{").length);
     for (const template of templates) {
@@ -87,13 +91,28 @@ export class OpenApiSpec {
   }
 
   /** Problems with a response to `method path`; empty when it matches the spec. */
+  /** The documented response (`200`, `4XX`, `default`) that `status` falls under, for coverage. */
+  responseKey(method: string, path: string, status: number) {
+    const found = this.find(method, path);
+    if (!found) return undefined;
+    const key = pickResponse(found.op.responses ?? {}, status);
+    return key && `${method.toUpperCase()} ${found.template} ${key}`;
+  }
+
+  /** Every documented response as `METHOD /template key`, in document order. */
+  responseKeys() {
+    return this.#documentOrder.flatMap(({ template, method, op }) =>
+      Object.keys(op.responses ?? {}).map((key) => `${method.toUpperCase()} ${template} ${key}`),
+    );
+  }
+
   checkResponse(method: string, path: string, res: Message): string[] {
     const found = this.find(method, path);
     if (!found) return [`${method} ${path} is not in ${this.file}`];
     const { template, op } = found;
     const status = String(res.status);
     const responses = op.responses ?? {};
-    const key = [status, `${status[0]}XX`, `${status[0]}xx`, "default"].find((k) => k in responses);
+    const key = pickResponse(responses, res.status ?? 0);
     if (!key) return [`${method} ${template} responded ${status}, which ${this.file} doesn't document (documented: ${Object.keys(responses).join(", ") || "none"})`];
     const [response, at] = this.#resolve(responses[key], ["paths", template, found.method, "responses", key]);
     return this.#checkContent(response?.content, res, [...at, "content"], `${method} ${template} → ${status}`);
@@ -160,6 +179,34 @@ export class OpenApiSpec {
     const target = pointer.reduce((cur: any, key: string) => cur?.[key], this.doc);
     return this.#resolve(target, pointer, depth + 1);
   }
+}
+
+function pickResponse(responses: Record<string, unknown>, status: number) {
+  const s = String(status);
+  return [s, `${s[0]}XX`, `${s[0]}xx`, "default"].find((k) => k in responses);
+}
+
+/**
+ * Coverage report: which documented responses the scenarios produced.
+ * `hits` are `responseKey()` values collected from every worker.
+ */
+export function formatCoverage(spec: OpenApiSpec, hits: Set<string>) {
+  const keys = spec.responseKeys();
+  const byOp = new Map<string, string[]>();
+  for (const k of keys) {
+    const i = k.lastIndexOf(" ");
+    const op = k.slice(0, i);
+    byOp.set(op, [...(byOp.get(op) ?? []), k.slice(i + 1)]);
+  }
+  const width = Math.max(0, ...[...byOp.keys()].map((op) => op.indexOf(" ") > -1 ? op.length - op.indexOf(" ") - 1 : 0));
+  const lines = [...byOp].map(([op, statuses]) => {
+    const i = op.indexOf(" ");
+    const marks = statuses.map((s) => `${s} ${hits.has(`${op} ${s}`) ? "✓" : "✗"}`).join("  ");
+    return `  ${op.slice(0, i).padEnd(6)} ${op.slice(i + 1).padEnd(width)}  ${marks}`;
+  });
+  const covered = keys.filter((k) => hits.has(k)).length;
+  const percent = keys.length ? Math.round((covered / keys.length) * 100) : 100;
+  return { covered, total: keys.length, percent, text: `slicetest: OpenAPI coverage (${spec.file}): ${covered}/${keys.length} documented responses (${percent}%)\n${lines.join("\n")}` };
 }
 
 function isJson(media: string) {

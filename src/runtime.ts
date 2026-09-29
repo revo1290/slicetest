@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
 import { App } from "./app.js";
@@ -20,6 +22,8 @@ export class Runtime {
   #http: HttpClient;
   /** Responses from the app that don't match its OpenAPI spec, this scenario. */
   #contract: string[] = [];
+  /** Documented responses seen in this file, for the run's coverage report. */
+  #covered = new Set<string>();
 
   private constructor(
     public app: App,
@@ -28,6 +32,7 @@ export class Runtime {
     private readonly opts: ResolvedOptions,
     private readonly vars: Record<string, string>,
     private readonly specs: { app?: OpenApiSpec; stubs: Map<string, OpenApiSpec> },
+    private readonly coverageDir?: string,
   ) {
     this.#http = this.#client();
   }
@@ -38,7 +43,10 @@ export class Runtime {
     if (spec) {
       http.onResponse((res) => {
         try {
-          this.#contract.push(...spec.checkResponse(res.method, res.url.split("?")[0]!, message(res)));
+          const path = res.url.split("?")[0]!;
+          const key = spec.responseKey(res.method, path, res.status);
+          if (key) this.#covered.add(key);
+          this.#contract.push(...spec.checkResponse(res.method, path, message(res)));
         } catch (e) {
           this.#contract.push(`${res.method} ${res.url}: couldn't check against ${spec.file}: ${(e as Error).message}`);
         }
@@ -51,7 +59,7 @@ export class Runtime {
     return this.#http;
   }
 
-  static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string }) {
+  static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string }) {
     const url = await ensureWorkerDatabase(shared.adminUrl, shared.template, shared.prefix);
     const stubs = new Map<string, Stub>();
     let db: Db | undefined;
@@ -71,7 +79,7 @@ export class Runtime {
       const vars: Record<string, string> = { "db.url": url };
       for (const [name, stub] of stubs) vars[`stub.${name}`] = stub.url;
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, db, stubs, opts, vars, specs);
+      return new Runtime(app, db, stubs, opts, vars, specs, shared.coverageDir);
     } catch (e) {
       await db?.close();
       await Promise.all([...stubs.values()].map((s) => s.close()));
@@ -184,6 +192,9 @@ export class Runtime {
   }
 
   async stop() {
+    if (this.coverageDir && this.#covered.size > 0) {
+      await writeFile(path.join(this.coverageDir, `${process.pid}-${randomUUID()}.json`), JSON.stringify([...this.#covered])).catch(() => {});
+    }
     const results = await Promise.allSettled([
       this.app.stop(),
       this.db.close(),

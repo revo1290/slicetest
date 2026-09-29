@@ -205,7 +205,19 @@ slicetest: traffic doesn't match the OpenAPI spec:
   stub mail reply (the real service wouldn't answer this way): POST /mail/send responded 200, which specs/mail.yaml doesn't document (documented: 202)
 ```
 
-The example apps in `examples/` run every scenario against `examples/openapi.yaml`, and their Slack calls against `examples/slack.openapi.yaml`.
+At the end of the run, slicetest prints which documented responses your scenarios actually produced, merged across workers and across TypeScript and YAML scenarios:
+
+```
+slicetest: OpenAPI coverage (openapi.yaml): 8/9 documented responses (89%)
+  GET    /health            200 ✓
+  POST   /polls             201 ✓  400 ✓  502 ✓
+  GET    /polls/{id}        200 ✓  404 ✗
+  POST   /polls/{id}/votes  204 ✓  400 ✓  404 ✓
+```
+
+To fail the run below a threshold, use `openapi: { spec: "openapi.yaml", minCoverage: 100 }`. Filtered runs (`-t`, a single file) count too, so you may want `minCoverage: process.env.CI ? 100 : undefined`.
+
+The example apps in `examples/` run every scenario against `examples/openapi.yaml` with `minCoverage: 100`, and their Slack calls against `examples/slack.openapi.yaml`.
 
 ### Matchers
 
@@ -263,7 +275,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.image` | `postgres:17-alpine` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi }` to check calls and replies against the provider's spec. |
-| `openapi` | none | The app's OpenAPI 3 spec. Every response must match it. |
+| `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
 | `http` | `{}` | Default `headers` / `query` for every request. |
 
 The config is validated up front: a missing `app.command`, an ambiguous `db.migrate` or a duplicate stub name fails with a clear message instead of a timeout.

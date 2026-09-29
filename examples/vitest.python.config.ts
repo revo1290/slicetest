@@ -21,7 +21,7 @@ export default defineConfig({
       },
       db: { migrate: { atlas: { dir: "file://migrations" } }, seed: "seed.sql" },
       stubs: [{ name: "slack", openapi: "slack.openapi.yaml" }],
-      openapi: "openapi.yaml",
+      openapi: { spec: "openapi.yaml", minCoverage: 100 },
     }),
   ],
   test: { name: "python-api", include: ["scenarios/**/*.test.ts"] },

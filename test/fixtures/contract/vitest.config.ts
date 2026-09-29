@@ -9,7 +9,7 @@ export default defineConfig({
     slicetest({
       app: { command: "node app.mjs", env: { PORT: "{{app.port}}", MAIL_URL: "{{stub.mail}}" }, ready: { log: "fixture ready" } },
       stubs: [{ name: "mail", openapi: "mail.openapi.yaml" }],
-      openapi: "openapi.yaml",
+      openapi: { spec: "openapi.yaml", minCoverage: 90 },
     }),
   ],
   test: { include: ["*.scenario.ts"] },

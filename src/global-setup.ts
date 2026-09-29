@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
@@ -8,6 +9,7 @@ import type { TestProject } from "vitest/node";
 import type { ResolvedOptions } from "./config.js";
 import { configureContainerRuntime } from "./container-runtime.js";
 import { withDatabase } from "./db.js";
+import { formatCoverage, OpenApiSpec } from "./openapi.js";
 import "./provided.js";
 
 const exec = promisify(execFile);
@@ -47,7 +49,9 @@ export default async function setup(project: TestProject) {
     throw e;
   }
 
-  project.provide("slicetestDb", { adminUrl, template, prefix });
+  // Each worker writes the documented responses it saw here; they are merged when the run ends.
+  const coverageDir = opts.openapi.app ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;
+  project.provide("slicetestDb", { adminUrl, template, prefix, coverageDir });
 
   return async () => {
     try {
@@ -62,8 +66,31 @@ export default async function setup(project: TestProject) {
     } finally {
       await admin.end();
       await stopContainer?.();
+      if (coverageDir) await reportCoverage(opts, coverageDir);
     }
   };
+}
+
+async function reportCoverage(opts: ResolvedOptions, dir: string) {
+  try {
+    const hits = new Set<string>();
+    for (const file of await readdir(dir)) {
+      for (const key of JSON.parse(await readFile(path.join(dir, file), "utf8")) as string[]) hits.add(key);
+    }
+    // No scenario ran (e.g. everything filtered out): nothing to report.
+    if (hits.size === 0) return;
+    const spec = await OpenApiSpec.load(path.resolve(opts.root, opts.openapi.app!), opts.openapi.app);
+    const report = formatCoverage(spec, hits);
+    console.log(`\n${report.text}\n`);
+    const min = opts.openapi.minCoverage;
+    if (min !== undefined && report.percent < min) {
+      // Not thrown: Vitest reports teardown errors as a crash. The failing exit code is what CI needs.
+      console.error(`slicetest: OpenAPI coverage ${report.percent}% is below openapi.minCoverage (${min}%)\n`);
+      process.exitCode = 1;
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 const RUN_PREFIX = "slicetest_r";
