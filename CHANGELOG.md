@@ -2,6 +2,7 @@
 
 ## 0.2.0
 
+- `npx slicetest init`: detects the app's stack (Node, Django, FastAPI, Flask, Rails, Go, Rust), its migrations (Atlas, Prisma, Alembic, Django, Rails, Drizzle, Knex, SQL) and an OpenAPI file, and writes `slicetest.config.yaml` plus a first scenario.
 - `services`: start workers and other processes next to the app. They're referenced as `{{service.<name>}}` / `{{service.<name>.port}}`, watched for crashes, restarted on the same port, and their scenario output appears in failures. `app.waitForLog()` / `service(name).waitForLog()` and the YAML `log` step wait for a line printed during the scenario.
 - OpenAPI coverage: when `openapi` is set, the run ends with a table of the documented responses (per operation and status) that the scenarios produced, merged across workers. `openapi: { spec, minCoverage }` fails the run below a percentage.
 - OpenAPI contracts: `openapi: "openapi.yaml"` checks every response the app gives against its spec, and `stubs: [{ name, openapi }]` checks the app's requests to a stubbed service, and the stub's canned replies, against the provider's spec. Mismatches fail the scenario and are listed in the failure output. OpenAPI 3.0 (including `nullable`) and 3.1.

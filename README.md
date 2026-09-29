@@ -31,6 +31,15 @@ No browser, no mocked database, no hooks inside your app. The app only has to re
 
 The database is reset between scenarios with a single `TRUNCATE ... RESTART IDENTITY CASCADE` (about 1.5 ms). The app keeps its connections, so this works with any driver or ORM. Resetting by dropping and re-creating the database takes about 130 ms, and it crashed some apps when their pooled connections were cut.
 
+## Quick start
+
+```sh
+npx slicetest init   # detects your stack, writes slicetest.config.yaml and a first scenario
+npx slicetest        # starts Postgres, migrates, starts your app, runs scenarios/*.scenario.yaml
+```
+
+`init` recognises Node (`npm start`), Django, FastAPI, Flask, Rails, Go and Rust apps; Atlas, Prisma, Alembic, Django, Rails, Drizzle, Knex and plain SQL migrations; and an `openapi.yaml`. It lists every guess as a comment in the config so you know what to check.
+
 ## Install
 
 ```sh
