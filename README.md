@@ -1,5 +1,7 @@
 # slicetest
 
+[![CI](https://github.com/revo1290/slicetest/actions/workflows/ci.yml/badge.svg)](https://github.com/revo1290/slicetest/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/slicetest)](https://www.npmjs.com/package/slicetest) [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Tests that sit between unit tests and end-to-end tests, for apps written in any language or framework.
 
 slicetest starts your app as a real process, points it at a real Postgres and at stub servers for the services it calls, and lets you check all three sides in one scenario:
