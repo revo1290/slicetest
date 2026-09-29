@@ -222,6 +222,16 @@ slicetest: traffic doesn't match the OpenAPI spec:
   stub mail reply (the real service wouldn't answer this way): POST /mail/send responded 200, which specs/mail.yaml doesn't document (documented: 202)
 ```
 
+#### `autoReply`: stubs generated from the provider's spec
+
+Add `autoReply: true` to a stub with a spec, and calls that no route matches are answered with the provider's documented example, or with values built from the schema (formats such as `email` and `date-time`, enums, `minimum`, `allOf` are respected). Register routes only for what a scenario cares about; a registered route always wins.
+
+```ts
+stubs: [{ name: "stripe", openapi: "specs/stripe.yaml", autoReply: true }],
+```
+
+Calls answered this way have `call.fallback === true`. Paths that aren't in the spec still get a 501 and fail the scenario.
+
 At the end of the run, slicetest prints which documented responses your scenarios actually produced, merged across workers and across TypeScript and YAML scenarios:
 
 ```

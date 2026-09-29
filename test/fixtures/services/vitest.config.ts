@@ -13,10 +13,11 @@ export default defineConfig({
       },
       app: {
         command: "node app.mjs",
-        env: { PORT: "{{app.port}}", PRICING_URL: "{{service.pricing}}" },
+        env: { PORT: "{{app.port}}", PRICING_URL: "{{service.pricing}}", MAILER_URL: "{{stub.mailer}}" },
         ready: { log: "app ready" },
       },
       db: { migrate: { sql: "schema.sql" } },
+      stubs: [{ name: "mailer", openapi: "mailer.openapi.yaml", autoReply: true }],
     }),
   ],
   test: { name: "services", include: ["*.scenario.ts", "*.scenario.yaml"] },

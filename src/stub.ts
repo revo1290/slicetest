@@ -16,6 +16,8 @@ export interface RecordedCall {
   matched: boolean;
   /** What the stub answered, once it has. */
   response?: { status: number; headers: Record<string, string>; body: string };
+  /** Answered by the fallback (e.g. an example from the provider's OpenAPI spec), not a registered route. */
+  fallback?: boolean;
 }
 
 export interface StubResponse {
@@ -78,6 +80,7 @@ export class Stub {
   #server: http.Server;
   #routes: Route[] = [];
   #calls: RecordedCall[] = [];
+  #fallback?: (call: RecordedCall) => StubResponse | undefined;
   url = "";
 
   private constructor(readonly name: string) {
@@ -159,6 +162,16 @@ export class Stub {
     this.#calls = [];
   }
 
+  /**
+   * Answer calls that no registered route matches, instead of failing with 501.
+   * Return undefined to leave a call unanswered (it then fails the scenario as usual).
+   * Kept across scenarios, unlike routes.
+   */
+  fallback(respond: ((call: RecordedCall) => StubResponse | undefined) | undefined) {
+    this.#fallback = respond;
+    return this;
+  }
+
   async close() {
     this.#server.closeAllConnections();
     await new Promise((resolve) => this.#server.close(resolve));
@@ -192,7 +205,14 @@ export class Stub {
       break;
     }
     if (!route) {
-      res.writeHead(501, { "content-type": "text/plain" }).end(`slicetest: no stub for ${call.method} ${call.path}`);
+      const out = this.#fallback?.(call);
+      if (!out) {
+        res.writeHead(501, { "content-type": "text/plain" }).end(`slicetest: no stub for ${call.method} ${call.path}`);
+        return;
+      }
+      call.matched = true;
+      call.fallback = true;
+      this.#send(call, res, out);
       return;
     }
     call.matched = true;
@@ -204,23 +224,26 @@ export class Stub {
       return;
     }
     try {
-      const out = typeof route.respond === "function" ? await route.respond(call) : route.respond;
-      const raw = out.body === undefined || typeof out.body === "string" || out.body instanceof Uint8Array;
-      const headers = { ...out.headers };
-      if (!raw && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) {
-        headers["content-type"] = "application/json";
-      }
-      const payload = raw ? (out.body as string | Uint8Array | undefined) : JSON.stringify(out.body);
-      call.response = {
-        status: out.status ?? 200,
-        headers: Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])),
-        body: payload === undefined ? "" : typeof payload === "string" ? payload : Buffer.from(payload).toString("utf8"),
-      };
-      res.writeHead(out.status ?? 200, headers);
-      res.end(payload);
+      this.#send(call, res, typeof route.respond === "function" ? await route.respond(call) : route.respond);
     } catch (e) {
       res.writeHead(500).end(`slicetest: stub handler threw: ${e}`);
     }
+  }
+
+  #send(call: RecordedCall, res: http.ServerResponse, out: StubResponse) {
+    const raw = out.body === undefined || typeof out.body === "string" || out.body instanceof Uint8Array;
+    const headers = { ...out.headers };
+    if (!raw && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) {
+      headers["content-type"] = "application/json";
+    }
+    const payload = raw ? (out.body as string | Uint8Array | undefined) : JSON.stringify(out.body);
+    call.response = {
+      status: out.status ?? 200,
+      headers: Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])),
+      body: payload === undefined ? "" : typeof payload === "string" ? payload : Buffer.from(payload).toString("utf8"),
+    };
+    res.writeHead(out.status ?? 200, headers);
+    res.end(payload);
   }
 }
 

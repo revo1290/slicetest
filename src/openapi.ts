@@ -118,6 +118,67 @@ export class OpenApiSpec {
     return this.#checkContent(response?.content, res, [...at, "content"], `${method} ${template} → ${status}`);
   }
 
+  /**
+   * A response the real service could send to `method path`: the lowest
+   * documented 2xx, with its example if the spec has one, else a value built
+   * from its schema. Undefined when the operation isn't in the spec.
+   */
+  exampleResponse(method: string, path: string): { status: number; headers?: Record<string, string>; body?: unknown } | undefined {
+    const found = this.find(method, path);
+    if (!found) return undefined;
+    const responses = found.op.responses ?? {};
+    const key = Object.keys(responses)
+      .filter((k) => /^2\d\d$/.test(k))
+      .sort()[0] ?? Object.keys(responses).find((k) => /^2xx$/i.test(k));
+    if (!key) return undefined;
+    const status = key.length === 3 && /^\d+$/.test(key) ? Number(key) : 200;
+    const response = this.#deref(responses[key]);
+    const content: Record<string, any> = response?.content ?? {};
+    const media = Object.keys(content).find(isJson) ?? Object.keys(content)[0];
+    if (!media) return { status };
+    const m = content[media] ?? {};
+    const named = m.examples && Object.values<any>(m.examples)[0];
+    const body =
+      m.example !== undefined
+        ? m.example
+        : named !== undefined
+          ? (this.#deref(named)?.value ?? null)
+          : this.#sample(m.schema);
+    return { status, headers: { "content-type": media === "*/*" ? "application/json" : media }, body: isJson(media) ? body : String(body ?? "") };
+  }
+
+  /** A value that satisfies `schema` (as far as a simple walk can): examples, defaults, enums, then types. */
+  #sample(schema: any, depth = 0): unknown {
+    const s = this.#deref(schema);
+    if (!s || typeof s !== "object" || depth > 8) return null;
+    if (s.example !== undefined) return s.example;
+    if (Array.isArray(s.examples) && s.examples.length) return s.examples[0];
+    if (s.default !== undefined) return s.default;
+    if (s.const !== undefined) return s.const;
+    if (Array.isArray(s.enum) && s.enum.length) return s.enum[0];
+    if (Array.isArray(s.allOf)) {
+      return Object.assign({}, ...s.allOf.map((part: unknown) => this.#sample(part, depth + 1)).filter((v: unknown) => v && typeof v === "object"));
+    }
+    const first = s.oneOf?.[0] ?? s.anyOf?.[0];
+    if (first) return this.#sample(first, depth + 1);
+    const type = Array.isArray(s.type) ? s.type.find((t: string) => t !== "null") : s.type;
+    switch (type ?? (s.properties ? "object" : s.items ? "array" : undefined)) {
+      case "object":
+        return Object.fromEntries(Object.entries<any>(s.properties ?? {}).map(([k, v]) => [k, this.#sample(v, depth + 1)]));
+      case "array":
+        return Array.from({ length: Math.max(1, s.minItems ?? 1) }, () => this.#sample(s.items, depth + 1));
+      case "integer":
+      case "number":
+        return typeof s.minimum === "number" ? s.minimum : typeof s.exclusiveMinimum === "number" ? s.exclusiveMinimum + 1 : 0;
+      case "boolean":
+        return true;
+      case "string":
+        return sampleString(s);
+      default:
+        return null;
+    }
+  }
+
   /** Problems with a request the app sent to `method path`. */
   checkRequest(method: string, path: string, req: Message): string[] {
     const found = this.find(method, path);
@@ -179,6 +240,24 @@ export class OpenApiSpec {
     const target = pointer.reduce((cur: any, key: string) => cur?.[key], this.doc);
     return this.#resolve(target, pointer, depth + 1);
   }
+}
+
+const FORMATS: Record<string, string> = {
+  "date-time": "2026-01-01T00:00:00Z",
+  date: "2026-01-01",
+  time: "00:00:00Z",
+  email: "user@example.com",
+  uri: "https://example.com",
+  url: "https://example.com",
+  uuid: "00000000-0000-4000-8000-000000000000",
+  hostname: "example.com",
+  ipv4: "192.0.2.1",
+  ipv6: "2001:db8::1",
+};
+
+function sampleString(s: { format?: string; minLength?: number; pattern?: string }) {
+  const base = (s.format && FORMATS[s.format]) ?? "string";
+  return base.length >= (s.minLength ?? 0) ? base : base.padEnd(s.minLength!, "x");
 }
 
 function pickResponse(responses: Record<string, unknown>, status: number) {

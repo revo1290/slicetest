@@ -79,3 +79,46 @@ test("requests: required query parameters and body", async () => {
 test("rejects files that aren't OpenAPI 3", async () => {
   await expect(spec({ swagger: "2.0" })).rejects.toThrow("spec.json is not an OpenAPI 3 document");
 });
+
+test("exampleResponse: spec examples first, then values built from the schema", async () => {
+  const s = await spec({
+    openapi: "3.1.0",
+    paths: {
+      "/charges": {
+        post: {
+          responses: {
+            "202": { description: "", ...json({ type: "object" }) },
+            "201": { description: "", content: { "application/json": { schema: { type: "object" }, example: { id: "ch_1" } } } },
+          },
+        },
+      },
+      "/named": { get: { responses: { "200": { description: "", content: { "application/json": { examples: { a: { value: [1] } } } } } } } },
+      "/users/{id}": { get: { responses: { "200": { description: "", ...json({ $ref: "#/components/schemas/User" }) } } } },
+      "/empty": { delete: { responses: { "204": { description: "" } } } },
+      "/errors-only": { get: { responses: { "404": { description: "" } } } },
+    },
+    components: {
+      schemas: {
+        User: {
+          allOf: [
+            { type: "object", required: ["id"], properties: { id: { type: "integer", minimum: 1 }, email: { type: "string", format: "email" } } },
+            { type: "object", properties: { role: { enum: ["admin", "member"] }, tags: { type: "array", items: { type: "string", minLength: 8 } }, nick: { type: ["string", "null"] } } },
+          ],
+        },
+      },
+    },
+  });
+
+  expect(s.exampleResponse("POST", "/charges")).toEqual({ status: 201, headers: { "content-type": "application/json" }, body: { id: "ch_1" } });
+  expect(s.exampleResponse("GET", "/named")?.body).toEqual([1]);
+  expect(s.exampleResponse("GET", "/users/7")?.body).toEqual({ id: 1, email: "user@example.com", role: "admin", tags: ["stringxx"], nick: "string" });
+  expect(s.exampleResponse("DELETE", "/empty")).toEqual({ status: 204 });
+  expect(s.exampleResponse("GET", "/errors-only")).toBeUndefined();
+  expect(s.exampleResponse("GET", "/nope")).toBeUndefined();
+
+  // Whatever it builds must pass its own contract check.
+  for (const [method, path] of [["POST", "/charges"], ["GET", "/users/7"], ["DELETE", "/empty"]] as const) {
+    const r = s.exampleResponse(method, path)!;
+    expect(s.checkResponse(method, path, { status: r.status, contentType: r.headers?.["content-type"], body: r.body })).toEqual([]);
+  }
+});

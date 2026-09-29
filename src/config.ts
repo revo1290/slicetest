@@ -6,8 +6,10 @@ export interface SlicetestOptions {
   /**
    * Outbound HTTP services to stub. Each gets its own server, referenced as `{{stub.<name>}}` in `app.env`.
    * With `{ name, openapi }`, the app's calls to it and the stub's replies are checked against that service's spec.
+   * With `autoReply: true` as well, calls no route matches are answered from the spec (its examples, or values
+   * built from its schemas) instead of failing, so you only register the routes a scenario cares about.
    */
-  stubs?: (string | { name: string; openapi?: string })[];
+  stubs?: (string | { name: string; openapi?: string; autoReply?: boolean })[];
   /**
    * The app's own OpenAPI 3 spec (YAML or JSON, relative to the root). Every
    * response the app gives during a scenario must be documented and match its
@@ -99,7 +101,7 @@ export interface ResolvedOptions {
   db: Required<Pick<DbOptions, "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
-  openapi: { app?: string; minCoverage?: number; stubs: Record<string, string> };
+  openapi: { app?: string; minCoverage?: number; stubs: Record<string, string>; autoReply: string[] };
   http?: RequestOptions;
 }
 
@@ -117,6 +119,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
       app: typeof opts.openapi === "object" ? opts.openapi.spec : opts.openapi,
       minCoverage: typeof opts.openapi === "object" ? opts.openapi.minCoverage : undefined,
       stubs: Object.fromEntries((opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.openapi ? [[s.name, s.openapi]] : []))),
+      autoReply: (opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.autoReply ? [s.name] : [])),
     },
     http: opts.http,
   };
@@ -170,6 +173,7 @@ function validate(opts: SlicetestOptions) {
   }
   for (const s of opts.stubs ?? []) {
     if (typeof s !== "string" && (!s || typeof s.name !== "string")) fail(`each stub must be a name or { name, openapi }, got ${JSON.stringify(s)}`);
+    if (typeof s === "object" && s.autoReply && !s.openapi) fail(`stub "${s.name}": autoReply needs an openapi spec to answer from`);
   }
   const stubs = (opts.stubs ?? []).map(stubName);
   for (const name of stubs) {

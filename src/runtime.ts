@@ -74,6 +74,10 @@ export class Runtime {
       };
       for (const [name, file] of Object.entries(opts.openapi.stubs)) specs.stubs.set(name, await OpenApiSpec.load(path.resolve(opts.root, file), file));
       for (const name of opts.stubs) stubs.set(name, await Stub.start(name));
+      for (const name of opts.openapi.autoReply) {
+        const spec = specs.stubs.get(name)!;
+        stubs.get(name)!.fallback((call) => spec.exampleResponse(call.method, call.path));
+      }
       db = await Db.connect(url, {
         schemas: opts.db.schemas,
         keep: opts.db.keep,

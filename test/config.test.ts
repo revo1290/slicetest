@@ -19,6 +19,7 @@ test.each([
   [{ ...valid, db: { migrate: { sql: "a.sql", command: "make migrate" } } }, "exactly one of atlas / sql / command, got sql, command"],
   [{ ...valid, stubs: ["slack.hook"] }, 'stub name "slack.hook"'],
   [{ ...valid, stubs: ["a", "a"] }, 'stub "a" is declared twice'],
+  [{ ...valid, stubs: [{ name: "mail", autoReply: true }] }, 'stub "mail": autoReply needs an openapi spec'],
 ])("rejects %j", (opts, message) => {
   expect(() => resolveOptions(opts as SlicetestOptions, "/")).toThrow(message);
 });

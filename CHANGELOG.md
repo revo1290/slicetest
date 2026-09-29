@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `autoReply: true` on a stub with an OpenAPI spec answers calls that no route matches from the spec: its examples, or values built from the schema. `stub.fallback(fn)` is the underlying API.
+
 ## 0.2.0
 
 - Fix: the matcher types (`toHaveStatus`, `toHaveReceived`, `toHaveRow`, …) are now part of the package's public types. In 0.1.0 they only resolved inside this repository, so TypeScript users of the npm package got "Property 'toHaveStatus' does not exist".
