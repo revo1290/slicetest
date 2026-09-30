@@ -7,6 +7,7 @@ import { Db, formatChanges } from "./db.js";
 import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { OpenApiSpec } from "./openapi.js";
+import { Recorder } from "./recording.js";
 import { Stub, type RecordedCall } from "./stub.js";
 
 export interface ScenarioContext {
@@ -35,6 +36,8 @@ export class Runtime {
     private readonly vars: Record<string, string>,
     private readonly specs: { app?: OpenApiSpec; stubs: Map<string, OpenApiSpec> },
     private readonly coverageDir?: string,
+    private readonly recorders = new Map<string, Recorder>(),
+    private readonly recordDir?: string,
   ) {
     this.#http = this.#client();
   }
@@ -61,10 +64,11 @@ export class Runtime {
     return this.#http;
   }
 
-  static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string }) {
+  static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string; recordDir?: string }) {
     const engine = await engineFor(opts);
     const url = await ensureWorkerDatabase(engine, shared.adminUrl, shared.template, shared.prefix);
     const stubs = new Map<string, Stub>();
+    const recorders = new Map<string, Recorder>();
     const services = new Map<string, App>();
     let db: Db | undefined;
     try {
@@ -75,9 +79,13 @@ export class Runtime {
       };
       for (const [name, file] of Object.entries(opts.openapi.stubs)) specs.stubs.set(name, await OpenApiSpec.load(path.resolve(opts.root, file), file));
       for (const name of opts.stubs) stubs.set(name, await Stub.start(name));
-      for (const name of opts.openapi.autoReply) {
-        const spec = specs.stubs.get(name)!;
-        stubs.get(name)!.fallback((call) => spec.exampleResponse(call.method, call.path));
+      for (const [name, r] of Object.entries(opts.recordings)) recorders.set(name, await Recorder.load(name, path.resolve(opts.root, r.file), r.upstream, r.record));
+      // A registered route wins, then a recording of the real service, then an answer made up from its spec.
+      for (const [name, stub] of stubs) {
+        const recorder = recorders.get(name);
+        const spec = opts.openapi.autoReply.includes(name) ? specs.stubs.get(name) : undefined;
+        if (!recorder && !spec) continue;
+        stub.fallback(async (call) => (await recorder?.answer(call)) ?? spec?.exampleResponse(call.method, call.path), recorder?.hint());
       }
       db = await Db.connect(await engine.driver(url), url, {
         schemas: opts.db.schemas,
@@ -93,7 +101,7 @@ export class Runtime {
         vars[`service.${name}.port`] = String(started.port);
       }
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
@@ -144,6 +152,7 @@ export class Runtime {
     this.#contract = [];
     await this.db.reset();
     for (const stub of this.stubs.values()) stub.reset();
+    for (const recorder of this.recorders.values()) recorder.reset();
     this.http.reset();
     for (const p of this.#processes()) p.beginScenario();
   }
@@ -198,6 +207,7 @@ export class Runtime {
       return [
         ...calls.map((c) => `  ${s.name}: ${c.method} ${c.path}${c.query.size ? `?${c.query}` : ""}`),
         `    registered on ${s.name}: ${routes.length ? routes.join(", ") : "(none)"}`,
+        ...(this.recorders.has(s.name) ? [`    ${this.recorders.get(s.name)!.hint()}`] : []),
       ];
     });
   }
@@ -232,6 +242,11 @@ export class Runtime {
   async stop() {
     if (this.coverageDir && this.#covered.size > 0) {
       await writeFile(path.join(this.coverageDir, `${process.pid}-${randomUUID()}.json`), JSON.stringify([...this.#covered])).catch(() => {});
+    }
+    for (const [name, recorder] of this.recorders) {
+      if (this.recordDir && recorder.added().length > 0) {
+        await writeFile(path.join(this.recordDir, `${name}.${process.pid}-${randomUUID()}.json`), JSON.stringify(recorder.added())).catch(() => {});
+      }
     }
     const results = await Promise.allSettled([
       this.app.stop(),

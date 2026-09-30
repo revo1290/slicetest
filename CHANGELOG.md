@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Recorded stubs: `{ name, upstream: "https://api.github.com" }` answers unrouted calls from `recordings/<name>.yaml`. `SLICETEST_RECORD=<name>` forwards the calls it has no recording for to the real service and records the answers, without request headers or noisy response headers. Works for apps in any language.
 - MySQL: `db: { engine: "mysql" }` (or a `mysql://` URL) runs the same scenarios against MySQL 8. Workers get a clone of the migrated template (tables, foreign keys, views, triggers), resets only truncate tables that were written to, and rows are typed like Postgres's so scenarios are portable. Needs `mysql2`, plus `@testcontainers/mysql` when no `db.url` is given.
 
 ## 0.2.0

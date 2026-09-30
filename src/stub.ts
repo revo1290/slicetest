@@ -80,7 +80,9 @@ export class Stub {
   #server: http.Server;
   #routes: Route[] = [];
   #calls: RecordedCall[] = [];
-  #fallback?: (call: RecordedCall) => StubResponse | undefined;
+  #fallback?: (call: RecordedCall) => StubResponse | undefined | Promise<StubResponse | undefined>;
+  /** Appended to the 501 answer for a call nothing could answer. */
+  #hint?: string;
   url = "";
 
   private constructor(readonly name: string) {
@@ -167,8 +169,9 @@ export class Stub {
    * Return undefined to leave a call unanswered (it then fails the scenario as usual).
    * Kept across scenarios, unlike routes.
    */
-  fallback(respond: ((call: RecordedCall) => StubResponse | undefined) | undefined) {
+  fallback(respond: ((call: RecordedCall) => StubResponse | undefined | Promise<StubResponse | undefined>) | undefined, hint?: string) {
     this.#fallback = respond;
+    this.#hint = hint;
     return this;
   }
 
@@ -205,9 +208,16 @@ export class Stub {
       break;
     }
     if (!route) {
-      const out = this.#fallback?.(call);
+      let out: StubResponse | undefined;
+      try {
+        out = await this.#fallback?.(call);
+      } catch (e) {
+        res.writeHead(502, { "content-type": "text/plain" }).end((e as Error).message);
+        return;
+      }
       if (!out) {
-        res.writeHead(501, { "content-type": "text/plain" }).end(`slicetest: no stub for ${call.method} ${call.path}`);
+        const hint = this.#hint ? ` (${this.#hint})` : "";
+        res.writeHead(501, { "content-type": "text/plain" }).end(`slicetest: no stub for ${call.method} ${call.path}${hint}`);
         return;
       }
       call.matched = true;

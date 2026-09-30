@@ -45,7 +45,9 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **One scenario, three boundaries.** Assert on the HTTP response, the rows in the real database and the calls to third-party APIs in the same test, in any language the app is written in.
 - **`db.changes()`**: a diff of every row the scenario inserted, updated or deleted. `toEqual` on it catches writes you didn't expect.
 - **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test.
+- **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios.
+- **Postgres or MySQL**, with the same scenarios and the same row types on both.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
 ## Install
@@ -256,6 +258,24 @@ To fail the run below a threshold, use `openapi: { spec: "openapi.yaml", minCove
 
 The example apps in `examples/` run every scenario against `examples/openapi.yaml` with `minCoverage: 100`, and their Slack calls against `examples/slack.openapi.yaml`.
 
+### Recording a real service
+
+A stub can also answer from recordings of the real service, the way VCR or Polly do, except that it works for an app in any language because the stub is a server. Give it the real base URL:
+
+```ts
+stubs: [{ name: "github", upstream: "https://api.github.com" }],
+```
+
+Record once, with real credentials in the app's environment:
+
+```sh
+SLICETEST_RECORD=github npx vitest     # or SLICETEST_RECORD=1 for every stub with an upstream
+```
+
+Calls no route matches are forwarded to `upstream` (under its path prefix, headers included) and the answers are written to `recordings/github.yaml` (`recordings:` changes the path). Later runs replay them without touching the network. A request is identified by method, path, query and body (JSON key order doesn't matter); identical requests replay their recordings in the order they were made. Only `content-type`, `location`, `retry-after`, `link` and `etag` response headers are kept, and request headers are never stored, so tokens stay out of the file; bodies are stored as sent, so review the file before committing it.
+
+Precedence is: registered route, then recording, then `autoReply`, then a 501 that says how to record the call. Replayed calls have `call.fallback === true`, and are checked against the provider's spec when the stub has one. To refresh recordings, delete the file (or the entries) and record again.
+
 ### Matchers
 
 Registered automatically:
@@ -343,7 +363,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.image` | `postgres:17-alpine` / `mysql:8.4` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
-| `stubs` | `[]` | Names of stubbed services, or `{ name, openapi }` to check calls and replies against the provider's spec. |
+| `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings? }`: check calls against the provider's spec, answer from it, or [replay recordings](#recording-a-real-service) of the real service. |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
 | `http` | `{}` | Default `headers` / `query` for every request. |
 

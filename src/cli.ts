@@ -29,7 +29,7 @@ Options:
 Config (paths are relative to the config file):
   app:      { command, env, cwd, ready: { path } | { log }, readyTimeout }
   db:       { migrate: { atlas: { dir } } | { sql } | { command, inputs }, engine, seed, url, image, schemas, keep, reuse }
-  stubs:    [name | { name, openapi }]
+  stubs:    [name | { name, openapi, autoReply, upstream, recordings }]
   services: { name: { command, env, cwd, ready } }
   openapi:  file | { spec, minCoverage }
   http:     { headers, query }

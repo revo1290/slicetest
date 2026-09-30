@@ -10,6 +10,7 @@ import { configureContainerRuntime } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import type { Admin, Engine } from "./drivers/index.js";
 import { formatCoverage, OpenApiSpec } from "./openapi.js";
+import { mergeRecordings, type Recording } from "./recording.js";
 import "./provided.js";
 
 const exec = promisify(execFile);
@@ -49,7 +50,10 @@ export default async function setup(project: TestProject) {
 
   // Each worker writes the documented responses it saw here; they are merged when the run ends.
   const coverageDir = opts.openapi.app ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;
-  project.provide("slicetestDb", { adminUrl, template, prefix, coverageDir });
+  // Likewise for recordings made against real services, merged into the recordings files at the end.
+  const recording = Object.values(opts.recordings).some((r) => r.record);
+  const recordDir = recording ? await mkdtemp(path.join(os.tmpdir(), "slicetest-recordings-")) : undefined;
+  project.provide("slicetestDb", { adminUrl, template, prefix, coverageDir, recordDir });
 
   return async () => {
     try {
@@ -61,6 +65,7 @@ export default async function setup(project: TestProject) {
       await server.close();
       await stopContainer?.();
       if (coverageDir) await reportCoverage(opts, coverageDir);
+      if (recordDir) await saveRecordings(opts, recordDir);
     }
   };
 }
@@ -81,6 +86,21 @@ async function reportCoverage(opts: ResolvedOptions, dir: string) {
       // Not thrown: Vitest reports teardown errors as a crash. The failing exit code is what CI needs.
       console.error(`slicetest: OpenAPI coverage ${report.percent}% is below openapi.minCoverage (${min}%)\n`);
       process.exitCode = 1;
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function saveRecordings(opts: ResolvedOptions, dir: string) {
+  try {
+    const files = await readdir(dir);
+    for (const [name, r] of Object.entries(opts.recordings)) {
+      const added: Recording[] = [];
+      for (const f of files.filter((f) => f.startsWith(`${name}.`)).sort()) added.push(...(JSON.parse(await readFile(path.join(dir, f), "utf8")) as Recording[]));
+      if (added.length === 0) continue;
+      await mergeRecordings(path.resolve(opts.root, r.file), r.upstream, added);
+      console.log(`slicetest: recorded ${added.length} call(s) to ${r.upstream} in ${r.file}`);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

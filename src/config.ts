@@ -9,7 +9,7 @@ export interface SlicetestOptions {
    * With `autoReply: true` as well, calls no route matches are answered from the spec (its examples, or values
    * built from its schemas) instead of failing, so you only register the routes a scenario cares about.
    */
-  stubs?: (string | { name: string; openapi?: string; autoReply?: boolean })[];
+  stubs?: (string | StubOptions)[];
   /**
    * The app's own OpenAPI 3 spec (YAML or JSON, relative to the root). Every
    * response the app gives during a scenario must be documented and match its
@@ -28,6 +28,23 @@ export interface SlicetestOptions {
    * usable in `app.env` and in the env of services declared after them.
    */
   services?: Record<string, ServiceOptions>;
+}
+
+export interface StubOptions {
+  name: string;
+  /** The provider's OpenAPI spec: the app's calls and the stub's replies are checked against it. */
+  openapi?: string;
+  /** Answer calls no route matches from the spec's examples or schemas. Needs `openapi`. */
+  autoReply?: boolean;
+  /**
+   * The real service's base URL, e.g. `https://api.github.com`. Calls no route
+   * matches are answered from `recordings`; run with `SLICETEST_RECORD=<name>`
+   * (or `=1` for every stub) to forward the ones without a recording to this
+   * URL and record the answers.
+   */
+  upstream?: string;
+  /** Recordings file, relative to the root. Default `recordings/<name>.yaml`. */
+  recordings?: string;
 }
 
 export interface ServiceOptions extends Omit<AppOptions, "ready"> {
@@ -107,6 +124,8 @@ export interface ResolvedOptions {
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
   openapi: { app?: string; minCoverage?: number; stubs: Record<string, string>; autoReply: string[] };
+  /** Stubs backed by recordings of a real service; `record` when SLICETEST_RECORD selects them. */
+  recordings: Record<string, { file: string; upstream: string; record: boolean }>;
   http?: RequestOptions;
 }
 
@@ -126,8 +145,24 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
       stubs: Object.fromEntries((opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.openapi ? [[s.name, s.openapi]] : []))),
       autoReply: (opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.autoReply ? [s.name] : [])),
     },
+    recordings: resolveRecordings(opts.stubs ?? []),
     http: opts.http,
   };
+}
+
+function resolveRecordings(stubs: (string | StubOptions)[]): ResolvedOptions["recordings"] {
+  const withUpstream = stubs.filter((s): s is StubOptions & { upstream: string } => typeof s === "object" && !!s.upstream);
+  const env = (process.env.SLICETEST_RECORD ?? "").trim();
+  const all = ["1", "true", "all", "*"].includes(env.toLowerCase());
+  const names = all || !env ? [] : env.split(",").map((n) => n.trim()).filter(Boolean);
+  for (const n of names) {
+    if (!withUpstream.some((s) => s.name === n)) {
+      throw new Error(`slicetest: SLICETEST_RECORD names "${n}", but no stub of that name has an upstream. Stubs with one: ${withUpstream.map((s) => s.name).join(", ") || "(none)"}`);
+    }
+  }
+  return Object.fromEntries(
+    withUpstream.map((s) => [s.name, { file: s.recordings ?? `recordings/${s.name}.yaml`, upstream: s.upstream, record: all || names.includes(s.name) }]),
+  );
 }
 
 function resolveReady(ready: NonNullable<AppOptions["ready"]>): ResolvedReady {
@@ -186,6 +221,8 @@ function validate(opts: SlicetestOptions) {
   for (const s of opts.stubs ?? []) {
     if (typeof s !== "string" && (!s || typeof s.name !== "string")) fail(`each stub must be a name or { name, openapi }, got ${JSON.stringify(s)}`);
     if (typeof s === "object" && s.autoReply && !s.openapi) fail(`stub "${s.name}": autoReply needs an openapi spec to answer from`);
+    if (typeof s === "object" && s.upstream !== undefined && !/^https?:\/\/[^/]/.test(s.upstream)) fail(`stub "${s.name}": upstream must be an http(s) URL, got ${JSON.stringify(s.upstream)}`);
+    if (typeof s === "object" && s.recordings !== undefined && !s.upstream) fail(`stub "${s.name}": recordings needs an upstream to record from`);
   }
   const stubs = (opts.stubs ?? []).map(stubName);
   for (const name of stubs) {
