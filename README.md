@@ -48,6 +48,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
+- **Readable in CI.** On GitHub Actions, failing YAML steps are annotated in the pull request on the line that failed, and the job summary shows the OpenAPI coverage table.
 - **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
@@ -552,6 +553,10 @@ npx slicetest gen --uncovered     # only the documented responses the last run d
 writes `scenarios/<resource>.gen.scenario.yaml` with one scenario per documented response. Requests are built from the spec's examples and schemas. A path that needs an id gets a step that creates the resource first through the collection's `POST` and captures its id. A 404 on a made-up id and a 400/422 on an empty body are runnable as is; other responses are generated as `skip: true` scenarios marked TODO, so the skipped list in the test output is what's left to cover. Existing files are kept unless you pass `--force`.
 
 `--uncovered` reads the coverage the last run left in `node_modules/.cache/slicetest/`, which closes the loop: run, look at the ✗ in the coverage table, `gen --uncovered`, fill in the TODOs.
+
+### On GitHub Actions
+
+Nothing to configure. When `GITHUB_ACTIONS` is set, a failing YAML step is annotated on its own line of the `.scenario.yaml` file in the pull request (Vitest already does this for TypeScript tests), and the job summary gets a table of the failed steps and the OpenAPI coverage table, with ✅ / ❌ per documented response. A coverage below `minCoverage` is annotated on the spec file.
 
 ### Is everything in place? `npx slicetest doctor`
 

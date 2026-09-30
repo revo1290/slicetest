@@ -34,7 +34,7 @@ export function slicetest(options: SlicetestOptions): Plugin {
     transform(code, id) {
       const file = id.split("?")[0]!;
       if (!YAML_ID.test(file)) return;
-      const doc = parseScenarioFile(code, path.relative(root ?? process.cwd(), file) || file);
+      const doc = { ...parseScenarioFile(code, path.relative(root ?? process.cwd(), file) || file), path: file };
       const runtime = JSON.stringify(path.join(here, `yaml-runtime${ext}`));
       return { code: `import { defineYamlScenarios } from ${runtime};\ndefineYamlScenarios(${JSON.stringify(doc)});\n`, map: null };
     },

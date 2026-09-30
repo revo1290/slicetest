@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { TestProject } from "vitest/node";
 import type { ResolvedOptions } from "./config.js";
+import { annotation, appendSummary, failureAnnotations, failureSummary, onGitHub, repoPath, yamlFailures } from "./ci.js";
 import { configureContainerRuntime } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import type { Admin, Engine } from "./drivers/index.js";
@@ -54,7 +55,9 @@ export default async function setup(project: TestProject) {
   // Likewise for recordings made against real services, merged into the recordings files at the end.
   const recording = Object.values(opts.recordings).some((r) => r.record);
   const recordDir = recording ? await mkdtemp(path.join(os.tmpdir(), "slicetest-recordings-")) : undefined;
-  project.provide("slicetestDb", { adminUrl, template, prefix, coverageDir, recordDir });
+  // On GitHub Actions, failed YAML steps are collected here and turned into annotations at the end.
+  const ciDir = onGitHub() ? await mkdtemp(path.join(os.tmpdir(), "slicetest-ci-")) : undefined;
+  project.provide("slicetestDb", { adminUrl, template, prefix, coverageDir, recordDir, ciDir });
 
   return async () => {
     try {
@@ -67,6 +70,7 @@ export default async function setup(project: TestProject) {
       await stopContainer?.();
       if (coverageDir) await reportCoverage(opts, coverageDir);
       if (recordDir) await saveRecordings(opts, recordDir);
+      if (ciDir) await reportToGitHub(ciDir);
     }
   };
 }
@@ -85,12 +89,25 @@ async function reportCoverage(opts: ResolvedOptions, dir: string) {
     const cache = coverageCacheFile(opts.root);
     await mkdir(path.dirname(cache), { recursive: true }).then(() => writeFile(cache, JSON.stringify([...hits]))).catch(() => {});
     console.log(`\n${report.text}\n`);
+    await appendSummary(report.markdown);
     const min = opts.openapi.minCoverage;
     if (min !== undefined && report.percent < min) {
       // Not thrown: Vitest reports teardown errors as a crash. The failing exit code is what CI needs.
-      console.error(`slicetest: OpenAPI coverage ${report.percent}% is below openapi.minCoverage (${min}%)\n`);
+      const message = `OpenAPI coverage ${report.percent}% is below openapi.minCoverage (${min}%)`;
+      console.error(`slicetest: ${message}\n`);
+      if (onGitHub()) console.log(annotation("error", message, { file: repoPath(path.resolve(opts.root, opts.openapi.app!)), title: "slicetest: OpenAPI coverage" }));
       process.exitCode = 1;
     }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function reportToGitHub(dir: string) {
+  try {
+    const failures = await yamlFailures(dir);
+    for (const line of failureAnnotations(failures)) console.log(line);
+    await appendSummary(failureSummary(failures));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

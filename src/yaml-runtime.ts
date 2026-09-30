@@ -1,4 +1,6 @@
-import { expect } from "vitest";
+import { expect, inject } from "vitest";
+import { recordYamlFailure } from "./ci.js";
+import "./provided.js";
 import { formatChanges } from "./db.js";
 import "./matchers.js";
 import type { ScenarioContext } from "./runtime.js";
@@ -31,6 +33,11 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
     } catch (e) {
       const label = step.name ?? describeStep(step);
       const where = `${doc.file}:${step.line} (${sc.name}, step ${i + 1}: ${label})`;
+      const ciDir = inject("slicetestDb")?.ciDir;
+      if (ciDir && doc.path) {
+        const message = (e instanceof Error ? e.message : String(e)).replace(/\x1b\[[0-9;]*m/g, "");
+        await recordYamlFailure(ciDir, { file: doc.path, line: step.line, scenario: sc.name, step: `step ${i + 1}: ${label}`, message }).catch(() => {});
+      }
       if (e instanceof Error) {
         e.message = `${where}\n${e.message}`;
         throw e;

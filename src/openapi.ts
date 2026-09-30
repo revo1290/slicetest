@@ -331,7 +331,17 @@ export function formatCoverage(spec: OpenApiSpec, hits: Set<string>) {
   });
   const covered = keys.filter((k) => hits.has(k)).length;
   const percent = keys.length ? Math.round((covered / keys.length) * 100) : 100;
-  return { covered, total: keys.length, percent, text: `slicetest: OpenAPI coverage (${spec.file}): ${covered}/${keys.length} documented responses (${percent}%)\n${lines.join("\n")}` };
+  const markdown = [
+    `### slicetest: OpenAPI coverage ${percent}%`,
+    "",
+    `${covered} of ${keys.length} documented responses in \`${spec.file}\` were produced by a scenario.`,
+    "",
+    "| Operation | Responses |",
+    "|---|---|",
+    ...[...byOp].map(([op, statuses]) => `| \`${op}\` | ${statuses.map((s) => `${hits.has(`${op} ${s}`) ? "✅" : "❌"} ${s}`).join(" ")} |`),
+    "",
+  ].join("\n");
+  return { covered, total: keys.length, percent, markdown, text: `slicetest: OpenAPI coverage (${spec.file}): ${covered}/${keys.length} documented responses (${percent}%)\n${lines.join("\n")}` };
 }
 
 function isJson(media: string) {

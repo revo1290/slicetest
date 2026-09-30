@@ -9,6 +9,8 @@ import { isMap, isSeq, LineCounter, parseDocument, type Node } from "yaml";
 
 export interface YamlFile {
   file: string;
+  /** Absolute path, for CI annotations. */
+  path?: string;
   /** Steps run at the start of every scenario in the file. */
   setup: Step[];
   scenarios: YamlScenario[];
