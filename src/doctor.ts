@@ -90,8 +90,13 @@ export async function doctor(configPath: string | undefined, probes: Probes = ma
   }
 
   // Database: a server that's there already, or a container runtime to start one in.
-  const url = opts.db.url ?? env.SLICETEST_DATABASE_URL;
-  if (url) {
+  const url = opts.db.engine === "sqlite" ? undefined : (opts.db.url ?? env.SLICETEST_DATABASE_URL);
+  if (opts.db.engine === "sqlite") {
+    const [maj = 0, min = 0] = process.versions.node.split(".").map(Number);
+    if (maj > 22 || (maj === 22 && min >= 5)) add("ok", "sqlite (node:sqlite, no server needed)");
+    else add("fail", "sqlite needs Node.js 22.5 or later", `this is ${process.versions.node}; slicetest uses the built-in node:sqlite`);
+    if (Object.keys(opts.containers).length) await checkContainerRuntime(add, probes, `runs ${Object.values(opts.containers).map((c) => c.image).join(", ")}`);
+  } else if (url) {
     try {
       await probes.database(opts, url);
       add("ok", `${opts.db.engine} at ${redact(url)}`);

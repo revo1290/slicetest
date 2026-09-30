@@ -59,6 +59,8 @@ export interface Engine {
   name: string;
   /** Container image used when no `db.url` is given. */
   defaultImage: string;
+  /** Runs in-process (SQLite): no container runtime needed. */
+  local?: boolean;
   startContainer(image: string, reuse: boolean): Promise<{ url: string; stop(): Promise<unknown> }>;
   admin(url: string): Promise<Admin>;
   driver(url: string): Promise<Driver>;

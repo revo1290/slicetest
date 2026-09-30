@@ -1,7 +1,7 @@
 {
   "name": "slicetest",
   "version": "0.3.0",
-  "description": "Framework-agnostic slice tests: drive a real app process over HTTP with a real Postgres and stubbed outbound APIs, checked against OpenAPI contracts.",
+  "description": "Framework-agnostic slice tests: drive a real app process over HTTP with a real Postgres, MySQL or SQLite and stubbed outbound APIs, checked against OpenAPI contracts.",
   "keywords": [
     "testing",
     "integration-testing",
@@ -9,6 +9,7 @@
     "api-testing",
     "postgres",
     "mysql",
+    "sqlite",
     "stub",
     "mock-server",
     "vitest",

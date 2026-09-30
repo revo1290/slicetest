@@ -1,0 +1,11 @@
+scenarios:
+  - name: yaml against sqlite
+    steps:
+      - insert: authors
+        rows: [{ name: ada }]
+      - checkpoint: true
+      - request: POST /posts
+        json: { author: ada, title: From YAML }
+        expect: { status: 201, json: { id: 1 } }
+      - changes:
+          posts: { inserted: [{ title: From YAML }] }

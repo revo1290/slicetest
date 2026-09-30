@@ -100,10 +100,12 @@ export interface AppOptions {
 
 export interface DbOptions {
   /**
-   * `postgres` (default) or `mysql`. Inferred from `url` when it starts with `mysql://`.
+   * `postgres` (default), `mysql` or `sqlite`. Inferred from `url` when it starts with `mysql://`.
    * MySQL needs the `mysql2` package, and `@testcontainers/mysql` unless `url` is given.
+   * SQLite needs Node.js 22.5+ and nothing else: no server, no container. The app gets
+   * `{{db.url}}` as `sqlite:///path/to/file.db` and `{{db.path}}` as the file path.
    */
-  engine?: "postgres" | "mysql";
+  engine?: "postgres" | "mysql" | "sqlite";
   /** Image used when no `url` is given. Default `postgres:17-alpine`, or `mysql:8.4` for MySQL. */
   image?: string;
   /**
@@ -204,9 +206,9 @@ function resolveDb(db: DbOptions): ResolvedOptions["db"] {
   const env = process.env.SLICETEST_DATABASE_URL || undefined;
   const engine = db.engine ?? (isMysql(db.url ?? env ?? "") ? "mysql" : "postgres");
   // The environment variable names one server for the whole CI job; a project on the other engine starts its own.
-  const url = db.url ?? (env && isMysql(env) === (engine === "mysql") ? env : undefined);
+  const url = engine === "sqlite" ? undefined : (db.url ?? (env && isMysql(env) === (engine === "mysql") ? env : undefined));
   return {
-    image: engine === "mysql" ? "mysql:8.4" : "postgres:17-alpine",
+    image: engine === "mysql" ? "mysql:8.4" : engine === "sqlite" ? "" : "postgres:17-alpine",
     schemas: ["public"],
     keep: [],
     ...db,
@@ -244,7 +246,8 @@ function validate(opts: SlicetestOptions) {
   }
   if (opts.mail !== undefined && typeof opts.mail !== "boolean") fail(`mail must be true or false, got ${JSON.stringify(opts.mail)}`);
   const engine = opts.db?.engine;
-  if (engine !== undefined && engine !== "postgres" && engine !== "mysql") fail(`db.engine must be "postgres" or "mysql", got ${JSON.stringify(engine)}`);
+  if (engine !== undefined && engine !== "postgres" && engine !== "mysql" && engine !== "sqlite") fail(`db.engine must be "postgres", "mysql" or "sqlite", got ${JSON.stringify(engine)}`);
+  if (engine === "sqlite" && opts.db?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");
   const migrate = opts.db?.migrate;
   if (migrate) {
     const keys = Object.keys(migrate).filter((k) => ["atlas", "sql", "command"].includes(k));

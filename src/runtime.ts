@@ -112,6 +112,7 @@ export class Runtime {
       const failed = started.find((r) => r.status === "rejected");
       if (failed) throw failed.reason;
       const vars: Record<string, string> = { "db.url": url };
+      if (engine.name === "sqlite") vars["db.path"] = (await import("./drivers/sqlite.js")).sqlitePath(url);
       if (opts.mail) {
         mailbox = await Mailbox.start();
         Object.assign(vars, { "mail.host": mailbox.host, "mail.port": String(mailbox.port), "mail.url": mailbox.url });

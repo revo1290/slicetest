@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- SQLite: `db: { engine: "sqlite" }` needs no server or container. Uses Node's built-in `node:sqlite` (22.5+): a migrated template copied per worker with `VACUUM INTO`, WAL mode so the app keeps its connection, resets with `DELETE` and restarted `AUTOINCREMENT` counters. The app gets `{{db.url}}` (`sqlite:///path`) and `{{db.path}}`.
 - `npx slicetest doctor`: checks the config, the container runtime or database server, migrations, seed, `atlas`, `mysql2`, the app's and services' programs, OpenAPI files and recordings before a run, with what to do for each problem. Exits with 1 when something must be fixed.
 - `http.concurrently(n, send)` releases `n` requests together to provoke races, and `toHaveStatuses({ 201: 1, 409: 9 })` checks how they were answered. YAML: `concurrency: n` on a `request` step with `expect.statuses`.
 - `mail: true`: an in-process SMTP server at `{{mail.host}}` / `{{mail.port}}` collects the mail the app sends, decoded (RFC 2047 subjects, quoted-printable, base64, multipart text/HTML) with its links extracted. `mail.messages()`, `mail.last()` and `mail.waitFor()` in scenarios, a `mail` step in YAML, the messages in failure output and in `trace()`. YAML `request` steps accept a captured URL (`GET {{link}}`).

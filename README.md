@@ -4,7 +4,7 @@
 
 Tests that sit between unit tests and end-to-end tests, for apps written in any language or framework.
 
-slicetest starts your app as a real process, points it at a real Postgres (or MySQL) and at stub servers for the services it calls, and lets you check all three sides in one scenario:
+slicetest starts your app as a real process, points it at a real Postgres (or MySQL, or SQLite) and at stub servers for the services it calls, and lets you check all three sides in one scenario:
 
 ```ts
 import { expect } from "vitest";
@@ -50,7 +50,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
 - **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
-- **Postgres or MySQL**, with the same scenarios and the same row types on both, plus Redis, MinIO or any other `containers` reset between scenarios.
+- **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
 ## Install
@@ -70,6 +70,19 @@ npm i -D mysql2 @testcontainers/mysql   # the second is only needed without db.u
 ```
 
 Everything works the same: `mysql:8.4` in a container, a migrated template cloned per worker (tables, foreign keys, views and triggers; stored routines are not copied), a `TRUNCATE` reset that only touches tables that were written to, and `db.*` helpers whose rows look like Postgres's (`BOOLEAN` as `true`/`false`, `BIGINT` ids as numbers, `DATETIME` in UTC). Only the SQL you write yourself differs: `?` placeholders in `db.query` and YAML `sql` steps. `db.schemas` defaults to the database in the URL. `SLICETEST_DATABASE_URL` is only used by projects on the same engine as its scheme, so a CI job can provide one Postgres server while a MySQL project starts its own container.
+
+### SQLite
+
+Set `db: { engine: "sqlite" }`. There's nothing to install and no container: slicetest uses Node's built-in `node:sqlite` (Node.js 22.5 or later), creates the database files in a temporary directory, migrates a template once and gives each worker a copy (`VACUUM INTO`). Point the app at the file:
+
+```ts
+slicetest({
+  app: { command: "python app.py", env: { PORT: "{{app.port}}", DATABASE_PATH: "{{db.path}}" } },
+  db: { engine: "sqlite", migrate: { sql: "schema.sql" } },
+});
+```
+
+`{{db.url}}` is `sqlite:///absolute/path.db` (the form SQLAlchemy, dj-database-url and many others read) and `{{db.path}}` the plain path. The files are in WAL mode, so the app keeps its connection while slicetest resets tables between scenarios (`DELETE` plus resetting `AUTOINCREMENT` counters, foreign keys off for that moment only). `db.changes()`, `trace()` and every other helper work the same; SQLite has no boolean type, so booleans you insert are stored and read back as `1` / `0`. Migrations with `sql`, `command` or Atlas (`sqlite://` URLs). `db.url`, `db.image` and `SLICETEST_DATABASE_URL` don't apply. With the default `reuse`, the migrated template stays in the system temp directory between runs.
 
 Works on macOS, Linux and Windows. On Windows the app's process tree is stopped with `taskkill /T`, and `app.command` / `db.migrate.command` run through `cmd.exe`.
 
@@ -425,7 +438,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
 | `app.readyTimeout` | `30000` | |
-| `db.engine` | `postgres`, or `mysql` for a `mysql://` URL | `postgres` or `mysql` (see [MySQL](#mysql)). |
+| `db.engine` | `postgres`, or `mysql` for a `mysql://` URL | `postgres`, `mysql` (see [MySQL](#mysql)) or `sqlite` (see [SQLite](#sqlite)). |
 | `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs? }` (gets `DATABASE_URL`). |
 | `db.seed` | none | SQL file re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |

@@ -11,6 +11,7 @@ export default defineConfig({
       "test/fixtures/containers/vitest.config.ts",
       "test/fixtures/mail/vitest.config.ts",
       "test/fixtures/race/vitest.config.ts",
+      "test/fixtures/sqlite/vitest.config.ts",
     ],
   },
 });

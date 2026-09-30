@@ -15,5 +15,6 @@ export async function engineFor(opts: Pick<ResolvedOptions, "db">): Promise<Engi
     });
     return mod.mysqlEngine;
   }
+  if (opts.db.engine === "sqlite") return (await import("./sqlite.js")).sqliteEngine;
   return postgres;
 }

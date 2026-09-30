@@ -26,7 +26,7 @@ export default async function setup(project: TestProject) {
   if (opts.db.url) {
     adminUrl = opts.db.url;
   } else {
-    configureContainerRuntime();
+    if (!engine.local) configureContainerRuntime();
     const container = await engine.startContainer(opts.db.image, opts.db.reuse);
     adminUrl = container.url;
     if (!opts.db.reuse) stopContainer = container.stop;
