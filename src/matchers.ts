@@ -10,6 +10,8 @@ interface SlicetestMatchers<R = unknown> {
   toHaveReceivedTimes(n: number, method?: string, path?: string | RegExp, match?: MatchOptions): R;
   /** The response has this status; the failure message shows the response body. */
   toHaveStatus(status: number): R;
+  /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`. */
+  toHaveStatuses(counts: Record<number, number>): R;
   /** Async: the table has at least one row matching `where` (`count` for an exact number). */
   toHaveRow(table: string, where?: Where, count?: number): Promise<void>;
 }
@@ -33,6 +35,25 @@ function describeCalls(calls: RecordedCall[]) {
 
 function assertStub(received: unknown): asserts received is Stub {
   if (!(received instanceof Stub)) throw new TypeError("slicetest: expected a stub, e.g. expect(stub(\"slack\"))");
+}
+
+export function statusCounts(responses: HttpResponse[]) {
+  const out: Record<number, number> = {};
+  for (const r of responses) out[r.status] = (out[r.status] ?? 0) + 1;
+  return out;
+}
+
+function fmtCounts(c: Record<number, number>) {
+  return `{ ${Object.entries(c).map(([k, n]) => `${k}: ${n}`).join(", ")} }`;
+}
+
+/** One example response per status, which is usually what explains the odd one out. */
+function describeResponses(responses: HttpResponse[]) {
+  const seen = new Map<number, HttpResponse>();
+  for (const r of responses) if (!seen.has(r.status)) seen.set(r.status, r);
+  return [...seen.values()]
+    .map((r) => `  ${r.status || "failed"}: ${r.method} ${r.url}  ${(r.text.length > 200 ? `${r.text.slice(0, 200)}…` : r.text).replace(/\s+/g, " ") || "(empty)"}`)
+    .join("\n");
 }
 
 expect.extend({
@@ -75,6 +96,21 @@ expect.extend({
       },
       actual: received?.status,
       expected: status,
+    };
+  },
+
+  toHaveStatuses(received: HttpResponse[], counts: Record<number, number>) {
+    if (!Array.isArray(received)) throw new TypeError("slicetest: toHaveStatuses expects an array of responses, e.g. from http.concurrently()");
+    const actual = statusCounts(received);
+    const expected = Object.fromEntries(Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => [Number(k), n]));
+    const pass = this.equals(actual, expected);
+    return {
+      pass,
+      message: () =>
+        `expected ${received.length} responses ${this.isNot ? "not " : ""}to have statuses ${fmtCounts(expected)}, got ${fmtCounts(actual)}\n` +
+        describeResponses(received),
+      actual,
+      expected,
     };
   },
 

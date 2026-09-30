@@ -48,6 +48,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
+- **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
 - **Postgres or MySQL**, with the same scenarios and the same row types on both, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
@@ -284,6 +285,7 @@ Registered automatically:
 
 ```ts
 expect(res).toHaveStatus(201);                                   // failure shows the response body
+expect(responses).toHaveStatuses({ 201: 1, 409: 9 });            // an array, e.g. from http.concurrently()
 expect(stub("slack")).toHaveReceived("POST", "/hook", { json: { text: "hi" } });
 expect(stub("slack")).toHaveReceivedTimes(1, "POST", "/hook");
 expect(stub("mail")).not.toHaveReceived("POST", "/send");
@@ -338,6 +340,20 @@ slicetest({
 ```
 
 `{{container.<name>}}` is `host:port`; `.host` and `.port` are there too. The container is ready when its port accepts connections, or when it prints `ready: { log }`. In a scenario, `container("cache").exec(["redis-cli", "GET", "hits"])` runs a command inside it and returns its stdout.
+
+### Races: many requests at once
+
+Double bookings, lost updates and duplicate charges only show up when requests overlap. `http.concurrently(n, send)` prepares `n` requests and releases them together, against the real database, and `toHaveStatuses` checks how they were answered:
+
+```ts
+scenario("ten people booking the same seat: one gets it", async ({ http, db }) => {
+  const responses = await http.concurrently(10, () => http.post("/bookings", { seat: 7 }));
+  expect(responses).toHaveStatuses({ 201: 1, 409: 9 });
+  await expect(db).toHaveRow("bookings", { seat: 7 }, 1);
+});
+```
+
+`send` gets the request's index, for variations. When the counts are off, the failure shows one response per status. In YAML, `concurrency: 10` on a `request` step does the same, with `expect: { statuses: { 201: 1, 409: 9 } }`.
 
 ### Mail: catch what the app sends
 
@@ -473,7 +489,7 @@ scenarios:
 | Step | Keys |
 |---|---|
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed), `when: { query, headers, json, body }`, one of `reply: { status, headers, body }` / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`. |
-| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture` |
+| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |

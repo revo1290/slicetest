@@ -67,6 +67,20 @@ export class HttpClient {
     return this.request("PATCH", path, body, opts);
   }
 
+  /**
+   * Run `send` `n` times at once and wait for every response, to provoke races
+   * (double bookings, lost updates). Pair with `toHaveStatuses({ 201: 1, 409: n - 1 })`
+   * and a check of the database. Requests are released together once all are prepared.
+   */
+  async concurrently(n: number, send: (i: number) => Promise<HttpResponse>): Promise<HttpResponse[]> {
+    if (!Number.isInteger(n) || n < 1) throw new Error(`slicetest: concurrently() needs a positive number of requests, got ${n}`);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const all = Promise.all(Array.from({ length: n }, (_, i) => gate.then(() => send(i))));
+    release();
+    return all;
+  }
+
   /** Strings, URLSearchParams, FormData, Blob and byte arrays are sent as-is; anything else is sent as JSON. */
   async request(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<HttpResponse> {
     const opts = merge(this.defaults, options);

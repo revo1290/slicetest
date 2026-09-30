@@ -180,6 +180,11 @@
             "follow": {
               "type": "boolean"
             },
+            "concurrency": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Send the request this many times at once, to provoke races. `expect` applies to every response"
+            },
             "expect": {
               "type": "object",
               "additionalProperties": false,
@@ -196,7 +201,18 @@
                 "json": {
                   "description": "Subset of the response JSON"
                 },
-                "text": {}
+                "text": {},
+                "statuses": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^\\d{3}$"
+                  },
+                  "additionalProperties": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "description": "With `concurrency`: how many responses have each status, e.g. { 201: 1, 409: 9 }"
+                }
               }
             },
             "capture": {

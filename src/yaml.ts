@@ -55,7 +55,9 @@ export interface RequestStep {
   form?: Record<string, unknown>;
   body?: string;
   follow?: boolean;
-  expect?: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown };
+  /** Send the request this many times at once. `expect` applies to every response; `statuses` counts them. */
+  concurrency?: number;
+  expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown };
   capture?: Record<string, string>;
 }
 
@@ -139,7 +141,7 @@ export interface MailStep {
 
 const KINDS = {
   stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
-  request: ["headers", "query", "json", "form", "body", "follow", "expect", "capture"],
+  request: ["headers", "query", "json", "form", "body", "follow", "concurrency", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
   db: ["where", "orderBy", "expect", "capture", "within"],
@@ -153,7 +155,7 @@ const KINDS = {
 type Kind = keyof typeof KINDS;
 
 const EXPECT_KEYS: Record<string, string[]> = {
-  request: ["status", "headers", "json", "text"],
+  request: ["status", "statuses", "headers", "json", "text"],
   sql: ["rows", "count"],
   db: ["rows", "count"],
 };
@@ -289,6 +291,17 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     case "request":
       call("request", REQUEST);
       if (["json", "form", "body"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / body");
+      if (raw.concurrency !== undefined && !(Number.isInteger(raw.concurrency) && (raw.concurrency as number) >= 1)) fail(at("concurrency"), "`concurrency` must be a positive whole number");
+      if (raw.concurrency !== undefined && raw.capture !== undefined) fail(at("capture"), "`capture` can't be used with `concurrency`: there is more than one response");
+      {
+        const statuses = (raw.expect as Record<string, unknown> | undefined)?.statuses;
+        if (statuses !== undefined) {
+          if (raw.concurrency === undefined) fail(at("expect"), "`expect.statuses` needs `concurrency`");
+          if (!statuses || typeof statuses !== "object" || Object.entries(statuses).some(([k, v]) => !/^\d{3}$/.test(k) || !Number.isInteger(v))) {
+            fail(at("expect"), "`expect.statuses` maps status codes to counts, e.g. { 201: 1, 409: 9 }");
+          }
+        }
+      }
       break;
     case "insert":
       if (!raw.rows || typeof raw.rows !== "object") fail(at("rows"), "an insert step needs `rows` (a mapping or a list of mappings)");

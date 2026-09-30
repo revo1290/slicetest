@@ -3,6 +3,7 @@ import { formatChanges } from "./db.js";
 import "./matchers.js";
 import type { ScenarioContext } from "./runtime.js";
 import { scenario } from "./scenario.js";
+import type { HttpResponse } from "./http.js";
 import type { MailFilter } from "./mail.js";
 import type { MatchOptions, RecordedCall, StubResponse } from "./stub.js";
 import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
@@ -40,7 +41,7 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
 }
 
 function describeStep(step: Step) {
-  if ("request" in step) return step.request;
+  if ("request" in step) return step.concurrency ? `${step.request} ×${step.concurrency}` : step.request;
   if ("stub" in step) return `stub ${step.stub} ${step.on}`;
   if ("received" in step) return `received ${step.received}${step.call ? ` ${step.call}` : ""}`;
   if ("insert" in step) return `insert ${step.insert}`;
@@ -159,15 +160,25 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
         : step.form !== undefined
           ? ctx.http.form(interpolate(step.form, vars) as Record<string, string>)
           : (interpolate(step.body, vars) as string | undefined);
-    const res = await ctx.http.request(method, path, body, opts);
     const e = step.expect;
-    if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as number);
-    if (e?.headers !== undefined) {
-      const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
-      check(Object.fromEntries(res.headers), expected, vars, "response headers");
+    const verify = (res: HttpResponse) => {
+      if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as number);
+      if (e?.headers !== undefined) {
+        const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
+        check(Object.fromEntries(res.headers), expected, vars, "response headers");
+      }
+      if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
+      if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
+    };
+    if (step.concurrency !== undefined) {
+      // Each request gets its own body: a URLSearchParams body can only be read once.
+      const all = await ctx.http.concurrently(step.concurrency, () => ctx.http.request(method, path, body instanceof URLSearchParams ? new URLSearchParams(body) : body, opts));
+      if (e?.statuses !== undefined) expect(all).toHaveStatuses(interpolate(e.statuses, vars) as Record<number, number>);
+      all.forEach(verify);
+      return;
     }
-    if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
-    if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
+    const res = await ctx.http.request(method, path, body, opts);
+    verify(res);
     capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers) }, vars);
     return;
   }

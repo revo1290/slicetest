@@ -60,6 +60,8 @@ scenarios:
         capture: { id: json.id }
       - request: POST /form
         form: { a: b }
+        concurrency: 5
+        expect: { statuses: { 201: 1, 409: 4 } }
       - request: POST /raw
         body: hello
       - insert: users
@@ -102,12 +104,20 @@ test("the schema and the parser both accept every documented step and option", (
 });
 
 test.each([
+  ["expect.statuses without concurrency", "scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { statuses: { 200: 1 } }\n"],
+  ["capture with concurrency", "scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        concurrency: 2\n        capture: { a: json.a }\n"],
+])("the parser rejects %s", (_, text) => {
+  expect(parserError(text)).toBeDefined();
+});
+
+test.each([
   ["an unknown step key", "scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        wat: 1\n"],
   ["an unknown step kind", "scenarios:\n  - name: a\n    steps:\n      - reqest: GET /\n"],
   ["an unknown scenario key", "scenarios:\n  - name: a\n    step: []\n"],
   ["an unknown top-level key", "scenario: []\n"],
   ["within on a request", "scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 10\n"],
   ["an unknown changes key", "scenarios:\n  - name: a\n    steps:\n      - changes: { t: { added: 1 } }\n"],
+  ["statuses that aren't status codes", "scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        concurrency: 2\n        expect: { statuses: { ok: 2 } }\n"],
   ["an unknown mail key", "scenarios:\n  - name: a\n    steps:\n      - mail: { subjct: Hi }\n"],
   ["checkpoint that isn't true", "scenarios:\n  - name: a\n    steps:\n      - checkpoint: yes please\n"],
 ])("the schema and the parser both reject %s", (_, text) => {
