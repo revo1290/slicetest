@@ -45,6 +45,7 @@ function describeStep(step: Step) {
   if ("db" in step) return `db ${step.db}`;
   if ("changes" in step) return "changes";
   if ("checkpoint" in step) return "checkpoint";
+  if ("snapshot" in step) return "snapshot";
   if ("log" in step) return `log ${step.from ? `from ${step.from} ` : ""}/${step.log}/`;
   return "sql";
 }
@@ -69,6 +70,11 @@ async function retry(within: number | undefined, fn: () => Promise<void>) {
 async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
   if ("checkpoint" in step) {
     await ctx.db.checkpoint();
+    return;
+  }
+
+  if ("snapshot" in step) {
+    expect(await ctx.trace({ keys: step.mask })).toMatchSnapshot();
     return;
   }
 

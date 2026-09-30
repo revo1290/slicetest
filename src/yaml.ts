@@ -24,7 +24,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep) & {
+export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep) & {
   line: number;
   name?: string;
 };
@@ -117,6 +117,13 @@ export interface CheckpointStep {
   checkpoint: true;
 }
 
+/** Compare the scenario's trace (requests, stub calls, database changes) with its stored snapshot. */
+export interface SnapshotStep {
+  snapshot: true;
+  /** Keys whose values are masked in addition to dates and UUIDs. */
+  mask?: string[];
+}
+
 const KINDS = {
   stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
   request: ["headers", "query", "json", "form", "body", "follow", "expect", "capture"],
@@ -127,6 +134,7 @@ const KINDS = {
   changes: ["within"],
   log: ["from", "within"],
   checkpoint: [],
+  snapshot: ["mask"],
 } as const;
 type Kind = keyof typeof KINDS;
 
@@ -218,6 +226,9 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     }
   } else if (kind === "checkpoint") {
     if (raw.checkpoint !== true) fail(at(kind), "use `checkpoint: true`");
+  } else if (kind === "snapshot") {
+    if (raw.snapshot !== true) fail(at(kind), "use `snapshot: true`");
+    if (raw.mask !== undefined && !(Array.isArray(raw.mask) && raw.mask.every((k) => typeof k === "string"))) fail(at("mask"), "`mask:` must be a list of keys, e.g. [token]");
   } else if (typeof raw[kind] !== "string" || !raw[kind]) fail(at(kind), `\`${kind}:\` must be a non-empty string`);
 
   const keysOf = (key: string, allowedKeys: string[]) => {

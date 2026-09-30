@@ -9,6 +9,7 @@ import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { OpenApiSpec } from "./openapi.js";
 import { Recorder } from "./recording.js";
 import { Stub, type RecordedCall } from "./stub.js";
+import { buildTrace, mask, type MaskOptions, type Trace } from "./trace.js";
 
 export interface ScenarioContext {
   http: HttpClient;
@@ -17,6 +18,11 @@ export interface ScenarioContext {
   app: App;
   /** A process from the `services` option: its `url`, `logs()` and `waitForLog()`. */
   service: (name: string) => App;
+  /**
+   * What the scenario did so far: requests to the app, calls to stubs and database changes,
+   * with timestamps and UUIDs masked. `expect(await trace()).toMatchSnapshot()`.
+   */
+  trace: (opts?: MaskOptions) => Promise<Trace>;
 }
 
 /** Everything one test file needs: its own database, stub servers and app process. */
@@ -129,6 +135,7 @@ export class Runtime {
         }
         return service;
       },
+      trace: async (opts) => mask(buildTrace(this.http.history, this.stubs.values(), await this.db.changesSinceStart()), opts),
     };
   }
 

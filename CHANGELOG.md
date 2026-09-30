@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `trace()` in the scenario context: the requests to the app, calls to stubs and database changes of the scenario so far, with dates and UUIDs masked, for `expect(await trace()).toMatchSnapshot()`. `mask()` is exported for other values. YAML: `snapshot: true`.
 - `npx slicetest gen`: scenario skeletons for every documented response of the app's OpenAPI spec, with requests built from the spec, ids captured from the collection's `POST`, and `skip: true` TODOs for states the test has to arrange. `--uncovered` only generates what the last run's coverage report marked ✗.
 - Recorded stubs: `{ name, upstream: "https://api.github.com" }` answers unrouted calls from `recordings/<name>.yaml`. `SLICETEST_RECORD=<name>` forwards the calls it has no recording for to the real service and records the answers, without request headers or noisy response headers. Works for apps in any language.
 - MySQL: `db: { engine: "mysql" }` (or a `mysql://` URL) runs the same scenarios against MySQL 8. Workers get a clone of the migrated template (tables, foreign keys, views, triggers), resets only truncate tables that were written to, and rows are typed like Postgres's so scenarios are portable. Needs `mysql2`, plus `@testcontainers/mysql` when no `db.url` is given.

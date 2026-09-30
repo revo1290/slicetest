@@ -102,3 +102,15 @@ scenarios:
     steps:
       - request: GET /polls/999
         expect: { status: 404 }
+
+  - name: 作成から投票までの流れ全体がスナップショットと一致する（YAML）
+    steps:
+      - stub: slack
+        on: POST /hook
+        reply: { status: 200, body: ok }
+      - request: POST /polls
+        json: { title: 右か左か, a: 右, b: 左 }
+        capture: { pollId: json.id }
+      - request: POST /polls/{{pollId}}/votes
+        json: { choice: a }
+      - snapshot: true

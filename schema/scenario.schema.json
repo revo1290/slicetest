@@ -501,6 +501,30 @@
               "description": "Label shown when this step fails"
             }
           }
+        },
+        {
+          "type": "object",
+          "required": [
+            "snapshot"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "snapshot": {
+              "const": true,
+              "description": "Compare this scenario's trace so far (requests to the app, calls to stubs, database changes; dates and UUIDs masked) with its stored snapshot. Update with vitest -u"
+            },
+            "mask": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Keys whose values are masked too, e.g. [token]"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            }
+          }
         }
       ]
     },

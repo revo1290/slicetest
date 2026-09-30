@@ -116,3 +116,13 @@ scenario("必須項目がない投票は 400 で、DBにもSlackにも何も起�
 scenario("存在しない投票は 404", async ({ http }) => {
   expect(await http.get("/polls/999")).toHaveStatus(404);
 });
+
+scenario("作成から投票までの流れ全体がスナップショットと一致する（Node と Python で同じ）", async ({ http, stub, trace }) => {
+  stub("slack").on("POST", "/hook").reply(200, "ok");
+
+  const { json } = await http.post("/polls", { title: "朝か夜か", a: "朝", b: "夜" });
+  await http.post(`/polls/${json.id}/votes`, { choice: "b" });
+  await http.get(`/polls/${json.id}`);
+
+  expect(await trace()).toMatchSnapshot();
+});

@@ -1,0 +1,55 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`作成から投票までの流れ全体がスナップショットと一致する（YAML） 1`] = `
+{
+  "db": {
+    "polls": {
+      "deleted": [],
+      "inserted": [
+        {
+          "id": 2,
+          "option_a": "右",
+          "option_b": "左",
+          "title": "右か左か",
+        },
+      ],
+      "updated": [],
+    },
+    "votes": {
+      "deleted": [],
+      "inserted": [
+        {
+          "choice": "a",
+          "id": 1,
+          "poll_id": 2,
+        },
+      ],
+      "updated": [],
+    },
+  },
+  "http": [
+    {
+      "body": {
+        "id": 2,
+      },
+      "request": "POST /polls",
+      "status": 201,
+    },
+    {
+      "request": "POST /polls/2/votes",
+      "status": 204,
+    },
+  ],
+  "stubs": {
+    "slack": [
+      {
+        "body": {
+          "text": "新しい投票: 右か左か（右 vs 左）",
+        },
+        "request": "POST /hook",
+        "status": 200,
+      },
+    ],
+  },
+}
+`;

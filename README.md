@@ -45,6 +45,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **One scenario, three boundaries.** Assert on the HTTP response, the rows in the real database and the calls to third-party APIs in the same test, in any language the app is written in.
 - **`db.changes()`**: a diff of every row the scenario inserted, updated or deleted. `toEqual` on it catches writes you didn't expect.
 - **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test.
+- **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
 - **Postgres or MySQL**, with the same scenarios and the same row types on both.
@@ -332,10 +333,28 @@ await expect.poll(() => db.count("jobs", { status: "done" })).toBe(1);
 
 In YAML, add `within: <ms>` to a `db`, `sql`, `received` or `changes` step.
 
+### Snapshot the whole scenario: `trace()`
+
+Because every scenario starts from the same database, ids and rows come out the same on every run. `trace()` returns everything the scenario did at the three boundaries: requests to the app with their responses, calls to each stub with the replies' statuses, and the database changes. Snapshot it, and a change in any of them shows up in review:
+
+```ts
+scenario("voting flow", async ({ http, stub, trace }) => {
+  stub("slack").on("POST", "/hook").reply(200, "ok");
+  const { json } = await http.post("/polls", { title: "Tea or coffee", a: "tea", b: "coffee" });
+  await http.post(`/polls/${json.id}/votes`, { choice: "b" });
+
+  expect(await trace()).toMatchSnapshot();
+});
+```
+
+Dates (`Date` values and ISO strings) become `[date]` and UUIDs `[uuid]`. Mask more with `trace({ keys: ["token"], patterns: [/^tok_/] })`, or use `mask(value, opts)` from `slicetest` on anything else. Update snapshots with `vitest -u`. In YAML, the step is `snapshot: true` (with `mask: [token]`).
+
+The example apps share one snapshot file: the Node and the Python implementation must produce the same trace, byte for byte.
+
 ### Scenarios
 
 ```ts
-scenario("name", async ({ http, db, stub, app }) => { ... }, timeoutMs?);
+scenario("name", async ({ http, db, stub, app, service, trace }) => { ... }, timeoutMs?);
 scenario.only / scenario.skip / scenario.todo
 scenario.each([{ choice: "a", status: 204 }, { choice: "x", status: 400 }])(
   "voting $choice returns $status",
@@ -424,6 +443,7 @@ scenarios:
 | `log: <regex>` | `from` (a service; default the app), `within` (ms, default 5000). Waits for a matching line printed during the scenario. |
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
+| `snapshot: true` | The scenario's [trace](#snapshot-the-whole-scenario-trace) so far must match its stored snapshot. `mask: [keys]` hides more values. |
 
 `db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously.
 

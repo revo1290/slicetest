@@ -82,6 +82,8 @@ scenarios:
         times: 1
         within: 100
       - checkpoint: true
+      - snapshot: true
+        mask: [token]
       - changes:
           users: { inserted: 1, updated: [{ name: b }], deleted: 0 }
         within: 100
