@@ -62,7 +62,7 @@ export class Runtime {
   }
 
   static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string }) {
-    const engine = engineFor(opts);
+    const engine = await engineFor(opts);
     const url = await ensureWorkerDatabase(engine, shared.adminUrl, shared.template, shared.prefix);
     const stubs = new Map<string, Stub>();
     const services = new Map<string, App>();

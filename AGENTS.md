@@ -7,7 +7,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
 - `src/` — the package. Entry points: `index.ts` (`slicetest`), `vitest.ts` (`slicetest/vitest`), `yaml.ts` (`slicetest/yaml`), `cli.ts` (the `slicetest` bin).
   - `scenario.ts`, `runtime.ts`, `setup-file.ts`, `global-setup.ts` — Vitest integration and per-run / per-worker / per-file lifecycle.
   - `app.ts` — starting, watching and restarting the app and `services`.
-  - `db.ts`, `drivers/` — the `db` helper. Everything Postgres-specific lives behind `Driver` in `drivers/driver.ts`; keep `db.ts` engine-agnostic.
+  - `db.ts`, `drivers/` — the `db` helper. Everything engine-specific lives behind `Driver` / `Engine` in `drivers/driver.ts` (`postgres.ts`, `mysql.ts`); keep `db.ts` engine-agnostic. `mysql2` is an optional peer dependency, loaded only when `db.engine` is `mysql`.
   - `stub.ts`, `http.ts`, `matchers.ts`, `openapi.ts` — stubs, the HTTP client, matchers, contract checks and coverage.
   - `yaml.ts`, `yaml-runtime.ts` — YAML scenario parsing and execution.
   - `init.ts` — `slicetest init` stack detection.
@@ -20,7 +20,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
 ```sh
 npm ci
 npm run typecheck
-npm test            # unit tests + both example apps + services fixture (needs Docker or Podman, Atlas, Python)
+npm test            # unit tests + both example apps + services and MySQL fixtures (needs Docker or Podman, Atlas, Python)
 npx vitest run --project unit   # unit tests only
 npm run test:dist   # build, then run the examples and the CLI against dist/
 ```

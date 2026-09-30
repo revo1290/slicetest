@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- MySQL: `db: { engine: "mysql" }` (or a `mysql://` URL) runs the same scenarios against MySQL 8. Workers get a clone of the migrated template (tables, foreign keys, views, triggers), resets only truncate tables that were written to, and rows are typed like Postgres's so scenarios are portable. Needs `mysql2`, plus `@testcontainers/mysql` when no `db.url` is given.
+
 ## 0.2.0
 
 - `autoReply: true` on a stub with an OpenAPI spec answers calls that no route matches from the spec: its examples, or values built from the schema. `stub.fallback(fn)` is the underlying API.

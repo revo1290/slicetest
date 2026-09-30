@@ -17,7 +17,7 @@ const exec = promisify(execFile);
 /** Runs once per vitest run: start the database server, migrate a template database, hand its location to the workers. */
 export default async function setup(project: TestProject) {
   const opts = project.getProvidedContext().slicetestOptions;
-  const engine = engineFor(opts);
+  const engine = await engineFor(opts);
   let adminUrl: string;
   let stopContainer: (() => Promise<unknown>) | undefined;
 

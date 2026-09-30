@@ -7,6 +7,7 @@ export default defineConfig({
       "examples/vitest.node.config.ts",
       "examples/vitest.python.config.ts",
       "test/fixtures/services/vitest.config.ts",
+      "test/fixtures/mysql/vitest.config.ts",
     ],
   },
 });

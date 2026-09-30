@@ -8,6 +8,7 @@
     "slice-test",
     "api-testing",
     "postgres",
+    "mysql",
     "stub",
     "mock-server",
     "vitest",
@@ -58,7 +59,9 @@
     "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
-    "vitest": ">=5"
+    "vitest": ">=5",
+    "mysql2": ">=3",
+    "@testcontainers/mysql": ">=11"
   },
   "dependencies": {
     "@testcontainers/postgresql": "^12.2.0",
@@ -69,12 +72,22 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@testcontainers/mysql": "^12.2.0",
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",
+    "mysql2": "^3.24.5",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
   },
   "bin": {
     "slicetest": "dist/cli.js"
+  },
+  "peerDependenciesMeta": {
+    "mysql2": {
+      "optional": true
+    },
+    "@testcontainers/mysql": {
+      "optional": true
+    }
   }
 }

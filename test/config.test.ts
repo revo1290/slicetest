@@ -20,6 +20,7 @@ test.each([
   [{ ...valid, stubs: ["slack.hook"] }, 'stub name "slack.hook"'],
   [{ ...valid, stubs: ["a", "a"] }, 'stub "a" is declared twice'],
   [{ ...valid, stubs: [{ name: "mail", autoReply: true }] }, 'stub "mail": autoReply needs an openapi spec'],
+  [{ ...valid, db: { engine: "sqlite" } }, 'db.engine must be "postgres" or "mysql", got "sqlite"'],
 ])("rejects %j", (opts, message) => {
   expect(() => resolveOptions(opts as SlicetestOptions, "/")).toThrow(message);
 });
@@ -40,5 +41,26 @@ test("reuses the container by default, except in CI or with an existing server",
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
+  }
+});
+
+test("picks the engine from db.engine or the URL, and only uses SLICETEST_DATABASE_URL for the same engine", () => {
+  const saved = process.env.SLICETEST_DATABASE_URL;
+  try {
+    delete process.env.SLICETEST_DATABASE_URL;
+    expect(resolveOptions(valid, "/").db).toMatchObject({ engine: "postgres", image: "postgres:17-alpine" });
+    expect(resolveOptions({ ...valid, db: { engine: "mysql" } }, "/").db).toMatchObject({ engine: "mysql", image: "mysql:8.4" });
+    expect(resolveOptions({ ...valid, db: { url: "mysql://root:x@h/db" } }, "/").db.engine).toBe("mysql");
+
+    process.env.SLICETEST_DATABASE_URL = "postgres://ci/postgres";
+    expect(resolveOptions(valid, "/").db.url).toBe("postgres://ci/postgres");
+    expect(resolveOptions({ ...valid, db: { engine: "mysql" } }, "/").db.url).toBeUndefined();
+
+    process.env.SLICETEST_DATABASE_URL = "mysql://root:x@ci/mysql";
+    expect(resolveOptions(valid, "/").db).toMatchObject({ engine: "mysql", url: "mysql://root:x@ci/mysql" });
+    expect(resolveOptions({ ...valid, db: { engine: "postgres" } }, "/").db.url).toBeUndefined();
+  } finally {
+    if (saved === undefined) delete process.env.SLICETEST_DATABASE_URL;
+    else process.env.SLICETEST_DATABASE_URL = saved;
   }
 });

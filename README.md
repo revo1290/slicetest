@@ -4,7 +4,7 @@
 
 Tests that sit between unit tests and end-to-end tests, for apps written in any language or framework.
 
-slicetest starts your app as a real process, points it at a real Postgres and at stub servers for the services it calls, and lets you check all three sides in one scenario:
+slicetest starts your app as a real process, points it at a real Postgres (or MySQL) and at stub servers for the services it calls, and lets you check all three sides in one scenario:
 
 ```ts
 import { expect } from "vitest";
@@ -55,6 +55,16 @@ npm i -D slicetest vitest
 ```
 
 You also need Docker or Podman. slicetest finds a running Podman machine on its own (on Windows too). Alternatively, pass `db.url` or set `SLICETEST_DATABASE_URL` to use an existing Postgres server, for example a CI service container.
+
+### MySQL
+
+Set `db: { engine: "mysql" }` (or give a `mysql://` URL) and install the driver:
+
+```sh
+npm i -D mysql2 @testcontainers/mysql   # the second is only needed without db.url
+```
+
+Everything works the same: `mysql:8.4` in a container, a migrated template cloned per worker (tables, foreign keys, views and triggers; stored routines are not copied), a `TRUNCATE` reset that only touches tables that were written to, and `db.*` helpers whose rows look like Postgres's (`BOOLEAN` as `true`/`false`, `BIGINT` ids as numbers, `DATETIME` in UTC). Only the SQL you write yourself differs: `?` placeholders in `db.query` and YAML `sql` steps. `db.schemas` defaults to the database in the URL. `SLICETEST_DATABASE_URL` is only used by projects on the same engine as its scheme, so a CI job can provide one Postgres server while a MySQL project starts its own container.
 
 Works on macOS, Linux and Windows. On Windows the app's process tree is stopped with `taskkill /T`, and `app.command` / `db.migrate.command` run through `cmd.exe`.
 
@@ -324,12 +334,13 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
 | `app.readyTimeout` | `30000` | |
+| `db.engine` | `postgres`, or `mysql` for a `mysql://` URL | `postgres` or `mysql` (see [MySQL](#mysql)). |
 | `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs? }` (gets `DATABASE_URL`). |
 | `db.seed` | none | SQL file re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |
 | `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
-| `db.image` | `postgres:17-alpine` | |
+| `db.image` | `postgres:17-alpine` / `mysql:8.4` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi }` to check calls and replies against the provider's spec. |
@@ -437,4 +448,4 @@ npm run test:dist   # the built package, and the CLI with examples/slicetest.con
 
 ## Status
 
-Early. Postgres only. CI runs on Linux and Windows. Planned: MySQL.
+Early. Postgres and MySQL. CI runs on Linux and Windows.

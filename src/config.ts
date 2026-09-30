@@ -57,10 +57,15 @@ export interface AppOptions {
 }
 
 export interface DbOptions {
-  /** Postgres image used when no `url` is given. Default `postgres:17-alpine`. */
+  /**
+   * `postgres` (default) or `mysql`. Inferred from `url` when it starts with `mysql://`.
+   * MySQL needs the `mysql2` package, and `@testcontainers/mysql` unless `url` is given.
+   */
+  engine?: "postgres" | "mysql";
+  /** Image used when no `url` is given. Default `postgres:17-alpine`, or `mysql:8.4` for MySQL. */
   image?: string;
   /**
-   * Use an existing Postgres server instead of starting a container. Must point at a superuser-capable database.
+   * Use an existing server instead of starting a container. Must point at a superuser (root) connection.
    * Defaults to the `SLICETEST_DATABASE_URL` environment variable, which is handy in CI.
    */
   url?: string;
@@ -98,7 +103,7 @@ export interface ResolvedOptions {
   root: string;
   app: Omit<AppOptions, "ready"> & { ready: ResolvedReady };
   services: Record<string, ResolvedProcess>;
-  db: Required<Pick<DbOptions, "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "image" | "schemas" | "keep" | "reuse">;
+  db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
   openapi: { app?: string; minCoverage?: number; stubs: Record<string, string>; autoReply: string[] };
@@ -131,12 +136,17 @@ function resolveReady(ready: NonNullable<AppOptions["ready"]>): ResolvedReady {
 }
 
 function resolveDb(db: DbOptions): ResolvedOptions["db"] {
-  const url = db.url ?? (process.env.SLICETEST_DATABASE_URL || undefined);
+  const isMysql = (u: string) => /^mysql:/i.test(u);
+  const env = process.env.SLICETEST_DATABASE_URL || undefined;
+  const engine = db.engine ?? (isMysql(db.url ?? env ?? "") ? "mysql" : "postgres");
+  // The environment variable names one server for the whole CI job; a project on the other engine starts its own.
+  const url = db.url ?? (env && isMysql(env) === (engine === "mysql") ? env : undefined);
   return {
-    image: "postgres:17-alpine",
+    image: engine === "mysql" ? "mysql:8.4" : "postgres:17-alpine",
     schemas: ["public"],
     keep: [],
     ...db,
+    engine,
     url,
     reuse: db.reuse ?? (!url && !process.env.CI),
   };
@@ -159,6 +169,8 @@ function validate(opts: SlicetestOptions) {
     if (!s || typeof s.command !== "string" || !s.command.trim()) fail(`services.${name}.command is required`);
     checkReady(s.ready, `services.${name}`);
   }
+  const engine = opts.db?.engine;
+  if (engine !== undefined && engine !== "postgres" && engine !== "mysql") fail(`db.engine must be "postgres" or "mysql", got ${JSON.stringify(engine)}`);
   const migrate = opts.db?.migrate;
   if (migrate) {
     const keys = Object.keys(migrate).filter((k) => ["atlas", "sql", "command"].includes(k));

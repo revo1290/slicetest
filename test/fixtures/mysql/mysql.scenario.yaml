@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../../schema/scenario.schema.json
+scenarios:
+  - name: YAML scenarios work against MySQL
+    steps:
+      - request: POST /posts
+        json: { authorId: 1, title: From YAML }
+        expect: { status: 201 }
+      - sql: SELECT title, published FROM posts WHERE author_id = ?
+        params: [1]
+        expect:
+          rows: [{ title: From YAML, published: false }]
+      - changes:
+          posts: { inserted: [{ title: From YAML }] }
+          audit: { inserted: 1 }
