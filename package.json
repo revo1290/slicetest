@@ -1,6 +1,6 @@
 {
   "name": "slicetest",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Framework-agnostic slice tests: drive a real app process over HTTP with a real Postgres and stubbed outbound APIs, checked against OpenAPI contracts.",
   "keywords": [
     "testing",
