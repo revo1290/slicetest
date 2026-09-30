@@ -5,3 +5,4 @@ __pycache__
 *.log
 .claude/settings.local.json
 CLAUDE.local.md
+test/fixtures/record/recorded/

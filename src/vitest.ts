@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { configDefaults } from "vitest/config";
 import { resolveOptions, type SlicetestOptions } from "./config.js";
+import { SESSION_ENV } from "./record.js";
 import { parseScenarioFile } from "./yaml.js";
 
 /** YAML scenario files are picked up next to the regular test files. */
@@ -21,7 +22,8 @@ export function slicetest(options: SlicetestOptions): Plugin {
       const root = path.resolve(config.root ?? process.cwd());
       // Mutated rather than returned: a returned list would replace Vitest's default include instead of extending it.
       const test = ((config as { test?: { include?: string[] } }).test ??= {});
-      test.include = [...(test.include ?? configDefaults.include), YAML_SCENARIOS];
+      // `slicetest record` runs only its session file.
+      if (!process.env[SESSION_ENV]) test.include = [...(test.include ?? configDefaults.include), YAML_SCENARIOS];
       return {
         test: {
           globalSetup: [path.join(here, `global-setup${ext}`)],

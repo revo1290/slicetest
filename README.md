@@ -48,6 +48,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
+- **Record instead of write.** `npx slicetest record` puts a proxy in front of the app: click through a flow, press Enter, and get a replayable YAML scenario with the stubs' answers, the responses, captured ids and the database changes.
 - **Readable in CI.** On GitHub Actions, failing YAML steps are annotated in the pull request on the line that failed, and the job summary shows the OpenAPI coverage table.
 - **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
@@ -553,6 +554,28 @@ npx slicetest gen --uncovered     # only the documented responses the last run d
 writes `scenarios/<resource>.gen.scenario.yaml` with one scenario per documented response. Requests are built from the spec's examples and schemas. A path that needs an id gets a step that creates the resource first through the collection's `POST` and captures its id. A 404 on a made-up id and a 400/422 on an empty body are runnable as is; other responses are generated as `skip: true` scenarios marked TODO, so the skipped list in the test output is what's left to cover. Existing files are kept unless you pass `--force`.
 
 `--uncovered` reads the coverage the last run left in `node_modules/.cache/slicetest/`, which closes the loop: run, look at the ✗ in the coverage table, `gen --uncovered`, fill in the TODOs.
+
+### Record a scenario by using the app: `npx slicetest record`
+
+The fastest way to a first scenario is to do the thing once. `record` starts the database, the stubs and the app exactly as a test run would, plus a proxy in front of the app:
+
+```
+$ npx slicetest record
+Recording. Use the app through http://127.0.0.1:52301 (it forwards to http://127.0.0.1:52288).
+Everything it does is captured: responses, calls to stubs, database changes.
+Press Enter (or Ctrl+C) to finish and write the scenario.
+
+Wrote scenarios/recorded-20261001-091500.scenario.yaml: 3 request(s), 1 stub route(s), changes in polls, votes.
+Replay it with: npx slicetest scenarios/recorded-20261001-091500.scenario.yaml
+```
+
+Point a browser, curl, Postman or a mobile build at the proxy URL and go through the flow. The scenario it writes has:
+
+- a `stub` step for every answer a stubbed service gave (from `autoReply`, or a real service with `upstream` and `SLICETEST_RECORD`), so the replay needs neither;
+- a `request` step per request with the status and body to expect, where dates and UUIDs only have to be strings, and a `capture` for any value that a later request reuses (`POST /orders` → `GET /orders/{{id}}`);
+- `received` steps for the calls the app made to stubs, and a closing `changes` step with the rows written per table.
+
+Requests for scripts, styles and images are left out. The file starts with a comment of what to review: it is a starting point, and the assertions that matter to you are yours to tighten. `--out` names the file, `--port` fixes the proxy's port.
 
 ### On GitHub Actions
 

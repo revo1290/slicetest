@@ -12,6 +12,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
   - `yaml.ts`, `yaml-runtime.ts` — YAML scenario parsing and execution.
   - `init.ts` — `slicetest init` stack detection. `gen.ts` — `slicetest gen` scenarios from OpenAPI. `doctor.ts` — `slicetest doctor` environment checks (machine access goes through its `Probes`, so tests fake it).
   - `recording.ts` — recorded stubs (`upstream`, `SLICETEST_RECORD`).
+  - `record.ts`, `record-session.ts`, `record-cli.ts` — `slicetest record`: the proxy and scenario builder, the one-scenario test file the session runs as, and the CLI side. `test/record-dist.mjs` checks the round trip against `dist/`.
   - `ci.ts` — GitHub Actions annotations and job summary (failed YAML steps are collected from workers in a temp dir and printed by `global-setup.ts`).
   - `mail.ts` — the in-process SMTP server and MIME decoding behind `mail: true`.
 - `schema/scenario.schema.json` — JSON Schema for `*.scenario.yaml`. Published with the package.

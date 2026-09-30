@@ -2,6 +2,7 @@
 
 ## 0.4.0
 
+- `npx slicetest record`: starts the app, database and stubs with a proxy in front of the app; use the app through it (a browser, curl), press Enter, and get a YAML scenario: `stub` steps with the answers the services gave, `request` steps with the responses to expect (dates and UUIDs matched by type), captures for values later requests reuse, `received` steps and a `changes` step. Static files are left out.
 - GitHub Actions: failing YAML steps are annotated on their line in the `.scenario.yaml` file, and the job summary gets the failed steps and the OpenAPI coverage table (✅ / ❌ per documented response). Coverage below `minCoverage` is annotated on the spec. No configuration.
 - `slicetest init` detects more: mail catchers in compose (Mailpit, MailHog, …) and mail libraries turn on `mail`; SQLite from Prisma, Rails, Django or a driver, with `DATABASE_URL` in the framework's form; third-party API URLs in `.env.example` become stubs with `upstream` for recording, and the app's variables point at them.
 - SQLite: `db: { engine: "sqlite" }` needs no server or container. Uses Node's built-in `node:sqlite` (22.5+): a migrated template copied per worker with `VACUUM INTO`, WAL mode so the app keeps its connection, resets with `DELETE` and restarted `AUTOINCREMENT` counters. The app gets `{{db.url}}` (`sqlite:///path`) and `{{db.path}}`.

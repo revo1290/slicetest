@@ -17,6 +17,7 @@ const HELP = `Usage: slicetest [filters...] [options]
        slicetest init [--force]
        slicetest gen [--spec <file>] [--out <dir>] [--uncovered] [--force]
        slicetest doctor [--config <file>]
+       slicetest record [--out <file>] [--port <n>]
 
 Runs *.scenario.yaml files against your app, as configured in slicetest.config.yaml.
 \`slicetest init\` looks at the project and writes a starting config and scenario.
@@ -24,6 +25,8 @@ Runs *.scenario.yaml files against your app, as configured in slicetest.config.y
 app's OpenAPI spec; with --uncovered, only for those the last run didn't produce.
 \`slicetest doctor\` checks the config, the container runtime or database server,
 migrations, commands and spec files, and says what to fix.
+\`slicetest record\` starts everything and a proxy in front of the app: use the app
+through it (a browser, curl), press Enter, and get the session as a YAML scenario.
 
 Options:
   -c, --config <file>  Config file (default: ${CONFIG_NAMES.join(" / ")} in the current directory)
@@ -31,6 +34,8 @@ Options:
   -t, --name <pattern> Only run scenarios whose name matches
       --spec <file>    gen: OpenAPI file (default: \`openapi\` from the config)
       --out <dir>      gen: where to write scenarios (default: scenarios)
+                       record: the scenario file (default: scenarios/recorded-<time>.scenario.yaml)
+      --port <n>       record: the proxy's port (default: any free port)
       --uncovered      gen: only responses the last run didn't cover
       --force          init, gen: overwrite existing files
   -h, --help           Show this help
@@ -64,6 +69,7 @@ export async function main(argv = process.argv.slice(2)) {
       spec: { type: "string" },
       out: { type: "string" },
       uncovered: { type: "boolean" },
+      port: { type: "string" },
     },
   });
   if (values.help) {
@@ -110,6 +116,11 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
   const { include, ...options } = (parse(await readFile(configPath, "utf8")) ?? {}) as CliConfig;
+  if (positionals[0] === "record") {
+    const { record } = await import("./record-cli.js");
+    await record(configPath, options, { out: values.out, port: values.port ? Number(values.port) : 0 });
+    return;
+  }
 
   const { startVitest } = await import("vitest/node");
   const { slicetest, YAML_SCENARIOS } = await import("./vitest.js");

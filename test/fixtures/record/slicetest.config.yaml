@@ -1,0 +1,13 @@
+# `slicetest record` round trip (test/record-dist.mjs): the example polls app, with the Slack stub answering from its spec.
+app:
+  command: node ../../../examples/node-api/server.mjs
+  env:
+    PORT: "{{app.port}}"
+    DATABASE_URL: "{{db.url}}"
+    SLACK_WEBHOOK_URL: "{{stub.slack}}/hook"
+  ready: { path: /health }
+db:
+  migrate: { sql: ../../../examples/migrations/20260929000000_init.sql }
+  seed: ../../../examples/seed.sql
+stubs:
+  - { name: slack, openapi: ../../../examples/slack.openapi.yaml, autoReply: true }
