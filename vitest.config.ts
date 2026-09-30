@@ -8,6 +8,7 @@ export default defineConfig({
       "examples/vitest.python.config.ts",
       "test/fixtures/services/vitest.config.ts",
       "test/fixtures/mysql/vitest.config.ts",
+      "test/fixtures/containers/vitest.config.ts",
     ],
   },
 });

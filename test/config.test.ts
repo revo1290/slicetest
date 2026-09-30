@@ -20,6 +20,10 @@ test.each([
   [{ ...valid, stubs: ["slack.hook"] }, 'stub name "slack.hook"'],
   [{ ...valid, stubs: ["a", "a"] }, 'stub "a" is declared twice'],
   [{ ...valid, stubs: [{ name: "mail", autoReply: true }] }, 'stub "mail": autoReply needs an openapi spec'],
+  [{ ...valid, containers: { cache: { port: 6379 } } }, "containers.cache.image is required"],
+  [{ ...valid, containers: { cache: { image: "redis", port: "6379" } } }, "containers.cache.port must be the port"],
+  [{ ...valid, containers: { cache: { image: "redis", port: 6379, reset: "redis-cli FLUSHALL" } } }, "containers.cache.reset must be a list of strings"],
+  [{ ...valid, containers: { "a.b": { image: "redis", port: 6379 } } }, 'container name "a.b"'],
   [{ ...valid, db: { engine: "sqlite" } }, 'db.engine must be "postgres" or "mysql", got "sqlite"'],
 ])("rejects %j", (opts, message) => {
   expect(() => resolveOptions(opts as SlicetestOptions, "/")).toThrow(message);

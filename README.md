@@ -48,7 +48,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
-- **Postgres or MySQL**, with the same scenarios and the same row types on both.
+- **Postgres or MySQL**, with the same scenarios and the same row types on both, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
 ## Install
@@ -322,6 +322,22 @@ scenario("uploading an image queues a thumbnail job", async ({ http, db, service
 
 `waitForLog(pattern, timeout = 5000)` resolves with the matching line and also works on `app`. In YAML: `- log: thumbnail \d+ done` with `from: worker` and `within: <ms>`.
 
+### Containers: Redis, search, S3 and other dependencies
+
+Anything else the app talks to can run as a container next to the database. Each test file gets its own, and `reset` runs inside it before every scenario, like the database's `TRUNCATE`:
+
+```ts
+slicetest({
+  containers: {
+    cache: { image: "redis:7-alpine", port: 6379, reset: ["redis-cli", "FLUSHALL"] },
+    s3: { image: "minio/minio", port: 9000, command: ["server", "/data"], env: { MINIO_ROOT_USER: "test", MINIO_ROOT_PASSWORD: "testtest" } },
+  },
+  app: { command: "node server.js", env: { REDIS_URL: "redis://{{container.cache}}", S3_ENDPOINT: "http://{{container.s3}}" } },
+});
+```
+
+`{{container.<name>}}` is `host:port`; `.host` and `.port` are there too. The container is ready when its port accepts connections, or when it prints `ready: { log }`. In a scenario, `container("cache").exec(["redis-cli", "GET", "hits"])` runs a command inside it and returns its stdout.
+
 ### Asynchronous side effects
 
 If the app does work in the background (a job queue, a fire-and-forget webhook), wait for the effect with Vitest's own helpers. slicetest doesn't need its own:
@@ -354,7 +370,7 @@ The example apps share one snapshot file: the Node and the Python implementation
 ### Scenarios
 
 ```ts
-scenario("name", async ({ http, db, stub, app, service, trace }) => { ... }, timeoutMs?);
+scenario("name", async ({ http, db, stub, app, service, container, trace }) => { ... }, timeoutMs?);
 scenario.only / scenario.skip / scenario.todo
 scenario.each([{ choice: "a", status: 204 }, { choice: "x", status: 400 }])(
   "voting $choice returns $status",
@@ -381,6 +397,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
 | `db.image` | `postgres:17-alpine` / `mysql:8.4` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
+| `containers` | `{}` | Dependencies as containers: `{ name: { image, port, env?, command?, ready?: { log }, reset? } }`. See [Containers](#containers-redis-search-s3-and-other-dependencies). |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings? }`: check calls against the provider's spec, answer from it, or [replay recordings](#recording-a-real-service) of the real service. |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |

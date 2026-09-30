@@ -37,6 +37,7 @@ Config (paths are relative to the config file):
   db:       { migrate: { atlas: { dir } } | { sql } | { command, inputs }, engine, seed, url, image, schemas, keep, reuse }
   stubs:    [name | { name, openapi, autoReply, upstream, recordings }]
   services: { name: { command, env, cwd, ready } }
+  containers: { name: { image, port, env, command, ready: { log }, reset } }
   openapi:  file | { spec, minCoverage }
   http:     { headers, query }
   include:  [globs]  default ["**/*.scenario.{yaml,yml}"]

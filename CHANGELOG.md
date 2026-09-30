@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `containers`: dependencies such as Redis, Elasticsearch or MinIO, started per test file and reset between scenarios with a command run inside them (`reset: ["redis-cli", "FLUSHALL"]`). Reachable at `{{container.<name>}}`; `container(name).exec()` runs commands in them.
 - `trace()` in the scenario context: the requests to the app, calls to stubs and database changes of the scenario so far, with dates and UUIDs masked, for `expect(await trace()).toMatchSnapshot()`. `mask()` is exported for other values. YAML: `snapshot: true`.
 - `npx slicetest gen`: scenario skeletons for every documented response of the app's OpenAPI spec, with requests built from the spec, ids captured from the collection's `POST`, and `skip: true` TODOs for states the test has to arrange. `--uncovered` only generates what the last run's coverage report marked ✗.
 - Recorded stubs: `{ name, upstream: "https://api.github.com" }` answers unrouted calls from `recordings/<name>.yaml`. `SLICETEST_RECORD=<name>` forwards the calls it has no recording for to the real service and records the answers, without request headers or noisy response headers. Works for apps in any language.

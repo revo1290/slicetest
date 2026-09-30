@@ -28,6 +28,25 @@ export interface SlicetestOptions {
    * usable in `app.env` and in the env of services declared after them.
    */
   services?: Record<string, ServiceOptions>;
+  /**
+   * Containers the app depends on besides the database: Redis, Elasticsearch,
+   * MinIO, LocalStack. Each test file gets its own, reachable at
+   * `{{container.<name>}}` (`host:port`), `{{container.<name>.host}}` and
+   * `{{container.<name>.port}}`. `reset` runs inside it before every scenario.
+   */
+  containers?: Record<string, ContainerOptions>;
+}
+
+export interface ContainerOptions {
+  image: string;
+  /** The port the service listens on inside the container. */
+  port: number;
+  env?: Record<string, string>;
+  command?: string[];
+  /** Wait for this log line instead of the port accepting connections. */
+  ready?: { log: string };
+  /** Command run inside the container before each scenario, e.g. `["redis-cli", "FLUSHALL"]`. */
+  reset?: string[];
 }
 
 export interface StubOptions {
@@ -120,6 +139,7 @@ export interface ResolvedOptions {
   root: string;
   app: Omit<AppOptions, "ready"> & { ready: ResolvedReady };
   services: Record<string, ResolvedProcess>;
+  containers: Record<string, ContainerOptions>;
   db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
@@ -137,6 +157,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     services: Object.fromEntries(
       Object.entries(opts.services ?? {}).map(([name, s]) => [name, { ...s, ready: s.ready && resolveReady(s.ready) }]),
     ),
+    containers: opts.containers ?? {},
     db: resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
     openapi: {
@@ -203,6 +224,15 @@ function validate(opts: SlicetestOptions) {
     if (!/^[\w-]+$/.test(name)) fail(`service name "${name}" may only contain letters, digits, "_" and "-"`);
     if (!s || typeof s.command !== "string" || !s.command.trim()) fail(`services.${name}.command is required`);
     checkReady(s.ready, `services.${name}`);
+  }
+  for (const [name, c] of Object.entries(opts.containers ?? {})) {
+    if (!/^[\w-]+$/.test(name)) fail(`container name "${name}" may only contain letters, digits, "_" and "-"`);
+    if (!c || typeof c.image !== "string" || !c.image) fail(`containers.${name}.image is required, e.g. "redis:7-alpine"`);
+    if (!Number.isInteger(c.port) || c.port <= 0) fail(`containers.${name}.port must be the port the service listens on inside the container, e.g. 6379`);
+    for (const key of ["command", "reset"] as const) {
+      const v = c[key];
+      if (v !== undefined && !(Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string"))) fail(`containers.${name}.${key} must be a list of strings, e.g. ["redis-cli", "FLUSHALL"]`);
+    }
   }
   const engine = opts.db?.engine;
   if (engine !== undefined && engine !== "postgres" && engine !== "mysql") fail(`db.engine must be "postgres" or "mysql", got ${JSON.stringify(engine)}`);

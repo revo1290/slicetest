@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { App } from "./app.js";
 import type { ResolvedOptions } from "./config.js";
+import { Dependency } from "./containers.js";
 import { Db, formatChanges } from "./db.js";
 import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
@@ -18,6 +19,8 @@ export interface ScenarioContext {
   app: App;
   /** A process from the `services` option: its `url`, `logs()` and `waitForLog()`. */
   service: (name: string) => App;
+  /** A container from the `containers` option: its `host`, `port`, `address` and `exec()`. */
+  container: (name: string) => Dependency;
   /**
    * What the scenario did so far: requests to the app, calls to stubs and database changes,
    * with timestamps and UUIDs masked. `expect(await trace()).toMatchSnapshot()`.
@@ -44,6 +47,7 @@ export class Runtime {
     private readonly coverageDir?: string,
     private readonly recorders = new Map<string, Recorder>(),
     private readonly recordDir?: string,
+    readonly containers = new Map<string, Dependency>(),
   ) {
     this.#http = this.#client();
   }
@@ -75,6 +79,7 @@ export class Runtime {
     const url = await ensureWorkerDatabase(engine, shared.adminUrl, shared.template, shared.prefix);
     const stubs = new Map<string, Stub>();
     const recorders = new Map<string, Recorder>();
+    const containers = new Map<string, Dependency>();
     const services = new Map<string, App>();
     let db: Db | undefined;
     try {
@@ -98,7 +103,15 @@ export class Runtime {
         keep: opts.db.keep,
         seedFile: opts.db.seed && path.resolve(opts.root, opts.db.seed),
       });
+      const started = await Promise.allSettled(Object.entries(opts.containers).map(async ([name, c]) => containers.set(name, await Dependency.start(name, c))));
+      const failed = started.find((r) => r.status === "rejected");
+      if (failed) throw failed.reason;
       const vars: Record<string, string> = { "db.url": url };
+      for (const [name, c] of containers) {
+        vars[`container.${name}`] = c.address;
+        vars[`container.${name}.host`] = c.host;
+        vars[`container.${name}.port`] = String(c.port);
+      }
       for (const [name, stub] of stubs) vars[`stub.${name}`] = stub.url;
       for (const [name, service] of Object.entries(opts.services)) {
         const started = await App.start(service, opts.root, vars, `service.${name}`);
@@ -107,11 +120,12 @@ export class Runtime {
         vars[`service.${name}.port`] = String(started.port);
       }
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
       await Promise.all([...stubs.values()].map((s) => s.close()));
+      await Promise.allSettled([...containers.values()].map((c) => c.stop()));
       throw e;
     }
   }
@@ -134,6 +148,11 @@ export class Runtime {
           throw new Error(`slicetest: unknown service "${name}". Declared services: ${[...this.services.keys()].join(", ") || "(none)"}`);
         }
         return service;
+      },
+      container: (name) => {
+        const c = this.containers.get(name);
+        if (!c) throw new Error(`slicetest: unknown container "${name}". Declared containers: ${[...this.containers.keys()].join(", ") || "(none)"}`);
+        return c;
       },
       trace: async (opts) => mask(buildTrace(this.http.history, this.stubs.values(), await this.db.changesSinceStart()), opts),
     };
@@ -160,6 +179,7 @@ export class Runtime {
     await this.db.reset();
     for (const stub of this.stubs.values()) stub.reset();
     for (const recorder of this.recorders.values()) recorder.reset();
+    await Promise.all([...this.containers.values()].map((c) => c.reset()));
     this.http.reset();
     for (const p of this.#processes()) p.beginScenario();
   }
@@ -260,6 +280,7 @@ export class Runtime {
       ...[...this.services.values()].map((s) => s.stop()),
       this.db.close(),
       ...[...this.stubs.values()].map((s) => s.close()),
+      ...[...this.containers.values()].map((c) => c.stop()),
     ]);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) throw failed.reason;
