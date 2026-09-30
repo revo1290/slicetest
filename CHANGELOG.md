@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `slicetest init` reads docker compose: the database service sets `db.image` / `db.engine`, and Redis, Valkey, Mongo, Elasticsearch, MinIO, RabbitMQ and other services become `containers`, with reset commands and app variables where known. A MySQL driver in the dependencies also selects MySQL.
 - `containers`: dependencies such as Redis, Elasticsearch or MinIO, started per test file and reset between scenarios with a command run inside them (`reset: ["redis-cli", "FLUSHALL"]`). Reachable at `{{container.<name>}}`; `container(name).exec()` runs commands in them.
 - `trace()` in the scenario context: the requests to the app, calls to stubs and database changes of the scenario so far, with dates and UUIDs masked, for `expect(await trace()).toMatchSnapshot()`. `mask()` is exported for other values. YAML: `snapshot: true`.
 - `npx slicetest gen`: scenario skeletons for every documented response of the app's OpenAPI spec, with requests built from the spec, ids captured from the collection's `POST`, and `skip: true` TODOs for states the test has to arrange. `--uncovered` only generates what the last run's coverage report marked ✗.

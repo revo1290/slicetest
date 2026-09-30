@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
+import { resolveOptions } from "../src/config.js";
 import { detect, init } from "../src/init.js";
 
 async function project(files: Record<string, string>) {
@@ -59,4 +60,56 @@ test("init writes a config with the detections as comments, and refuses to overw
   expect(parse(text)).toMatchObject({ app: { command: "npm start", env: { PORT: "{{app.port}}" } }, db: { migrate: { sql: "schema.sql" } } });
   await expect(init(root)).rejects.toThrow("already exists. Use --force to overwrite.");
   await expect(init(root, { force: true })).resolves.toBeDefined();
+});
+
+test("reads docker compose: the database image, and other services as containers with a reset", async () => {
+  const compose = `
+services:
+  app:
+    build: .
+  db:
+    image: postgis/postgis:17-3.5
+    ports: ["5432:5432"]
+  cache:
+    image: valkey/valkey:8
+  search:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+  storage:
+    image: minio/minio
+    command: server /data
+    environment: { MINIO_ROOT_USER: test }
+  mail:
+    image: axllent/mailpit
+    ports: ["127.0.0.1:8025:8025/tcp", "1025:1025"]
+  worker-only:
+    image: busybox
+`;
+  const { config, notes } = await detect(await project({ "package.json": JSON.stringify({ scripts: { start: "node ." } }), "compose.yaml": compose }));
+  expect(config.db).toEqual({ image: "postgis/postgis:17-3.5" });
+  expect(config.containers).toEqual({
+    cache: { image: "valkey/valkey:8", port: 6379, reset: ["valkey-cli", "FLUSHALL"] },
+    search: { image: "docker.elastic.co/elasticsearch/elasticsearch:8.15.0", port: 9200, env: { "discovery.type": "single-node", "xpack.security.enabled": "false" } },
+    storage: { image: "minio/minio", port: 9000, command: ["server", "/data"], env: { MINIO_ROOT_USER: "test" } },
+    mail: { image: "axllent/mailpit", port: 8025 },
+  });
+  // What init writes is a valid config.
+  expect(() => resolveOptions(config, "/")).not.toThrow();
+  expect(config.app.env).toMatchObject({ REDIS_URL: "redis://{{container.cache}}", ELASTICSEARCH_URL: "http://{{container.search}}", S3_ENDPOINT: "http://{{container.storage}}" });
+  expect(notes).toEqual(
+    expect.arrayContaining([
+      'compose.yaml: service "app" is built from source; if it\'s the app, app.command replaces it',
+      'compose.yaml: service "worker-only" (busybox) exposes no port; skipped',
+      "containers.mail: axllent/mailpit (compose.yaml), at {{container.mail}}. Add `reset` to empty it between scenarios",
+    ]),
+  );
+});
+
+test("a MySQL service or driver switches the engine", async () => {
+  const fromCompose = await detect(await project({ "docker-compose.yml": "services:\n  db:\n    image: mysql:8.4\n" }));
+  expect(fromCompose.config.db).toEqual({ engine: "mysql", image: "mysql:8.4" });
+  const fromDeps = await detect(await project({ "package.json": JSON.stringify({ scripts: { start: "node ." }, dependencies: { mysql2: "^3" } }) }));
+  expect(fromDeps.config.db).toEqual({ engine: "mysql" });
 });

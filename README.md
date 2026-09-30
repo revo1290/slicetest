@@ -38,7 +38,7 @@ npx slicetest init   # detects your stack, writes slicetest.config.yaml and a fi
 npx slicetest        # starts Postgres, migrates, starts your app, runs scenarios/*.scenario.yaml
 ```
 
-`init` recognises Node (`npm start`), Django, FastAPI, Flask, Rails, Go and Rust apps; Atlas, Prisma, Alembic, Django, Rails, Drizzle, Knex and plain SQL migrations; and an `openapi.yaml`. It lists every guess as a comment in the config so you know what to check.
+`init` recognises Node (`npm start`), Django, FastAPI, Flask, Rails, Go and Rust apps; Atlas, Prisma, Alembic, Django, Rails, Drizzle, Knex and plain SQL migrations; and an `openapi.yaml`. If there's a `compose.yaml` / `docker-compose.yml`, its database service sets `db.image` (and `db.engine: mysql` for MySQL or MariaDB), and Redis, Valkey, Mongo, Elasticsearch, MinIO, RabbitMQ and other services with a port become [`containers`](#containers-redis-search-s3-and-other-dependencies), with a reset command where one is known and the usual variable (`REDIS_URL`, `S3_ENDPOINT`, …) passed to the app. It lists every guess as a comment in the config so you know what to check.
 
 ## What you get that's hard to find elsewhere
 
