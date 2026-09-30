@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - GitHub Actions: failing YAML steps are annotated on their line in the `.scenario.yaml` file, and the job summary gets the failed steps and the OpenAPI coverage table (✅ / ❌ per documented response). Coverage below `minCoverage` is annotated on the spec. No configuration.
 - `slicetest init` detects more: mail catchers in compose (Mailpit, MailHog, …) and mail libraries turn on `mail`; SQLite from Prisma, Rails, Django or a driver, with `DATABASE_URL` in the framework's form; third-party API URLs in `.env.example` become stubs with `upstream` for recording, and the app's variables point at them.
