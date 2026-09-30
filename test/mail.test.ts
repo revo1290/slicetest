@@ -128,7 +128,8 @@ m["To"] = "花子 <hanako@example.com>"
 m["Subject"] = "パスワードの再設定"
 m.set_content("再設定はこちら: http://127.0.0.1:3000/reset/xyz\\n")
 m.add_alternative('<p><a href="http://127.0.0.1:3000/reset/xyz">再設定</a></p>', subtype="html")
-with smtplib.SMTP("127.0.0.1", int(sys.argv[1])) as s:
+# local_hostname: otherwise EHLO looks up the machine's FQDN, which can take seconds on Windows.
+with smtplib.SMTP("127.0.0.1", int(sys.argv[1]), local_hostname="test") as s:
     s.login("user", "secret")
     s.send_message(m)
 `;
@@ -136,4 +137,4 @@ with smtplib.SMTP("127.0.0.1", int(sys.argv[1])) as s:
   const mail = await box.waitFor({ to: "hanako@example.com" });
   expect(mail).toMatchObject({ from: "noreply@example.com", subject: "パスワードの再設定", text: "再設定はこちら: http://127.0.0.1:3000/reset/xyz" });
   expect(mail.links).toEqual(["http://127.0.0.1:3000/reset/xyz"]);
-});
+}, 30_000);

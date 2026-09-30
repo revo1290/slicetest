@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { doctor, formatChecks, type Probes } from "../src/doctor.js";
 
 const healthy: Probes = {
@@ -19,6 +19,12 @@ async function project(config: string, files: Record<string, string> = {}) {
   }
   return path.join(dir, "slicetest.config.yaml");
 }
+
+// The Windows CI job sets SLICETEST_DATABASE_URL, which the config picks up; these tests choose their own.
+beforeEach(() => {
+  vi.stubEnv("SLICETEST_DATABASE_URL", "");
+  return () => vi.unstubAllEnvs();
+});
 
 const summary = (checks: Awaited<ReturnType<typeof doctor>>) => checks.map((c) => `${c.status} ${c.label}`);
 
@@ -75,6 +81,7 @@ test("an invalid config stops there, with the validation message", async () => {
 
 test("a database server given by URL is connected to instead of looking for a container runtime", async () => {
   let tried = "";
+  vi.stubEnv("SLICETEST_DATABASE_URL", "postgres://postgres:secret@db:5432/postgres");
   const checks = await doctor(await project("app: { command: ./run.sh }\ndb: { migrate: { sql: schema.sql } }\n", { "schema.sql": "" }), {
     ...healthy,
     database: async (_, url) => {
