@@ -35,6 +35,12 @@ export interface SlicetestOptions {
    * `{{container.<name>.port}}`. `reset` runs inside it before every scenario.
    */
   containers?: Record<string, ContainerOptions>;
+  /**
+   * Catch the mail the app sends. An SMTP server (no TLS, any credentials)
+   * listens at `{{mail.host}}` / `{{mail.port}}` (`{{mail.url}}` is `smtp://host:port`);
+   * scenarios read what arrived with `mail.messages()` / `mail.waitFor()`.
+   */
+  mail?: boolean;
 }
 
 export interface ContainerOptions {
@@ -140,6 +146,7 @@ export interface ResolvedOptions {
   app: Omit<AppOptions, "ready"> & { ready: ResolvedReady };
   services: Record<string, ResolvedProcess>;
   containers: Record<string, ContainerOptions>;
+  mail: boolean;
   db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
@@ -158,6 +165,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
       Object.entries(opts.services ?? {}).map(([name, s]) => [name, { ...s, ready: s.ready && resolveReady(s.ready) }]),
     ),
     containers: opts.containers ?? {},
+    mail: opts.mail ?? false,
     db: resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
     openapi: {
@@ -234,6 +242,7 @@ function validate(opts: SlicetestOptions) {
       if (v !== undefined && !(Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string"))) fail(`containers.${name}.${key} must be a list of strings, e.g. ["redis-cli", "FLUSHALL"]`);
     }
   }
+  if (opts.mail !== undefined && typeof opts.mail !== "boolean") fail(`mail must be true or false, got ${JSON.stringify(opts.mail)}`);
   const engine = opts.db?.engine;
   if (engine !== undefined && engine !== "postgres" && engine !== "mysql") fail(`db.engine must be "postgres" or "mysql", got ${JSON.stringify(engine)}`);
   const migrate = opts.db?.migrate;

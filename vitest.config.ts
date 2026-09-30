@@ -9,6 +9,7 @@ export default defineConfig({
       "test/fixtures/services/vitest.config.ts",
       "test/fixtures/mysql/vitest.config.ts",
       "test/fixtures/containers/vitest.config.ts",
+      "test/fixtures/mail/vitest.config.ts",
     ],
   },
 });

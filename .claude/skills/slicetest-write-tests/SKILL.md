@@ -60,6 +60,7 @@ scenarios:
 - For background work use `vi.waitFor` / `expect.poll` (YAML: `within: <ms>`), or `service("worker").waitForLog(/.../)` (YAML: `log:`). Never add fixed sleeps.
 - Don't reset the database or clear stubs yourself; slicetest does it before every scenario. Don't use `.concurrent`.
 - Every call the app makes to a stub must match a registered route (or `autoReply`), otherwise the scenario fails with a 501.
+- When the config has `mail: true`, check the mail the app sends with `await mail.waitFor({ to, subject })` (YAML: `mail:` step) and follow `links[0]` instead of reading tokens from the database.
 - If `openapi` has `minCoverage`, add scenarios for the documented statuses the coverage table marks with ✗.
 
 ## Running

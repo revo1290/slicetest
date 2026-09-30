@@ -3,6 +3,7 @@ import { formatChanges } from "./db.js";
 import "./matchers.js";
 import type { ScenarioContext } from "./runtime.js";
 import { scenario } from "./scenario.js";
+import type { MailFilter } from "./mail.js";
 import type { MatchOptions, RecordedCall, StubResponse } from "./stub.js";
 import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
 
@@ -24,7 +25,8 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
   for (const [i, step] of steps.entries()) {
     try {
       // A log step waits by itself; `within` is its timeout.
-      await retry("within" in step && !("log" in step) ? step.within : undefined, () => runStep(step, ctx, vars));
+      // Log and mail steps wait by themselves; `within` is their timeout.
+      await retry("within" in step && !("log" in step) && !("mail" in step) ? step.within : undefined, () => runStep(step, ctx, vars));
     } catch (e) {
       const label = step.name ?? describeStep(step);
       const where = `${doc.file}:${step.line} (${sc.name}, step ${i + 1}: ${label})`;
@@ -46,6 +48,7 @@ function describeStep(step: Step) {
   if ("changes" in step) return "changes";
   if ("checkpoint" in step) return "checkpoint";
   if ("snapshot" in step) return "snapshot";
+  if ("mail" in step) return `mail${Object.entries(step.mail).map(([k, v]) => ` ${k}: ${JSON.stringify(v)}`).join(",")}`;
   if ("log" in step) return `log ${step.from ? `from ${step.from} ` : ""}/${step.log}/`;
   return "sql";
 }
@@ -81,6 +84,26 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
   if ("log" in step) {
     const target = step.from ? ctx.service(step.from) : ctx.app;
     await target.waitForLog(new RegExp(interpolate(step.log, vars) as string), step.within ?? 5000);
+    return;
+  }
+
+  if ("mail" in step) {
+    const filter = Object.fromEntries(
+      Object.entries(interpolate(step.mail, vars) as Record<string, unknown>).map(([k, v]) => {
+        const re = v && typeof v === "object" && "$regex" in v ? new RegExp(String((v as { $regex: unknown }).$regex)) : undefined;
+        return [k, re ?? String(v)];
+      }),
+    ) as MailFilter;
+    const box = ctx.mail;
+    await retry(step.within ?? 5000, async () => {
+      const found = box.messages(filter);
+      if (step.times === undefined ? found.length === 0 : found.length !== step.times) {
+        const want = step.times === undefined ? "at least one message" : `${step.times} message(s)`;
+        throw new Error(`expected ${want} matching ${JSON.stringify(step.mail)}, got ${found.length}\n${box.describe()}`);
+      }
+    });
+    const last = box.last(filter);
+    if (last) capture(step.capture, last as unknown as Record<string, unknown>, vars);
     return;
   }
 

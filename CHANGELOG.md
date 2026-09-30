@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `mail: true`: an in-process SMTP server at `{{mail.host}}` / `{{mail.port}}` collects the mail the app sends, decoded (RFC 2047 subjects, quoted-printable, base64, multipart text/HTML) with its links extracted. `mail.messages()`, `mail.last()` and `mail.waitFor()` in scenarios, a `mail` step in YAML, the messages in failure output and in `trace()`. YAML `request` steps accept a captured URL (`GET {{link}}`).
+
 ## 0.3.0
 
 - `slicetest init` reads docker compose: the database service sets `db.image` / `db.engine`, and Redis, Valkey, Mongo, Elasticsearch, MinIO, RabbitMQ and other services become `containers`, with reset commands and app variables where known. A MySQL driver in the dependencies also selects MySQL.

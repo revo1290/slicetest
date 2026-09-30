@@ -90,6 +90,10 @@ scenarios:
       - log: "done \\\\d+"
         from: worker
         within: 100
+      - mail: { to: a@example.com, from: b@example.com, subject: Hi, text: { $regex: "code \\\\d+" }, html: ok }
+        times: 1
+        within: 100
+        capture: { link: links.0 }
 `;
 
 test("the schema and the parser both accept every documented step and option", () => {
@@ -104,6 +108,7 @@ test.each([
   ["an unknown top-level key", "scenario: []\n"],
   ["within on a request", "scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 10\n"],
   ["an unknown changes key", "scenarios:\n  - name: a\n    steps:\n      - changes: { t: { added: 1 } }\n"],
+  ["an unknown mail key", "scenarios:\n  - name: a\n    steps:\n      - mail: { subjct: Hi }\n"],
   ["checkpoint that isn't true", "scenarios:\n  - name: a\n    steps:\n      - checkpoint: yes please\n"],
 ])("the schema and the parser both reject %s", (_, text) => {
   expect(parserError(text)).toBeDefined();

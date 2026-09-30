@@ -525,6 +525,138 @@
               "description": "Label shown when this step fails"
             }
           }
+        },
+        {
+          "type": "object",
+          "required": [
+            "mail"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "mail": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The app sent mail matching these fields (needs `mail: true` in the config). to/from are exact addresses; subject/text/html are substrings. {} matches any message",
+              "properties": {
+                "to": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "$regex"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "$regex": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "from": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "$regex"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "$regex": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "subject": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "$regex"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "$regex": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "text": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "$regex"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "$regex": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "html": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "$regex"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "$regex": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "times": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Exact number of matching messages. Default: at least one"
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Milliseconds to wait. Default 5000"
+            },
+            "capture": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Values of the last matching message: subject, text, html, from, to.0, links.0"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            }
+          }
         }
       ]
     },

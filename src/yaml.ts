@@ -24,7 +24,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep) & {
+export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
   line: number;
   name?: string;
 };
@@ -124,6 +124,19 @@ export interface SnapshotStep {
   mask?: string[];
 }
 
+/**
+ * The app sent mail matching `mail:` (strings are exact addresses for to/from and substrings
+ * otherwise; `{ $regex }` also works). Waits up to `within` ms (default 5000). `capture` reads
+ * the last match: `subject`, `text`, `links.0`.
+ */
+export interface MailStep {
+  mail: { to?: unknown; from?: unknown; subject?: unknown; text?: unknown; html?: unknown };
+  /** Exact number of matching messages. Default: at least one. */
+  times?: number;
+  within?: number;
+  capture?: Record<string, string>;
+}
+
 const KINDS = {
   stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
   request: ["headers", "query", "json", "form", "body", "follow", "expect", "capture"],
@@ -135,6 +148,7 @@ const KINDS = {
   log: ["from", "within"],
   checkpoint: [],
   snapshot: ["mask"],
+  mail: ["times", "within", "capture"],
 } as const;
 type Kind = keyof typeof KINDS;
 
@@ -144,10 +158,13 @@ const EXPECT_KEYS: Record<string, string[]> = {
   db: ["rows", "count"],
 };
 const CONDITION_KEYS = ["query", "headers", "json", "body"];
+const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];
 const RESPONSE_KEYS = ["status", "headers", "body"];
 const SCENARIO_KEYS = ["name", "steps", "each", "skip", "only", "timeout"];
 const CALL = /^([A-Za-z]+|\*)\s+(\/\S*)$/;
+/** A request may also go to a captured URL of the app, e.g. a link from a mail: `GET {{link}}`. */
+const REQUEST = /^[A-Za-z]+\s+(\/\S*|\{\{[^}]+\}\}\S*)$/;
 
 export class YamlScenarioError extends Error {}
 
@@ -224,6 +241,10 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
         if (!Array.isArray(v) && !(typeof v === "number" && v >= 0)) fail(at(kind), `${table}.${k} must be a count or a list of rows`);
       }
     }
+  } else if (kind === "mail") {
+    const filter = raw.mail;
+    if (!filter || typeof filter !== "object" || Array.isArray(filter)) fail(at(kind), "`mail:` must be a mapping such as { to: alice@example.com, subject: Welcome } ({} for any)");
+    for (const k of Object.keys(filter as object)) if (!MAIL_KEYS.includes(k)) fail(at(kind), `unknown key "${k}" in mail (allowed: ${MAIL_KEYS.join(", ")})`);
   } else if (kind === "checkpoint") {
     if (raw.checkpoint !== true) fail(at(kind), "use `checkpoint: true`");
   } else if (kind === "snapshot") {
@@ -239,8 +260,8 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       if (!allowedKeys.includes(k)) fail(at(key), `unknown key "${k}" in ${key} (allowed: ${allowedKeys.join(", ")})`);
     }
   };
-  const call = (key: string) => {
-    if (raw[key] !== undefined && !CALL.test(String(raw[key]))) fail(at(key), `\`${key}\` must look like "POST /path", got "${raw[key]}"`);
+  const call = (key: string, pattern = CALL) => {
+    if (raw[key] !== undefined && !pattern.test(String(raw[key]))) fail(at(key), `\`${key}\` must look like "POST /path", got "${raw[key]}"`);
   };
   if (raw.within !== undefined && (typeof raw.within !== "number" || raw.within <= 0)) fail(at("within"), "`within` must be a positive number of milliseconds");
   const number = (key: string) => {
@@ -266,7 +287,7 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       break;
     }
     case "request":
-      call("request");
+      call("request", REQUEST);
       if (["json", "form", "body"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / body");
       break;
     case "insert":
@@ -282,6 +303,9 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       break;
     case "received":
       call("call");
+      number("times");
+      break;
+    case "mail":
       number("times");
       break;
   }

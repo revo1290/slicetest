@@ -1,5 +1,6 @@
 import type { Changes } from "./db.js";
 import type { HttpResponse } from "./http.js";
+import type { Mailbox } from "./mail.js";
 import type { Stub } from "./stub.js";
 
 /**
@@ -12,6 +13,8 @@ export interface Trace {
   http: { request: string; status: number; body?: unknown }[];
   stubs: Record<string, { request: string; body?: unknown; status?: number }[]>;
   db: Changes;
+  /** Mail the app sent, when the `mail` option is on. */
+  mail?: { from: string; to: string[]; subject: string; text: string }[];
 }
 
 export interface MaskOptions {
@@ -49,7 +52,7 @@ export function mask<T>(value: T, opts: MaskOptions = {}): T {
   return walk(value) as T;
 }
 
-export function buildTrace(history: readonly HttpResponse[], stubs: Iterable<Stub>, db: Changes): Trace {
+export function buildTrace(history: readonly HttpResponse[], stubs: Iterable<Stub>, db: Changes, mailbox?: Mailbox): Trace {
   const trace: Trace = {
     http: history.map((r) => {
       const url = new URL(r.url, "http://app");
@@ -71,5 +74,6 @@ export function buildTrace(history: readonly HttpResponse[], stubs: Iterable<Stu
       };
     });
   }
+  if (mailbox) trace.mail = mailbox.messages().map((m) => ({ from: m.from, to: m.to, subject: m.subject, text: m.text }));
   return trace;
 }

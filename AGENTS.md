@@ -12,6 +12,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
   - `yaml.ts`, `yaml-runtime.ts` — YAML scenario parsing and execution.
   - `init.ts` — `slicetest init` stack detection. `gen.ts` — `slicetest gen` scenarios from OpenAPI.
   - `recording.ts` — recorded stubs (`upstream`, `SLICETEST_RECORD`).
+  - `mail.ts` — the in-process SMTP server and MIME decoding behind `mail: true`.
 - `schema/scenario.schema.json` — JSON Schema for `*.scenario.yaml`. Published with the package.
 - `test/` — unit tests; `test/fixtures/` holds small apps used to test failure modes, contracts and services.
 - `examples/` — a Node and a Python app with the same API. The same scenarios run against both.

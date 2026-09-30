@@ -7,6 +7,7 @@ import { Dependency } from "./containers.js";
 import { Db, formatChanges } from "./db.js";
 import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
+import { Mailbox } from "./mail.js";
 import { OpenApiSpec } from "./openapi.js";
 import { Recorder } from "./recording.js";
 import { Stub, type RecordedCall } from "./stub.js";
@@ -26,6 +27,8 @@ export interface ScenarioContext {
    * with timestamps and UUIDs masked. `expect(await trace()).toMatchSnapshot()`.
    */
   trace: (opts?: MaskOptions) => Promise<Trace>;
+  /** Mail the app sent during the scenario. Needs `mail: true` in the config. */
+  mail: Mailbox;
 }
 
 /** Everything one test file needs: its own database, stub servers and app process. */
@@ -48,6 +51,7 @@ export class Runtime {
     private readonly recorders = new Map<string, Recorder>(),
     private readonly recordDir?: string,
     readonly containers = new Map<string, Dependency>(),
+    readonly mailbox?: Mailbox,
   ) {
     this.#http = this.#client();
   }
@@ -82,6 +86,7 @@ export class Runtime {
     const containers = new Map<string, Dependency>();
     const services = new Map<string, App>();
     let db: Db | undefined;
+    let mailbox: Mailbox | undefined;
     try {
       // Loaded first: a broken spec should fail before anything is started.
       const specs = {
@@ -107,6 +112,10 @@ export class Runtime {
       const failed = started.find((r) => r.status === "rejected");
       if (failed) throw failed.reason;
       const vars: Record<string, string> = { "db.url": url };
+      if (opts.mail) {
+        mailbox = await Mailbox.start();
+        Object.assign(vars, { "mail.host": mailbox.host, "mail.port": String(mailbox.port), "mail.url": mailbox.url });
+      }
       for (const [name, c] of containers) {
         vars[`container.${name}`] = c.address;
         vars[`container.${name}.host`] = c.host;
@@ -120,17 +129,19 @@ export class Runtime {
         vars[`service.${name}.port`] = String(started.port);
       }
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
       await Promise.all([...stubs.values()].map((s) => s.close()));
       await Promise.allSettled([...containers.values()].map((c) => c.stop()));
+      await mailbox?.close();
       throw e;
     }
   }
 
   context(): ScenarioContext {
+    const mailbox = this.mailbox;
     return {
       http: this.http,
       db: this.db,
@@ -154,7 +165,11 @@ export class Runtime {
         if (!c) throw new Error(`slicetest: unknown container "${name}". Declared containers: ${[...this.containers.keys()].join(", ") || "(none)"}`);
         return c;
       },
-      trace: async (opts) => mask(buildTrace(this.http.history, this.stubs.values(), await this.db.changesSinceStart()), opts),
+      trace: async (opts) => mask(buildTrace(this.http.history, this.stubs.values(), await this.db.changesSinceStart(), this.mailbox), opts),
+      get mail(): Mailbox {
+        if (!mailbox) throw new Error("slicetest: mail is off. Add `mail: true` to the config and point the app's SMTP settings at {{mail.host}} / {{mail.port}}.");
+        return mailbox;
+      },
     };
   }
 
@@ -179,6 +194,7 @@ export class Runtime {
     await this.db.reset();
     for (const stub of this.stubs.values()) stub.reset();
     for (const recorder of this.recorders.values()) recorder.reset();
+    this.mailbox?.reset();
     await Promise.all([...this.containers.values()].map((c) => c.reset()));
     this.http.reset();
     for (const p of this.#processes()) p.beginScenario();
@@ -257,6 +273,7 @@ export class Runtime {
     } catch (e) {
       sections.push(`database changes during this scenario: unavailable (${(e as Error).message})`);
     }
+    if (this.mailbox) sections.push(this.mailbox.describe());
     const logs = this.app.scenarioLogs();
     sections.push(logs ? `app output during this scenario:\n${logs}` : "app output during this scenario: (none)");
     for (const [name, service] of this.services) {
@@ -281,6 +298,7 @@ export class Runtime {
       this.db.close(),
       ...[...this.stubs.values()].map((s) => s.close()),
       ...[...this.containers.values()].map((c) => c.stop()),
+      this.mailbox?.close(),
     ]);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) throw failed.reason;

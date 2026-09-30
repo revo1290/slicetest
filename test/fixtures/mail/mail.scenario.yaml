@@ -1,0 +1,11 @@
+scenarios:
+  - name: yaml mail step waits for the message and captures its link
+    steps:
+      - request: POST /signup
+        query: { email: carol@example.com }
+        expect: { status: 202 }
+      - mail: { to: carol@example.com, subject: { $regex: "^Confirm" } }
+        times: 1
+        capture: { link: links.0 }
+      - request: GET {{link}}
+        expect: { text: confirmed tok123 }

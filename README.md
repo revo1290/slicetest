@@ -48,6 +48,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
+- **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
 - **Postgres or MySQL**, with the same scenarios and the same row types on both, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
@@ -338,6 +339,25 @@ slicetest({
 
 `{{container.<name>}}` is `host:port`; `.host` and `.port` are there too. The container is ready when its port accepts connections, or when it prints `ready: { log }`. In a scenario, `container("cache").exec(["redis-cli", "GET", "hits"])` runs a command inside it and returns its stdout.
 
+### Mail: catch what the app sends
+
+`mail: true` starts an SMTP server for the app to send to (plain SMTP, no TLS, any username and password accepted). Point the app's mail settings at it, and read what arrived in the scenario, already decoded (encoded subjects, quoted-printable and base64 parts, multipart text and HTML):
+
+```ts
+slicetest({
+  mail: true,
+  app: { command: "node server.js", env: { SMTP_HOST: "{{mail.host}}", SMTP_PORT: "{{mail.port}}" } },
+});
+
+scenario("sign-up sends a confirmation link that works", async ({ http, mail }) => {
+  await http.post("/signup", { json: { email: "alice@example.com" } });
+  const message = await mail.waitFor({ to: "alice@example.com", subject: "Confirm" });
+  expect((await http.get(message.links[0]!)).status).toBe(200);
+});
+```
+
+`mail.messages(filter?)`, `mail.last(filter?)` and `mail.waitFor(filter?, { within })` take `{ to, from, subject, text, html }`: addresses match exactly, other strings as substrings, and RegExps test the value. Each message has `from`, `to` (the envelope, so Cc and Bcc too), `subject`, `text`, `html`, `headers`, `links` and `raw`. The mailbox is emptied before each scenario, what was sent shows up in the failure output and in `trace()`, and `{{mail.url}}` is `smtp://host:port` for libraries that take a URL. No container is involved, so it works the same for apps in any language and on Windows.
+
 ### Asynchronous side effects
 
 If the app does work in the background (a job queue, a fire-and-forget webhook), wait for the effect with Vitest's own helpers. slicetest doesn't need its own:
@@ -398,6 +418,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.image` | `postgres:17-alpine` / `mysql:8.4` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
 | `containers` | `{}` | Dependencies as containers: `{ name: { image, port, env?, command?, ready?: { log }, reset? } }`. See [Containers](#containers-redis-search-s3-and-other-dependencies). |
+| `mail` | `false` | Start an SMTP server at `{{mail.host}}` / `{{mail.port}}` and collect the app's mail. See [Mail](#mail-catch-what-the-app-sends). |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings? }`: check calls against the provider's spec, answer from it, or [replay recordings](#recording-a-real-service) of the real service. |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
@@ -460,10 +481,12 @@ scenarios:
 | `log: <regex>` | `from` (a service; default the app), `within` (ms, default 5000). Waits for a matching line printed during the scenario. |
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
+| `mail: { to, from, subject, text, html }` | `times` (exact; default at least one), `within` (ms, default 5000), `capture` from the last match (`subject`, `text`, `links.0`). Waits for mail the app sends. `{}` matches any message. |
 | `snapshot: true` | The scenario's [trace](#snapshot-the-whole-scenario-trace) so far must match its stored snapshot. `mask: [keys]` hides more values. |
 
 `db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously.
 
+- `request:` also takes a captured URL of the app, e.g. `GET {{link}}` after capturing a link from a mail.
 - `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.
 - Expected `json`, `rows` and `headers` are subsets: extra keys are fine. `{ $type: number }`, `{ $regex: "^ch_" }`, `{ $contains: "..." }` and `{ $any: true }` match loosely.
 - A file-level `setup:` list runs at the start of every scenario. `skip`, `only` and `timeout` work per scenario.
