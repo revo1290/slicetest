@@ -89,12 +89,13 @@ services:
 `;
   const { config, notes } = await detect(await project({ "package.json": JSON.stringify({ scripts: { start: "node ." } }), "compose.yaml": compose }));
   expect(config.db).toEqual({ image: "postgis/postgis:17-3.5" });
+  expect(notes.join("\n")).toContain("worker-only");
   expect(config.containers).toEqual({
     cache: { image: "valkey/valkey:8", port: 6379, reset: ["valkey-cli", "FLUSHALL"] },
     search: { image: "docker.elastic.co/elasticsearch/elasticsearch:8.15.0", port: 9200, env: { "discovery.type": "single-node", "xpack.security.enabled": "false" } },
     storage: { image: "minio/minio", port: 9000, command: ["server", "/data"], env: { MINIO_ROOT_USER: "test" } },
-    mail: { image: "axllent/mailpit", port: 8025 },
   });
+  expect(config.mail).toBe(true);
   // What init writes is a valid config.
   expect(() => resolveOptions(config, "/")).not.toThrow();
   expect(config.app.env).toMatchObject({ REDIS_URL: "redis://{{container.cache}}", ELASTICSEARCH_URL: "http://{{container.search}}", S3_ENDPOINT: "http://{{container.storage}}" });
@@ -102,7 +103,6 @@ services:
     expect.arrayContaining([
       'compose.yaml: service "app" is built from source; if it\'s the app, app.command replaces it',
       'compose.yaml: service "worker-only" (busybox) exposes no port; skipped',
-      "containers.mail: axllent/mailpit (compose.yaml), at {{container.mail}}. Add `reset` to empty it between scenarios",
     ]),
   );
 });
@@ -112,4 +112,59 @@ test("a MySQL service or driver switches the engine", async () => {
   expect(fromCompose.config.db).toEqual({ engine: "mysql", image: "mysql:8.4" });
   const fromDeps = await detect(await project({ "package.json": JSON.stringify({ scripts: { start: "node ." }, dependencies: { mysql2: "^3" } }) }));
   expect(fromDeps.config.db).toEqual({ engine: "mysql" });
+});
+
+test("a mail catcher in compose, or a mail library, turns on mail with SMTP variables", async () => {
+  const compose = await detect(await project({ "go.mod": "module x", "compose.yaml": "services:\n  mail:\n    image: axllent/mailpit:latest\n    ports: ['1025:1025', '8025:8025']\n" }));
+  expect(compose.config).toMatchObject({ mail: true, app: { env: { SMTP_HOST: "{{mail.host}}", SMTP_PORT: "{{mail.port}}" } } });
+  expect(compose.config.containers).toBeUndefined();
+  expect(compose.notes.join("\n")).toContain("axllent/mailpit:latest");
+  const node = await detect(await project({ "package.json": JSON.stringify({ scripts: { start: "x" }, dependencies: { nodemailer: "^6" } }) }));
+  expect(node.config.mail).toBe(true);
+  const plain = await detect(await project({ "package.json": JSON.stringify({ scripts: { start: "x" } }) }));
+  expect(plain.config.mail).toBeUndefined();
+});
+
+test.each([
+  ["Prisma", { "package.json": "{}", "prisma/schema.prisma": 'datasource db {\n  provider = "sqlite"\n  url = env("DATABASE_URL")\n}\n' }, "file:{{db.path}}"],
+  ["Rails", { Gemfile: "gem 'rails'\ngem 'sqlite3'\n", "config/database.yml": "default: &default\n  adapter: sqlite3\n" }, "sqlite3:{{db.path}}"],
+  ["Django", { "manage.py": "", "mysite/settings.py": "DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3'}}" }, "{{db.url}}"],
+  ["a Node driver", { "package.json": JSON.stringify({ dependencies: { "better-sqlite3": "^11" } }) }, "{{db.url}}"],
+])("detects SQLite from %s, with the URL form the framework reads", async (_, files, url) => {
+  const { config, notes } = await detect(await project(files));
+  expect(config.db?.engine).toBe("sqlite");
+  expect(config.app.env?.DATABASE_URL).toBe(url);
+  expect(notes.join("\n")).toContain("SQLite");
+  expect(() => resolveOptions(config, "/")).not.toThrow();
+});
+
+test("a SQLite driver next to a Postgres one isn't taken for the app's database", async () => {
+  const { config } = await detect(await project({ "package.json": JSON.stringify({ dependencies: { "better-sqlite3": "^11", pg: "^8" } }) }));
+  expect(config.db?.engine).toBeUndefined();
+});
+
+test("third-party API URLs in .env.example become stubs, and the variables point at them", async () => {
+  const { config, notes } = await detect(
+    await project({
+      "go.mod": "module x",
+      ".env.example": [
+        "DATABASE_URL=postgres://localhost/app",
+        "STRIPE_API_BASE=https://api.stripe.com",
+        "export GITHUB_API_URL='https://api.github.com/'",
+        "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/x",
+        "SENDGRID_ENDPOINT=https://api.sendgrid.com/v3 # mail",
+        "APP_URL=https://example.com",
+        "INTERNAL_API_URL=http://localhost:4000",
+        "USERS_SERVICE_URL=http://users:8080",
+      ].join("\n"),
+    }),
+  );
+  expect(config.stubs).toEqual([
+    { name: "stripe", upstream: "https://api.stripe.com" },
+    { name: "github", upstream: "https://api.github.com" },
+    { name: "sendgrid", upstream: "https://api.sendgrid.com" },
+  ]);
+  expect(config.app.env).toMatchObject({ STRIPE_API_BASE: "{{stub.stripe}}", GITHUB_API_URL: "{{stub.github}}", SENDGRID_ENDPOINT: "{{stub.sendgrid}}/v3" });
+  expect(notes.join("\n")).toContain("SLICETEST_RECORD=stripe");
+  expect(() => resolveOptions(config, "/")).not.toThrow();
 });

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `slicetest init` detects more: mail catchers in compose (Mailpit, MailHog, …) and mail libraries turn on `mail`; SQLite from Prisma, Rails, Django or a driver, with `DATABASE_URL` in the framework's form; third-party API URLs in `.env.example` become stubs with `upstream` for recording, and the app's variables point at them.
 - SQLite: `db: { engine: "sqlite" }` needs no server or container. Uses Node's built-in `node:sqlite` (22.5+): a migrated template copied per worker with `VACUUM INTO`, WAL mode so the app keeps its connection, resets with `DELETE` and restarted `AUTOINCREMENT` counters. The app gets `{{db.url}}` (`sqlite:///path`) and `{{db.path}}`.
 - `npx slicetest doctor`: checks the config, the container runtime or database server, migrations, seed, `atlas`, `mysql2`, the app's and services' programs, OpenAPI files and recordings before a run, with what to do for each problem. Exits with 1 when something must be fixed.
 - `http.concurrently(n, send)` releases `n` requests together to provoke races, and `toHaveStatuses({ 201: 1, 409: 9 })` checks how they were answered. YAML: `concurrency: n` on a `request` step with `expect.statuses`.

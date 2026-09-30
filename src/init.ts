@@ -95,8 +95,21 @@ export async function detect(root: string): Promise<Detected> {
   }
 
   // --- docker compose: the database image and other dependencies ---
-  const { db: composeDb, containers, appEnv } = await fromCompose(root, notes);
+  const { db: composeDb, containers, appEnv, mail: composeMail } = await fromCompose(root, notes);
   Object.assign(env, appEnv);
+  let mail = composeMail;
+  if (!mail && (deps.nodemailer || /\b(flask-mail|fastapi-mail|django-anymail)\b/.test(python) || (has("manage.py") && /EMAIL_HOST/.test(await read(await djangoSettings(root))) ))) {
+    mail = true;
+    Object.assign(env, { SMTP_HOST: "{{mail.host}}", SMTP_PORT: "{{mail.port}}" });
+    notes.push("mail: the app sends mail; slicetest catches it over SMTP (SMTP_HOST / SMTP_PORT, rename them to what your app reads)");
+  }
+  const sqlite = await detectSqlite(root, read, deps, python, gemfile);
+  if (sqlite && !composeDb.engine) {
+    composeDb.engine = "sqlite";
+    env.DATABASE_URL = sqlite.url;
+    notes.push(`db: SQLite (${sqlite.why}), no container needed. The app gets DATABASE_URL=${sqlite.url}; {{db.path}} is the plain file path`);
+  }
+  const stubs = await stubsFromEnvExample(root, read, env, notes);
   const mysqlDeps = !!deps.mysql2 || !!deps.mysql || /\b(pymysql|mysqlclient|aiomysql)\b/.test(python) || /\bgem ['"]mysql2['"]/.test(gemfile);
   if (!composeDb.engine && mysqlDeps) {
     composeDb.engine = "mysql";
@@ -111,10 +124,58 @@ export async function detect(root: string): Promise<Detected> {
     app: { command, env, ready: { path: "/" } },
     ...(migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
     ...(Object.keys(containers).length ? { containers } : {}),
-    stubs: [],
+    ...(mail ? { mail: true } : {}),
+    stubs,
     ...(openapi ? { openapi } : {}),
   };
   return { config, notes };
+}
+
+async function djangoSettings(root: string) {
+  for (const dir of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+    if (dir.isDirectory() && existsSync(path.join(root, dir.name, "settings.py"))) return path.join(dir.name, "settings.py");
+  }
+  return "settings.py";
+}
+
+/** Where the project says it uses SQLite, and the URL form its framework reads. */
+async function detectSqlite(root: string, read: (p: string) => Promise<string>, deps: Record<string, string>, python: string, gemfile: string) {
+  if (/provider\s*=\s*"sqlite"/.test(await read("prisma/schema.prisma"))) return { why: "Prisma provider", url: "file:{{db.path}}" };
+  if (/adapter:\s*sqlite3/.test(await read("config/database.yml"))) return { why: "config/database.yml", url: "sqlite3:{{db.path}}" };
+  if (/\bgem ['"]sqlite3['"]/.test(gemfile) && !/\bgem ['"](pg|mysql2)['"]/.test(gemfile)) return { why: "sqlite3 gem", url: "sqlite3:{{db.path}}" };
+  if (existsSync(path.join(root, "manage.py")) && /django\.db\.backends\.sqlite3/.test(await read(await djangoSettings(root)))) {
+    return { why: "Django settings; make DATABASES read DATABASE_URL, e.g. with dj-database-url", url: "{{db.url}}" };
+  }
+  const pgOrMysql = deps.pg || deps.postgres || deps.mysql2 || /\b(psycopg|asyncpg|pymysql|mysqlclient)/.test(python);
+  if (!pgOrMysql && (deps["better-sqlite3"] || deps.sqlite3 || deps["@libsql/client"])) return { why: "a SQLite driver is a dependency", url: "{{db.url}}" };
+  return undefined;
+}
+
+/** Hosts that are never third-party APIs to stub. */
+const LOCAL_HOST = /^(localhost|127\.|0\.0\.0\.0|\[::1\]|host\.docker\.internal|[\w-]+$)/;
+
+/**
+ * `.env.example` lines like `STRIPE_API_BASE=https://api.stripe.com` name the
+ * services the app calls: each becomes a stub recorded from that URL, and the
+ * variable points the app at the stub.
+ */
+async function stubsFromEnvExample(root: string, read: (p: string) => Promise<string>, env: Record<string, string>, notes: string[]) {
+  const file = [".env.example", ".env.sample", ".env.template", ".env.dist"].find((f) => existsSync(path.join(root, f)));
+  if (!file) return [];
+  const stubs: { name: string; upstream: string }[] = [];
+  for (const line of (await read(file)).split(/\r?\n/)) {
+    const m = /^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*["']?(https?:\/\/[^\s"'#]+)/.exec(line);
+    if (!m || !/(URL|URI|ENDPOINT|HOST|BASE)$/.test(m[1]!) || /DATABASE|REDIS|MONGO|AMQP|SMTP|MAIL|CALLBACK|REDIRECT|FRONTEND|PUBLIC|APP_URL|SITE_URL|WEBHOOK_URL$/.test(m[1]!)) continue;
+    const url = new URL(m[2]!);
+    if (LOCAL_HOST.test(url.hostname)) continue;
+    const base = url.hostname.split(".").filter((p) => !["api", "www", "com", "io", "net", "org", "co", "dev", "app"].includes(p))[0] ?? url.hostname;
+    let name = base.replace(/[^\w-]/g, "-").toLowerCase();
+    while (stubs.some((s) => s.name === name)) name += "2";
+    stubs.push({ name, upstream: url.origin });
+    env[m[1]!] = `{{stub.${name}}}${url.pathname.replace(/\/$/, "")}`;
+    notes.push(`stubs.${name}: ${m[1]} in ${file} points at ${url.origin}. Record it once with SLICETEST_RECORD=${name}, or register routes in scenarios`);
+  }
+  return stubs;
 }
 
 const SCENARIO = `# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
@@ -149,6 +210,9 @@ export async function init(root: string, { force = false } = {}) {
 
 const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"];
 
+/** Development mail servers; `mail: true` does their job in-process. */
+const MAIL_CATCHERS = /(^|\/)(mailpit|mailhog|maildev|smtp4dev|greenmail[\w-]*|mailcatcher|inbucket)(:|$)/;
+
 /** Known images: the port they listen on, how to empty them, and the variable apps usually read. */
 const KNOWN: { match: RegExp; port: number; reset?: string[]; env?: (name: string) => [string, string] }[] = [
   { match: /(^|\/)(redis|redis-stack|keydb)(:|$)/, port: 6379, reset: ["redis-cli", "FLUSHALL"], env: (n) => ["REDIS_URL", `redis://{{container.${n}}}`] },
@@ -173,14 +237,15 @@ async function fromCompose(root: string, notes: string[]) {
   const db: DbOptions = {};
   const containers: Record<string, ContainerOptions> = {};
   const appEnv: Record<string, string> = {};
+  let mail = false;
   const file = COMPOSE_FILES.find((f) => existsSync(path.join(root, f)));
-  if (!file) return { db, containers, appEnv };
+  if (!file) return { db, containers, appEnv, mail };
   let doc: { services?: Record<string, Record<string, any>> };
   try {
     doc = (parse(await readFile(path.join(root, file), "utf8")) ?? {}) as typeof doc;
   } catch (e) {
     notes.push(`${file}: couldn't parse it (${(e as Error).message}); skipped`);
-    return { db, containers, appEnv };
+    return { db, containers, appEnv, mail };
   }
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
     const image = typeof svc?.image === "string" ? svc.image : undefined;
@@ -197,6 +262,12 @@ async function fromCompose(root: string, notes: string[]) {
       db.engine = "mysql";
       db.image = image;
       notes.push(`db: MySQL image ${image} (${file} service "${name}"). Install mysql2 and @testcontainers/mysql next to slicetest.`);
+      continue;
+    }
+    if (MAIL_CATCHERS.test(image)) {
+      mail = true;
+      Object.assign(appEnv, { SMTP_HOST: "{{mail.host}}", SMTP_PORT: "{{mail.port}}" });
+      notes.push(`mail: ${image} (${file} service "${name}") is replaced by slicetest's own SMTP server, passed to the app as SMTP_HOST / SMTP_PORT. Rename them to what your app reads`);
       continue;
     }
     const known = KNOWN.find((k) => k.match.test(image));
@@ -220,7 +291,7 @@ async function fromCompose(root: string, notes: string[]) {
       `containers.${name}: ${image} (${file})${key ? `, passed to the app as ${key}` : `, at {{container.${name}}}`}${known?.reset ? "" : ". Add `reset` to empty it between scenarios"}`,
     );
   }
-  return { db, containers, appEnv };
+  return { db, containers, appEnv, mail };
 }
 
 /** `"6379:6379"`, `"127.0.0.1:5432:5432/tcp"`, `9000`, `{ target: 6379 }` → the port inside the container. */
