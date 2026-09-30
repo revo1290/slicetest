@@ -10,7 +10,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
   - `db.ts`, `drivers/` — the `db` helper. Everything engine-specific lives behind `Driver` / `Engine` in `drivers/driver.ts` (`postgres.ts`, `mysql.ts`); keep `db.ts` engine-agnostic. `mysql2` is an optional peer dependency, loaded only when `db.engine` is `mysql`.
   - `stub.ts`, `http.ts`, `matchers.ts`, `openapi.ts` — stubs, the HTTP client, matchers, contract checks and coverage.
   - `yaml.ts`, `yaml-runtime.ts` — YAML scenario parsing and execution.
-  - `init.ts` — `slicetest init` stack detection. `gen.ts` — `slicetest gen` scenarios from OpenAPI.
+  - `init.ts` — `slicetest init` stack detection. `gen.ts` — `slicetest gen` scenarios from OpenAPI. `doctor.ts` — `slicetest doctor` environment checks (machine access goes through its `Probes`, so tests fake it).
   - `recording.ts` — recorded stubs (`upstream`, `SLICETEST_RECORD`).
   - `mail.ts` — the in-process SMTP server and MIME decoding behind `mail: true`.
 - `schema/scenario.schema.json` — JSON Schema for `*.scenario.yaml`. Published with the package.

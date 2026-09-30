@@ -16,11 +16,14 @@ const CONFIG_NAMES = ["slicetest.config.yaml", "slicetest.config.yml", "slicetes
 const HELP = `Usage: slicetest [filters...] [options]
        slicetest init [--force]
        slicetest gen [--spec <file>] [--out <dir>] [--uncovered] [--force]
+       slicetest doctor [--config <file>]
 
 Runs *.scenario.yaml files against your app, as configured in slicetest.config.yaml.
 \`slicetest init\` looks at the project and writes a starting config and scenario.
 \`slicetest gen\` writes scenario skeletons for the documented responses of the
 app's OpenAPI spec; with --uncovered, only for those the last run didn't produce.
+\`slicetest doctor\` checks the config, the container runtime or database server,
+migrations, commands and spec files, and says what to fix.
 
 Options:
   -c, --config <file>  Config file (default: ${CONFIG_NAMES.join(" / ")} in the current directory)
@@ -79,6 +82,13 @@ export async function main(argv = process.argv.slice(2)) {
   const configPath = values.config
     ? path.resolve(values.config)
     : CONFIG_NAMES.map((n) => path.resolve(n)).find((p) => existsSync(p));
+  if (positionals[0] === "doctor") {
+    const { doctor, formatChecks } = await import("./doctor.js");
+    const checks = await doctor(configPath);
+    process.stdout.write(formatChecks(checks));
+    if (checks.some((c) => c.status === "fail")) process.exitCode = 1;
+    return;
+  }
   if (positionals[0] === "gen") {
     const configOpenapi = configPath && existsSync(configPath) ? ((parse(await readFile(configPath, "utf8")) ?? {}) as CliConfig).openapi : undefined;
     const spec = values.spec ?? (typeof configOpenapi === "object" ? configOpenapi.spec : configOpenapi);

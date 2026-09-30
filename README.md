@@ -59,7 +59,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 npm i -D slicetest vitest
 ```
 
-You also need Docker or Podman. slicetest finds a running Podman machine on its own (on Windows too). Alternatively, pass `db.url` or set `SLICETEST_DATABASE_URL` to use an existing Postgres server, for example a CI service container.
+You also need Docker or Podman (`npx slicetest doctor` checks). slicetest finds a running Podman machine on its own (on Windows too). Alternatively, pass `db.url` or set `SLICETEST_DATABASE_URL` to use an existing Postgres server, for example a CI service container.
 
 ### MySQL
 
@@ -539,6 +539,22 @@ npx slicetest gen --uncovered     # only the documented responses the last run d
 writes `scenarios/<resource>.gen.scenario.yaml` with one scenario per documented response. Requests are built from the spec's examples and schemas. A path that needs an id gets a step that creates the resource first through the collection's `POST` and captures its id. A 404 on a made-up id and a 400/422 on an empty body are runnable as is; other responses are generated as `skip: true` scenarios marked TODO, so the skipped list in the test output is what's left to cover. Existing files are kept unless you pass `--force`.
 
 `--uncovered` reads the coverage the last run left in `node_modules/.cache/slicetest/`, which closes the loop: run, look at the ✗ in the coverage table, `gen --uncovered`, fill in the TODOs.
+
+### Is everything in place? `npx slicetest doctor`
+
+Checks what a run needs before it starts, instead of failing with a timeout halfway: the config, the container runtime (or the database server at `db.url` / `SLICETEST_DATABASE_URL`, with the password hidden), the migrations, seed and working directories, the `atlas` CLI, `mysql2` for MySQL, the programs the app and services start, the OpenAPI files and missing recordings. Each problem says what to do, and the exit code is 1 when something must be fixed, so it also works as the first step of a CI job.
+
+```
+  ✓ Node.js 24.13.0
+  ✓ config slicetest.config.yaml
+  ✗ no container runtime
+      Could not find a working container runtime strategy. Start Docker or a Podman machine (`podman machine start`), or set SLICETEST_DATABASE_URL / db.url to an existing database server
+  ✓ migrations migrations
+  ! stub github: no recordings yet (recordings/github.yaml)
+      run once with SLICETEST_RECORD=github to record https://api.github.com
+
+1 problem(s) to fix before running.
+```
 
 ## Examples
 
