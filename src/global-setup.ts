@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +9,7 @@ import type { ResolvedOptions } from "./config.js";
 import { configureContainerRuntime } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import type { Admin, Engine } from "./drivers/index.js";
+import { coverageCacheFile } from "./gen.js";
 import { formatCoverage, OpenApiSpec } from "./openapi.js";
 import { mergeRecordings, type Recording } from "./recording.js";
 import "./provided.js";
@@ -80,6 +81,9 @@ async function reportCoverage(opts: ResolvedOptions, dir: string) {
     if (hits.size === 0) return;
     const spec = await OpenApiSpec.load(path.resolve(opts.root, opts.openapi.app!), opts.openapi.app);
     const report = formatCoverage(spec, hits);
+    // For `slicetest gen --uncovered`.
+    const cache = coverageCacheFile(opts.root);
+    await mkdir(path.dirname(cache), { recursive: true }).then(() => writeFile(cache, JSON.stringify([...hits]))).catch(() => {});
     console.log(`\n${report.text}\n`);
     const min = opts.openapi.minCoverage;
     if (min !== undefined && report.percent < min) {

@@ -46,7 +46,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **`db.changes()`**: a diff of every row the scenario inserted, updated or deleted. `toEqual` on it catches writes you didn't expect.
 - **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
-- **OpenAPI coverage** of your own API, per operation and status, across all scenarios.
+- **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
 - **Postgres or MySQL**, with the same scenarios and the same row types on both.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
@@ -452,6 +452,17 @@ npx slicetest                 # every *.scenario.yaml under the config's directo
 npx slicetest polls -t voting # filter by file and scenario name
 npx slicetest --watch
 ```
+
+### Scenarios from your OpenAPI spec: `npx slicetest gen`
+
+```sh
+npx slicetest gen                 # uses `openapi` from slicetest.config.yaml, or --spec openapi.yaml
+npx slicetest gen --uncovered     # only the documented responses the last run didn't produce
+```
+
+writes `scenarios/<resource>.gen.scenario.yaml` with one scenario per documented response. Requests are built from the spec's examples and schemas. A path that needs an id gets a step that creates the resource first through the collection's `POST` and captures its id. A 404 on a made-up id and a 400/422 on an empty body are runnable as is; other responses are generated as `skip: true` scenarios marked TODO, so the skipped list in the test output is what's left to cover. Existing files are kept unless you pass `--force`.
+
+`--uncovered` reads the coverage the last run left in `node_modules/.cache/slicetest/`, which closes the loop: run, look at the ✗ in the coverage table, `gen --uncovered`, fill in the TODOs.
 
 ## Examples
 

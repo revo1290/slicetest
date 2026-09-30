@@ -15,6 +15,19 @@ interface Operation {
   op: Record<string, any>;
 }
 
+export interface OperationSketch {
+  method: string;
+  template: string;
+  summary?: string;
+  pathParams: Record<string, unknown>;
+  query: Record<string, unknown>;
+  json?: unknown;
+  /** Documented response keys, e.g. `201`, `4XX`, `default`. */
+  responses: string[];
+  /** Top-level properties of the first 2xx JSON response. */
+  createdFields: string[];
+}
+
 export interface Message {
   status?: number;
   contentType?: string;
@@ -145,6 +158,39 @@ export class OpenApiSpec {
           ? (this.#deref(named)?.value ?? null)
           : this.#sample(m.schema);
     return { status, headers: { "content-type": media === "*/*" ? "application/json" : media }, body: isJson(media) ? body : String(body ?? "") };
+  }
+
+  /**
+   * Every operation with what it takes to call it: sample values for its
+   * required path and query parameters and for its JSON request body, and the
+   * properties of its first 2xx JSON response. Used by `slicetest gen`.
+   */
+  operations(): OperationSketch[] {
+    return this.#documentOrder.map(({ template, method, op }) => {
+      const params = [...(this.doc.paths[template].parameters ?? []), ...(op.parameters ?? [])].map((p) => this.#deref(p)).filter(Boolean);
+      const sample = (p: any) => (p.example !== undefined ? p.example : p.schema ? this.#sample(p.schema) : "1");
+      const pathParams = Object.fromEntries(params.filter((p: any) => p.in === "path").map((p: any) => [p.name, sample(p)]));
+      const query = Object.fromEntries(params.filter((p: any) => p.in === "query" && p.required).map((p: any) => [p.name, sample(p)]));
+      const body = this.#deref(op.requestBody);
+      const media = body?.content && Object.keys(body.content).find(isJson);
+      const m = media ? body.content[media] : undefined;
+      const json = m ? (m.example !== undefined ? m.example : this.#sample(m.schema)) : undefined;
+      const responses = Object.keys(op.responses ?? {});
+      const ok = responses.filter((k) => /^2/.test(k)).sort()[0];
+      const okContent = ok ? this.#deref(op.responses[ok])?.content : undefined;
+      const okMedia = okContent && Object.keys(okContent).find(isJson);
+      const okSchema = okMedia ? this.#deref(okContent[okMedia]?.schema) : undefined;
+      return {
+        method: method.toUpperCase(),
+        template,
+        summary: op.summary ?? op.operationId,
+        pathParams,
+        query,
+        json: json ?? undefined,
+        responses,
+        createdFields: okSchema?.properties ? Object.keys(okSchema.properties) : [],
+      };
+    });
   }
 
   /** A value that satisfies `schema` (as far as a simple walk can): examples, defaults, enums, then types. */
