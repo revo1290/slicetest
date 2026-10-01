@@ -3,7 +3,8 @@ import type { RequestOptions } from "./http.js";
 
 export interface SlicetestOptions {
   app: AppOptions;
-  db?: DbOptions;
+  /** The database, or `false` for an app without one: no container, no resets, no `{{db.*}}`. */
+  db?: DbOptions | false;
   /**
    * Outbound HTTP services to stub. Each gets its own server, referenced as `{{stub.<name>}}` in `app.env`.
    * With `{ name, openapi }`, the app's calls to it and the stub's replies are checked against that service's spec.
@@ -200,7 +201,10 @@ export interface ResolvedOptions {
   offline: boolean;
   workers?: number;
   auth: AuthOptions | false;
-  db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">;
+  db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse"> & {
+    /** `db: false`: the app has no database. */
+    none?: boolean;
+  };
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
   /** `fromApp`: a path the running app serves its own spec at (springdoc, FastAPI, NestJS). */
@@ -228,7 +232,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     offline: opts.offline ?? false,
     workers: opts.workers,
     auth: opts.auth === true ? {} : (opts.auth ?? false),
-    db: resolveDb(opts.db ?? {}),
+    db: opts.db === false ? { ...resolveDb({}), none: true } : resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
     openapi: {
       app: typeof opts.openapi === "object" ? opts.openapi.spec : opts.openapi,
@@ -321,12 +325,13 @@ function validate(opts: SlicetestOptions) {
     if (opts.auth.audience !== undefined && typeof opts.auth.audience !== "string") fail("auth.audience must be a string");
     if (opts.auth.claims !== undefined && (!opts.auth.claims || typeof opts.auth.claims !== "object" || Array.isArray(opts.auth.claims))) fail("auth.claims must be a mapping of claim names to values");
   }
-  const engine = opts.db?.engine;
+  const dbOpts = opts.db === false ? undefined : opts.db;
+  const engine = dbOpts?.engine;
   if (engine !== undefined && engine !== "postgres" && engine !== "mysql" && engine !== "sqlite") fail(`db.engine must be "postgres", "mysql" or "sqlite", got ${JSON.stringify(engine)}`);
-  if (opts.db?.queries !== undefined && typeof opts.db.queries !== "boolean") fail(`db.queries must be true or false, got ${JSON.stringify(opts.db.queries)}`);
-  if (engine === "sqlite" && opts.db?.queries) fail("db.queries needs a database server (postgres or mysql): an SQLite app opens the file directly, so there is no connection to read");
-  if (engine === "sqlite" && opts.db?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");
-  const migrate = opts.db?.migrate;
+  if (dbOpts?.queries !== undefined && typeof dbOpts!.queries !== "boolean") fail(`db.queries must be true or false, got ${JSON.stringify(dbOpts!.queries)}`);
+  if (engine === "sqlite" && dbOpts?.queries) fail("db.queries needs a database server (postgres or mysql): an SQLite app opens the file directly, so there is no connection to read");
+  if (engine === "sqlite" && dbOpts?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");
+  const migrate = dbOpts?.migrate;
   if (migrate) {
     const keys = Object.keys(migrate).filter((k) => ["atlas", "sql", "command"].includes(k));
     if (keys.length !== 1) fail(`db.migrate takes exactly one of atlas / sql / command, got ${keys.join(", ") || "none"}`);

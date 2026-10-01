@@ -138,3 +138,10 @@ test("offline refuses hosts no stub answers, over CONNECT and plain HTTP, and li
     interceptor.blocked.clear();
   }
 });
+
+test("offline explains package registries: the build tool starting the app is downloading", async () => {
+  const { blockedHint } = await import("../src/runtime.js");
+
+  expect(blockedHint(["api.lu.ma"])).toBe("slicetest: offline: the app tried to reach api.lu.ma, which no stub answers. Add it to a stub's `hosts` (or remove `offline`).");
+  expect(blockedHint(["repo.maven.apache.org", "api.lu.ma"])).toContain("repo.maven.apache.org is a package registry: the command that starts the app");
+});

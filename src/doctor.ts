@@ -91,7 +91,10 @@ export async function doctor(configPath: string | undefined, probes: Probes = ma
 
   // Database: a server that's there already, or a container runtime to start one in.
   const url = opts.db.engine === "sqlite" ? undefined : (opts.db.url ?? env.SLICETEST_DATABASE_URL);
-  if (opts.db.engine === "sqlite") {
+  if (opts.db.none) {
+    add("ok", "no database (db: false)");
+    if (Object.keys(opts.containers).length) await checkContainerRuntime(add, probes, `runs ${Object.values(opts.containers).map((c) => c.image).join(", ")}`);
+  } else if (opts.db.engine === "sqlite") {
     const [maj = 0, min = 0] = process.versions.node.split(".").map(Number);
     if (maj > 22 || (maj === 22 && min >= 5)) add("ok", "sqlite (node:sqlite, no server needed)");
     else add("fail", "sqlite needs Node.js 22.5 or later", `this is ${process.versions.node}; slicetest uses the built-in node:sqlite`);
@@ -114,7 +117,9 @@ export async function doctor(configPath: string | undefined, probes: Probes = ma
   }
 
   const m = opts.db.migrate;
-  if (!m) add("warn", "db.migrate not set", "scenarios run against an empty database unless the app creates its own tables");
+  if (opts.db.none) {
+    // Nothing to migrate.
+  } else if (!m) add("warn", "db.migrate not set", "scenarios run against an empty database unless the app creates its own tables");
   else if ("atlas" in m) {
     await checkPath(add, "migrations", m.atlas.dir.replace(/^file:\/\//, ""), root, rel);
     try {

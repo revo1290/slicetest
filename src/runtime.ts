@@ -6,7 +6,7 @@ import { App } from "./app.js";
 import { Issuer } from "./auth.js";
 import type { ResolvedOptions } from "./config.js";
 import { Dependency } from "./containers.js";
-import { Db, formatChanges } from "./db.js";
+import { Db, formatChanges, noDatabase } from "./db.js";
 import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { Interceptor } from "./intercept.js";
@@ -89,8 +89,8 @@ export class Runtime {
   }
 
   static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string; recordDir?: string }) {
-    const engine = await engineFor(opts);
-    const url = await ensureWorkerDatabase(engine, shared.adminUrl, shared.template, shared.prefix);
+    const engine = opts.db.none ? undefined : await engineFor(opts);
+    const url = engine ? await ensureWorkerDatabase(engine, shared.adminUrl, shared.template, shared.prefix) : "";
     const stubs = new Map<string, Stub>();
     const recorders = new Map<string, Recorder>();
     const containers = new Map<string, Dependency>();
@@ -116,23 +116,25 @@ export class Runtime {
         if (!recorder && !spec) continue;
         stub.fallback(async (call) => (await recorder?.answer(call)) ?? spec?.exampleResponse(call.method, call.path), recorder?.hint());
       }
-      db = await Db.connect(await engine.driver(url), url, {
-        schemas: opts.db.schemas,
-        keep: opts.db.keep,
-        seedFile: opts.db.seed && path.resolve(opts.root, opts.db.seed),
-      });
+      db = engine
+        ? await Db.connect(await engine.driver(url), url, {
+            schemas: opts.db.schemas,
+            keep: opts.db.keep,
+            seedFile: opts.db.seed && path.resolve(opts.root, opts.db.seed),
+          })
+        : noDatabase();
       const started = await Promise.allSettled(Object.entries(opts.containers).map(async ([name, c]) => containers.set(name, await Dependency.start(name, c))));
       const failed = started.find((r) => r.status === "rejected");
       if (failed) throw failed.reason;
-      const vars: Record<string, string> = { "db.url": url };
-      if (opts.db.queries && engine.name !== "sqlite") {
+      const vars: Record<string, string> = engine ? { "db.url": url } : {};
+      if (engine && opts.db.queries && engine.name !== "sqlite") {
         const u = new URL(url);
         queryLog = await QueryLog.start(engine.name as "postgres" | "mysql", { host: u.hostname, port: Number(u.port || (engine.name === "mysql" ? 3306 : 5432)) });
         vars["db.url"] = queryLog.proxyUrl(url);
         db.attachQueryLog(queryLog);
       }
-      if (engine.name === "sqlite") vars["db.path"] = (await import("./drivers/sqlite.js")).sqlitePath(url);
-      Object.assign(vars, connectionVars(engine.name, vars["db.url"]!, vars["db.path"]));
+      if (engine?.name === "sqlite") vars["db.path"] = (await import("./drivers/sqlite.js")).sqlitePath(url);
+      if (engine) Object.assign(vars, connectionVars(engine.name, vars["db.url"]!, vars["db.path"]));
       if (opts.mail) {
         mailbox = await Mailbox.start();
         Object.assign(vars, { "mail.host": mailbox.host, "mail.port": String(mailbox.port), "mail.url": mailbox.url });
@@ -176,6 +178,7 @@ export class Runtime {
       await mailbox?.close();
       await issuer?.close();
       await queryLog?.close();
+      if (interceptor?.blocked.size && e instanceof Error) e.message += `\n${blockedHint([...interceptor.blocked])}`;
       await interceptor?.close();
       throw e;
     }
@@ -254,10 +257,7 @@ export class Runtime {
   async afterScenario() {
     await Promise.all(this.#processes().map((p) => p.settle()));
     this.#assertAlive();
-    if (this.interceptor?.blocked.size) {
-      const hosts = [...this.interceptor.blocked];
-      throw new Error(`slicetest: offline: the app tried to reach ${hosts.join(", ")}, which no stub answers. Add ${hosts.length > 1 ? "them" : "it"} to a stub's \`hosts\` (or remove \`offline\`).`);
-    }
+    if (this.interceptor?.blocked.size) throw new Error(blockedHint([...this.interceptor.blocked]));
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) {
       throw new Error(`slicetest: the app called stubbed services with no matching route:\n${unmatched.join("\n")}`);
@@ -323,7 +323,7 @@ export class Runtime {
     const contract = this.#contractViolations();
     if (contract.length > 0) sections.push(`OpenAPI mismatches:\n${contract.map((c) => `  ${c}`).join("\n")}`);
     if (this.http.history.length > 0) sections.push(`requests to the app:\n${formatHistory(this.http.history)}`);
-    try {
+    if (!this.opts.db.none) try {
       const changes = formatChanges(await this.db.changesSinceStart());
       sections.push(changes ? `database changes during this scenario:\n${changes}` : "database changes during this scenario: (none)");
     } catch (e) {
@@ -446,4 +446,14 @@ async function fetchAppSpec(appUrl: string, route: string, coverageDir?: string)
   const file = coverageDir ? appSpecFile(coverageDir) : path.join(os.tmpdir(), `slicetest-spec-${process.pid}.json`);
   await writeFile(file, text);
   return OpenApiSpec.load(file, `GET ${route}`);
+}
+
+/** Hosts package managers download from: a build tool fetching dependencies while it starts the app. */
+const REGISTRIES = /(^|\.)(maven\.apache\.org|repo1\.maven\.org|plugins\.gradle\.org|services\.gradle\.org|registry\.npmjs\.org|registry\.yarnpkg\.com|proxy\.golang\.org|sum\.golang\.org|pypi\.org|files\.pythonhosted\.org|crates\.io|rubygems\.org)$/;
+
+export function blockedHint(hosts: string[]) {
+  const message = `slicetest: offline: the app tried to reach ${hosts.join(", ")}, which no stub answers. Add ${hosts.length > 1 ? "them" : "it"} to a stub's \`hosts\` (or remove \`offline\`).`;
+  const registries = hosts.filter((h) => REGISTRIES.test(h));
+  if (registries.length === 0) return message;
+  return `${message}\n${registries.join(", ")} ${registries.length > 1 ? "are package registries" : "is a package registry"}: the command that starts the app (gradle bootRun, mvn spring-boot:run, go run, …) is downloading dependencies, through slicetest's proxy. Download them in \`app.build\` (./gradlew bootJar, mvn package), or start a built artifact (java -jar).`;
 }

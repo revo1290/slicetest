@@ -66,6 +66,7 @@ export async function detect(root: string): Promise<Detected> {
 
   // --- app ---
   let command = TODO_COMMAND;
+  let jvmBuild: string | undefined;
   let build: string | undefined;
   let readyPath = "/";
   let scope: "worker" | undefined;
@@ -98,12 +99,14 @@ export async function detect(root: string): Promise<Detected> {
   } else if (has("build.gradle") || has("build.gradle.kts") || has("pom.xml")) {
     const gradle = !has("pom.xml");
     const buildFile = await read(gradle ? (has("build.gradle.kts") ? "build.gradle.kts" : "build.gradle") : "pom.xml");
+    jvmBuild = [buildFile, ...(await subprojectBuildFiles(appRoot, gradle))].join("\n");
     const wrapper = gradle ? (process.platform === "win32" ? "gradlew.bat" : "./gradlew") : process.platform === "win32" ? "mvnw.cmd" : "./mvnw";
     const tool = has(gradle ? "gradlew" : "mvnw") ? wrapper : gradle ? "gradle" : "mvn";
     if (/spring-boot|org\.springframework\.boot/.test(buildFile)) {
-      // Compiled once up front: bootRun / spring-boot:run in several workers would otherwise all
-      // compile changed sources at the same moment and trip over each other's build output.
-      build = gradle ? `${tool} classes -q` : `${tool} -q compile`;
+      // Built once up front: bootRun / spring-boot:run in several workers would otherwise all compile
+      // changed sources at the same moment, and download missing dependencies while the app runs
+      // with slicetest's proxy settings (which `offline` refuses). bootJar / package resolve them all.
+      build = gradle ? `${tool} bootJar -q` : `${tool} -q package -DskipTests`;
       command = gradle ? `${tool} bootRun -q` : `${tool} -q spring-boot:run`;
       // Spring reads these variables (relaxed binding).
       delete env.PORT;
@@ -212,10 +215,25 @@ export async function detect(root: string): Promise<Detected> {
   const openapi = ["openapi.yaml", "openapi.yml", "openapi.json", "docs/openapi.yaml", "docs/openapi.yml", "docs/openapi.json"].find(has);
   if (openapi) notes.push(`openapi: ${openapi}. Every response will be checked against it.`);
 
+  // An app with no migrations, no database in compose and no database library gets no database at all.
+  const dbLibrary =
+    Object.keys(deps).some((d) => /^(pg|postgres|mysql2?|@prisma\/client|prisma|drizzle-orm|knex|typeorm|sequelize|kysely|better-sqlite3|sqlite3|@neondatabase\/serverless|@vercel\/postgres|@libsql\/client|mongoose|mongodb)$/.test(d)) ||
+    /data-jpa|data-jdbc|spring-jdbc|r2dbc|postgresql|mysql|flyway|liquibase|hibernate/.test(jvmBuild ?? "") ||
+    /\b(psycopg|sqlalchemy|asyncpg|pymysql|mysqlclient|django|peewee|tortoise|sqlmodel)\b/.test(python) ||
+    /\b(rails|activerecord|sequel|pg|mysql2|sqlite3)\b/.test(gemfile);
+  const knownStack = !!pkg || jvmBuild !== undefined || python.trim().length > 0 || gemfile.length > 0;
+  const noDb = knownStack && !dbLibrary && !migrate && !composeDb.engine && !composeDb.image && !has("manage.py");
+  if (noDb) {
+    for (const k of ["DATABASE_URL", "SPRING_DATASOURCE_URL", "SPRING_DATASOURCE_USERNAME", "SPRING_DATASOURCE_PASSWORD"]) delete env[k];
+    const i = notes.indexOf("db: no migrations found; the database starts empty. Set db.migrate.");
+    if (i >= 0) notes.splice(i, 1);
+    notes.push("db: none (no migrations, no database in compose, no database library), so `db: false`: no container is started");
+  }
+
   const config: CliConfig = {
     app: { ...(appDir ? { cwd: appDir } : {}), command, ...(build ? { build } : {}), env, ready: { path: readyPath }, ...(readyTimeout ? { readyTimeout } : {}), ...(scope ? { scope } : {}) },
     ...(workers ? { workers } : {}),
-    ...(migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
+    ...(noDb ? { db: false as const } : migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
     ...(Object.keys(containers).length ? { containers } : {}),
     ...(mail ? { mail: true } : {}),
     ...(auth ? { auth: true } : {}),
@@ -306,15 +324,17 @@ async function stubsFromEnvExample(root: string, read: (p: string) => Promise<st
   return stubs;
 }
 
-/** A first scenario against the path the app is checked for readiness on (a 404 at / is normal for an API). */
+/**
+ * A first scenario against the path the app is checked for readiness on. At `/` an API often
+ * answers 404, so there it only checks that the app answers (and doesn't crash).
+ */
 const scenario = (readyPath: string) => `# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
 # A first scenario. Run it with: npx slicetest
 scenarios:
   - name: the app answers
     steps:
       - request: GET ${readyPath}
-        expect: { status: 200 }
-`;
+${readyPath === "/" ? "        # expect: { status: 200 }   (what should / answer? An API often has no page there)\n" : "        expect: { status: 200 }\n"}`;
 
 export async function init(root: string, { force = false } = {}) {
   const configFile = path.join(root, "slicetest.config.yaml");

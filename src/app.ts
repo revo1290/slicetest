@@ -75,7 +75,7 @@ export class App {
     // A restarted service keeps its port, so URLs already handed to other processes stay valid.
     const port = fixedPort ?? (await freePort());
     vars = { ...vars, [`${key}.port`]: String(port) };
-    const env = opts.env ?? { PORT: `{{${key}.port}}`, DATABASE_URL: "{{db.url}}" };
+    const env = opts.env ?? { PORT: `{{${key}.port}}`, ...("db.url" in vars ? { DATABASE_URL: "{{db.url}}" } : {}) };
     const child = spawn(interpolate(opts.command, vars, `${key}.command`), {
       shell: true,
       cwd: path.resolve(root, opts.cwd ?? "."),

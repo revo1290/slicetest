@@ -23,6 +23,31 @@ export default async function setup(project: TestProject) {
   // Builds don't need the database, so they run while it starts.
   const builds = buildAll(opts);
   builds.catch(() => {});
+  // No database (`db: false`): nothing to start or migrate, only the builds to wait for.
+  const database = opts.db.none ? (await builds, undefined) : await startDatabase(opts, builds);
+
+  // Each worker writes the documented responses it saw here; they are merged when the run ends.
+  const coverageDir = opts.openapi.app || opts.openapi.fromApp ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;
+  // Likewise for recordings made against real services, merged into the recordings files at the end.
+  const recording = Object.values(opts.recordings).some((r) => r.record);
+  const recordDir = recording ? await mkdtemp(path.join(os.tmpdir(), "slicetest-recordings-")) : undefined;
+  // On GitHub Actions, failed YAML steps are collected here and turned into annotations at the end.
+  const ciDir = onGitHub() ? await mkdtemp(path.join(os.tmpdir(), "slicetest-ci-")) : undefined;
+  project.provide("slicetestDb", { adminUrl: database?.adminUrl ?? "", template: database?.template ?? "", prefix: database?.prefix ?? "", coverageDir, recordDir, ciDir });
+
+  return async () => {
+    try {
+      await database?.teardown();
+    } finally {
+      if (coverageDir) await reportCoverage(opts, coverageDir);
+      if (recordDir) await saveRecordings(opts, recordDir);
+      if (ciDir) await reportToGitHub(ciDir);
+    }
+  };
+}
+
+/** Start (or reuse) the database server and migrate a template database for the workers to clone. */
+async function startDatabase(opts: ResolvedOptions, builds: Promise<void>) {
   const engine = await engineFor(opts);
   let adminUrl: string;
   let stopContainer: (() => Promise<unknown>) | undefined;
@@ -53,29 +78,21 @@ export default async function setup(project: TestProject) {
     throw e;
   }
   const server = admin;
-
-  // Each worker writes the documented responses it saw here; they are merged when the run ends.
-  const coverageDir = opts.openapi.app || opts.openapi.fromApp ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;
-  // Likewise for recordings made against real services, merged into the recordings files at the end.
-  const recording = Object.values(opts.recordings).some((r) => r.record);
-  const recordDir = recording ? await mkdtemp(path.join(os.tmpdir(), "slicetest-recordings-")) : undefined;
-  // On GitHub Actions, failed YAML steps are collected here and turned into annotations at the end.
-  const ciDir = onGitHub() ? await mkdtemp(path.join(os.tmpdir(), "slicetest-ci-")) : undefined;
-  project.provide("slicetestDb", { adminUrl, template, prefix, coverageDir, recordDir, ciDir });
-
-  return async () => {
-    try {
-      if (!stopContainer) {
-        // Shared server: drop only the databases this run created.
-        for (const name of await server.databases(`${prefix}_`)) await server.drop(name);
+  return {
+    adminUrl,
+    template,
+    prefix,
+    async teardown() {
+      try {
+        if (!stopContainer) {
+          // Shared server: drop only the databases this run created.
+          for (const name of await server.databases(`${prefix}_`)) await server.drop(name);
+        }
+      } finally {
+        await server.close();
+        await stopContainer?.();
       }
-    } finally {
-      await server.close();
-      await stopContainer?.();
-      if (coverageDir) await reportCoverage(opts, coverageDir);
-      if (recordDir) await saveRecordings(opts, recordDir);
-      if (ciDir) await reportToGitHub(ciDir);
-    }
+    },
   };
 }
 

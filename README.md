@@ -369,6 +369,8 @@ With `offline: true`, the app can only reach localhost and the stubs' hosts. A c
 slicetest: offline: the app tried to reach api.lu.ma, which no stub answers. Add it to a stub's `hosts` (or remove `offline`).
 ```
 
+The proxy settings reach every process the app command starts. When that command is a build tool (`gradle bootRun`, `mvn spring-boot:run`, `go run`), its own downloads go through the proxy too, and `offline` refuses them; the failure says so when the host is a package registry. Download dependencies in `app.build` (`./gradlew bootJar`, `mvn package`, which `slicetest init` sets up for Spring Boot), or start a built artifact.
+
 A redirect to an intercepted host is followed to its stub, as a browser would follow it to the real site. So a whole OAuth login runs in a scenario: the stub plays the provider's consent page and sends the browser back.
 
 ```yaml
@@ -601,6 +603,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 |---|---|---|
 | `app.command` | (required) | Shell command. May use `{{app.port}}` and the other placeholders. |
 | `app.build` | none | Shell command run once per run before the app starts, while the database starts, e.g. `npm run build` for `next start`. Not repeated in watch mode. Services take `build` too. |
+| `db` | Postgres in a container | Database options (below), or `false` for an app without a database: nothing is started, `{{db.*}}` aren't set and `db.*` in scenarios explains that it's off. `slicetest init` writes `false` when it finds no migrations, no database service and no database library. |
 | `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. For apps that don't take one URL: `{{db.jdbcUrl}}` (`jdbc:postgresql://…`), `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}`. The rest of `process.env` is inherited. |
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
@@ -781,7 +784,7 @@ Checks what a run needs before it starts, instead of failing with a timeout half
 ```yaml
 app:
   cwd: backend
-  build: ./gradlew classes -q      # compiled once, so workers don't compile at the same time
+  build: ./gradlew bootJar -q      # built once: workers don't compile at once, bootRun downloads nothing
   command: ./gradlew bootRun -q
   env:
     SERVER_PORT: "{{app.port}}"

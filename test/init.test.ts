@@ -141,7 +141,7 @@ test.each([
   ["a Node driver", { "package.json": JSON.stringify({ dependencies: { "better-sqlite3": "^11" } }) }, "{{db.url}}"],
 ])("detects SQLite from %s, with the URL form the framework reads", async (_, files, url) => {
   const { config, notes } = await detect(await project(files));
-  expect(config.db?.engine).toBe("sqlite");
+  expect((config.db || undefined)?.engine).toBe("sqlite");
   expect(config.app.env?.DATABASE_URL).toBe(url);
   expect(notes.join("\n")).toContain("SQLite");
   expect(() => resolveOptions(config, "/")).not.toThrow();
@@ -149,7 +149,7 @@ test.each([
 
 test("a SQLite driver next to a Postgres one isn't taken for the app's database", async () => {
   const { config } = await detect(await project({ "package.json": JSON.stringify({ dependencies: { "better-sqlite3": "^11", pg: "^8" } }) }));
-  expect(config.db?.engine).toBeUndefined();
+  expect((config.db || undefined)?.engine).toBeUndefined();
 });
 
 test("third-party API URLs in .env.example become stubs, and the variables point at them", async () => {
@@ -216,7 +216,7 @@ test("a Spring Boot app in backend/ with Atlas migrations named in atlas/atlas.h
   expect(config).toMatchObject({
     app: {
       cwd: "backend",
-      build: process.platform === "win32" ? "gradlew.bat classes -q" : "./gradlew classes -q",
+      build: process.platform === "win32" ? "gradlew.bat bootJar -q" : "./gradlew bootJar -q",
       command: process.platform === "win32" ? "gradlew.bat bootRun -q" : "./gradlew bootRun -q",
       env: { SERVER_PORT: "{{app.port}}", SPRING_DATASOURCE_URL: "{{db.jdbcUrl}}", SPRING_DATASOURCE_USERNAME: "{{db.user}}", SPRING_DATASOURCE_PASSWORD: "{{db.password}}" },
       ready: { path: "/actuator/health" },
@@ -269,4 +269,27 @@ test("the first scenario requests the readiness path, and .env.example is read n
     app: { cwd: "backend", env: { PAYMENTS_API_URL: "{{stub.payments}}/v1" } },
     stubs: [{ name: "payments", upstream: "https://api.payments.example" }],
   });
+});
+
+test("an app without migrations, database service or database library gets db: false", async () => {
+  const root = await project({
+    "backend/build.gradle.kts": 'plugins { id("org.springframework.boot") version "3.4.1" }\ndependencies { implementation("org.springframework.boot:spring-boot-starter-web") }',
+    "docker-compose.yml": "services:\n  backend:\n    build: { context: ./backend }\n",
+  });
+
+  const { config, notes } = await detect(root);
+
+  expect(config.db).toBe(false);
+  expect(config.app.env).toEqual({ SERVER_PORT: "{{app.port}}" });
+  expect(notes).toContain("db: none (no migrations, no database in compose, no database library), so `db: false`: no container is started");
+  // A database library alone keeps the database.
+  expect((await detect(await project({ "package.json": JSON.stringify({ scripts: { start: "node ." }, dependencies: { pg: "8" } }) }))).config.db).not.toBe(false);
+});
+
+test("the first scenario doesn't insist on 200 at / ", async () => {
+  const root = await project({ "go.mod": "module x" });
+  await init(root);
+  const text = await readFile(path.join(root, "scenarios", "smoke.scenario.yaml"), "utf8");
+  expect(text).toContain("      - request: GET /\n        # expect: { status: 200 }");
+  expect(parse(text).scenarios[0].steps).toEqual([{ request: "GET /" }]);
 });

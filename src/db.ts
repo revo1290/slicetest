@@ -335,3 +335,19 @@ function truncate(s: string, max = 200) {
 }
 
 
+
+/** The `db` of an app without a database (`db: false`): resetting is a no-op, anything else explains. */
+export function noDatabase(): Db {
+  const off = () => {
+    throw new Error("slicetest: the app has no database (db: false), so db.* isn't available. Configure `db` to use it.");
+  };
+  return new Proxy({} as Db, {
+    get(_, prop) {
+      if (prop === "reset" || prop === "close") return async () => {};
+      if (prop === "changesSinceStart") return async () => ({});
+      if (prop === "then") return undefined;
+      // The real methods are async, so this rejects like they would.
+      return async () => off();
+    },
+  });
+}
