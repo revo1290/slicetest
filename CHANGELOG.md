@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `db.make(table, overrides)` and `db.makeMany(table, count, overrides)`: insert rows that satisfy the schema while naming only the columns the scenario cares about. Required columns get a value of their type, enums and `CHECK (... IN (...))` columns their first allowed value, and required foreign keys a parent row made the same way. Values are numbered per scenario, so they are unique and stable across runs. Postgres, MySQL and SQLite. YAML: a `make` step with `rows` and `count`.
+
 ## 0.4.0
 
 - `npx slicetest record`: starts the app, database and stubs with a proxy in front of the app; use the app through it (a browser, curl), press Enter, and get a YAML scenario: `stub` steps with the answers the services gave, `request` steps with the responses to expect (dates and UUIDs matched by type), captures for values later requests reuse, `received` steps and a `changes` step. Static files are left out.

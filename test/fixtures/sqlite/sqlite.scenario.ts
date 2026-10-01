@@ -31,3 +31,13 @@ scenario("the app's foreign keys still hold after resets, and booleans bind as 0
   await expect(db).toHaveRow("posts", { published: 1 }, 1);
   await expect(db.insert("posts", { author_id: 99, title: "orphan" })).rejects.toThrow(/FOREIGN KEY/);
 });
+
+scenario("db.make fills required columns and creates the parent rows foreign keys need", async ({ db }) => {
+  const post = await db.make("posts", { title: "Made" });
+  expect(post).toEqual({ id: 1, author_id: 1, title: "Made", published: 0 });
+  expect(await db.rows("authors")).toEqual([{ id: 1, name: "name-2" }]);
+
+  const [a, b] = await db.makeMany("authors", 2, (i) => ({ name: `writer ${i}` }));
+  expect([a!.name, b!.name]).toEqual(["writer 0", "writer 1"]);
+  await expect(db.make("posts", { body: "x" })).rejects.toThrow(/there is no column "body"/);
+});

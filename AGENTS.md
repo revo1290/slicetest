@@ -7,7 +7,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
 - `src/` — the package. Entry points: `index.ts` (`slicetest`), `vitest.ts` (`slicetest/vitest`), `yaml.ts` (`slicetest/yaml`), `cli.ts` (the `slicetest` bin).
   - `scenario.ts`, `runtime.ts`, `setup-file.ts`, `global-setup.ts` — Vitest integration and per-run / per-worker / per-file lifecycle.
   - `app.ts` — starting, watching and restarting the app and `services`.
-  - `db.ts`, `drivers/` — the `db` helper. Everything engine-specific lives behind `Driver` / `Engine` in `drivers/driver.ts` (`postgres.ts`, `mysql.ts`, `sqlite.ts`); keep `db.ts` engine-agnostic. SQLite uses the built-in `node:sqlite` and needs no container (`Engine.local`). `mysql2` is an optional peer dependency, loaded only when `db.engine` is `mysql`.
+  - `db.ts`, `drivers/` — the `db` helper. Everything engine-specific lives behind `Driver` / `Engine` in `drivers/driver.ts` (`postgres.ts`, `mysql.ts`, `sqlite.ts`); keep `db.ts` engine-agnostic. `factory.ts` builds `db.make()` rows from `Driver.describe()`. SQLite uses the built-in `node:sqlite` and needs no container (`Engine.local`). `mysql2` is an optional peer dependency, loaded only when `db.engine` is `mysql`.
   - `stub.ts`, `http.ts`, `matchers.ts`, `openapi.ts` — stubs, the HTTP client, matchers, contract checks and coverage.
   - `yaml.ts`, `yaml-runtime.ts` — YAML scenario parsing and execution.
   - `init.ts` — `slicetest init` stack detection. `gen.ts` — `slicetest gen` scenarios from OpenAPI. `doctor.ts` — `slicetest doctor` environment checks (machine access goes through its `Probes`, so tests fake it).

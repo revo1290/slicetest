@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, open, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { Admin, Driver, Engine, Row, Table } from "./driver.js";
+import type { Admin, Driver, Engine, Row, Table, TableShape } from "./driver.js";
 
 /**
  * SQLite through Node's built-in `node:sqlite` (Node 22.5+): no server, no
@@ -49,6 +49,24 @@ export function sqliteUrl(file: string) {
 }
 
 /** Values node:sqlite can't bind are stored the way an app would store them. */
+/** The parenthesised bodies of every CHECK in a CREATE TABLE statement. */
+function checkBodies(sql: string) {
+  const bodies: string[] = [];
+  for (const m of sql.matchAll(/\bcheck\s*\(/gi)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    const start = i;
+    for (; i < sql.length && depth > 0; i++) {
+      if (sql[i] === "'") i = sql.indexOf("'", i + 1);
+      else if (sql[i] === "(") depth++;
+      else if (sql[i] === ")") depth--;
+      if (i < 0) return bodies;
+    }
+    bodies.push(sql.slice(start, i - 1));
+  }
+  return bodies;
+}
+
 function bind(v: unknown) {
   if (typeof v === "boolean") return v ? 1 : 0;
   if (v instanceof Date) return v.toISOString();
@@ -140,6 +158,42 @@ export class SqliteDriver implements Driver {
         ? `INSERT INTO ${this.ident(table)} DEFAULT VALUES RETURNING *`
         : `INSERT INTO ${this.ident(table)} (${cols.map((c) => this.column(c)).join(", ")}) VALUES (${cols.map((_, i) => `?${i + 1}`).join(", ")}) RETURNING *`;
     return this.query(sql, Object.values(row));
+  }
+
+  async describe(table: string): Promise<TableShape> {
+    const [master] = await this.query<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1", [table]);
+    if (!master) throw new Error(`slicetest: there is no table "${table}"`);
+    const columns = await this.query<{ name: string; type: string; notnull: number; dflt_value: unknown; pk: number; hidden: number }>(
+      "SELECT name, type, \"notnull\", dflt_value, pk, hidden FROM pragma_table_xinfo(?1) ORDER BY cid",
+      [table],
+    );
+    const pk = columns.filter((c) => c.pk > 0);
+    // An INTEGER PRIMARY KEY is the rowid: SQLite assigns it.
+    const rowid = pk.length === 1 && pk[0]!.type.toUpperCase() === "INTEGER" ? pk[0]!.name : undefined;
+    const keys = await this.query<{ id: number; table: string; from: string; to: string | null }>(
+      'SELECT id, "table", "from", "to" FROM pragma_foreign_key_list(?1) ORDER BY id, seq',
+      [table],
+    );
+    const foreignKeys = new Map<number, { columns: string[]; table: string; references: string[] }>();
+    for (const k of keys) {
+      const fk = foreignKeys.get(k.id) ?? { columns: [], table: k.table, references: [] };
+      fk.columns.push(k.from);
+      if (k.to !== null) fk.references.push(k.to);
+      foreignKeys.set(k.id, fk);
+    }
+    return {
+      columns: columns
+        .filter((c) => c.hidden !== 1)
+        .map((c) => ({
+          name: c.name,
+          type: c.type,
+          nullable: c.notnull === 0 && c.pk === 0,
+          hasDefault: c.dflt_value !== null || c.hidden > 1 || c.name === rowid,
+          maxLength: Number(/\((\d+)\)/.exec(c.type)?.[1]) || undefined,
+        })),
+      foreignKeys: [...foreignKeys.values()],
+      checks: checkBodies(master.sql),
+    };
   }
 
   async close() {

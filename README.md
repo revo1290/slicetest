@@ -187,6 +187,18 @@ await db.query("UPDATE users SET name = $1", ["b"]);
 
 In `where`, `null` means `IS NULL` and an array means `IN (...)`.
 
+#### `db.make()` — rows from the schema, not from fixtures
+
+Give only the columns the scenario is about. slicetest reads the table's definition and fills in the rest: a value of each required column's type, the first allowed value for enums and `CHECK (status IN (...))`, and a parent row for every required foreign key, made the same way.
+
+```ts
+const order = await db.make("orders", { status: "paid" });   // also creates the customer and the product it references
+await db.makeMany("votes", 3, { poll_id: order.poll_id });
+await db.makeMany("users", 2, (i) => ({ name: `user ${i}` }));
+```
+
+Generated values are numbered per scenario (`title-1`, `orders-2@example.test`, UUIDs, dates from 2026-01-01), so they are unique and identical on every run, which keeps `trace()` snapshots stable. Works the same on Postgres, MySQL and SQLite. When a column needs a value slicetest can't guess (a custom type, a check it can't satisfy), the error names the column to pass.
+
 #### `db.changes()` — assert on everything the app wrote
 
 Instead of guessing which tables to query, ask for the diff. Rows are matched by primary key, so updates show which columns changed:
@@ -506,6 +518,7 @@ scenarios:
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed), `when: { query, headers, json, body }`, one of `reply: { status, headers, body }` / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`. |
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
+| `make: <table>` | `rows` (a mapping, or a list for several rows), `count`, `capture` (from `row` / `rows`) — like `db.make()` |
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |
 | `received: <stub>` | `call: METHOD /path`, `when`, `times` (exact; default at least once) |

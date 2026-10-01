@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { Admin, Driver, Engine, Row, Table } from "./driver.js";
+import type { Admin, Driver, Engine, Row, Table, TableShape } from "./driver.js";
 
 const INT8 = 20;
 
@@ -101,6 +101,40 @@ export class PostgresDriver implements Driver {
         ? `INSERT INTO ${this.ident(table)} DEFAULT VALUES RETURNING *`
         : `INSERT INTO ${this.ident(table)} (${cols.map((c) => this.ident(c)).join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`;
     return this.query(sql, Object.values(row));
+  }
+
+  async describe(table: string): Promise<TableShape> {
+    const [{ oid } = { oid: null }] = await this.query<{ oid: number | null }>("SELECT to_regclass($1)::oid AS oid", [this.ident(table)]);
+    if (oid === null) throw new Error(`slicetest: there is no table "${table}"`);
+    const columns = await this.query<{ name: string; type: string; nullable: boolean; has_default: boolean; max: number | null; values: string[] | null }>(
+      `SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type, NOT a.attnotnull AS nullable,
+              (a.atthasdef OR a.attidentity <> '' OR a.attgenerated <> '') AS has_default,
+              information_schema._pg_char_max_length(a.atttypid, a.atttypmod) AS max,
+              (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e WHERE e.enumtypid = a.atttypid) AS values
+         FROM pg_attribute a
+        WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped
+        ORDER BY a.attnum`,
+      [oid],
+    );
+    const keys = await this.query<{ columns: string[]; schema: string; table: string; references: string[] }>(
+      `SELECT (SELECT array_agg(a.attname::text ORDER BY k.ord) FROM unnest(c.conkey) WITH ORDINALITY k(n, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.n) AS columns,
+              n.nspname AS schema, r.relname AS table,
+              (SELECT array_agg(a.attname::text ORDER BY k.ord) FROM unnest(c.confkey) WITH ORDINALITY k(n, ord)
+                JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.n) AS references
+         FROM pg_constraint c
+         JOIN pg_class r ON r.oid = c.confrelid
+         JOIN pg_namespace n ON n.oid = r.relnamespace
+        WHERE c.contype = 'f' AND c.conrelid = $1
+        ORDER BY c.conname`,
+      [oid],
+    );
+    const checks = await this.query<{ def: string }>("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE contype = 'c' AND conrelid = $1", [oid]);
+    return {
+      columns: columns.map((c) => ({ name: c.name, type: c.type, nullable: c.nullable, hasDefault: c.has_default, maxLength: c.max ?? undefined, values: c.values ?? undefined })),
+      foreignKeys: keys.map((k) => ({ columns: k.columns, table: k.schema === "public" ? k.table : `${k.schema}.${k.table}`, references: k.references })),
+      checks: checks.map((c) => c.def),
+    };
   }
 
   async close() {

@@ -16,6 +16,34 @@ export interface Table {
   key: string[];
 }
 
+export interface Column {
+  name: string;
+  /** The declared type as the engine reports it, e.g. `character varying(20)`, `int`, `TEXT`. */
+  type: string;
+  nullable: boolean;
+  /** Has a default, is generated, an identity or auto-increment column: inserts may leave it out. */
+  hasDefault: boolean;
+  maxLength?: number;
+  /** Labels of an enum type. */
+  values?: string[];
+}
+
+export interface ForeignKey {
+  columns: string[];
+  /** Referenced table, named like `Table.name`. */
+  table: string;
+  /** Referenced columns; empty means the referenced table's primary key (SQLite). */
+  references: string[];
+}
+
+/** What `db.make()` needs to build a valid row. */
+export interface TableShape {
+  columns: Column[];
+  foreignKeys: ForeignKey[];
+  /** Bodies of CHECK constraints, as the engine prints them. */
+  checks: string[];
+}
+
 export interface Driver {
   query<T extends Row = Row>(sql: string, params?: unknown[]): Promise<T[]>;
   /** Several parameterless SELECTs in one round trip. */
@@ -36,6 +64,8 @@ export interface Driver {
   truncate(tables: Table[]): Promise<void>;
   /** Insert one row and return it as stored (defaults and generated ids filled in). */
   insert(table: string, row: Row): Promise<Row[]>;
+  /** Columns, foreign keys and checks of `table`. Throws when there is no such table. */
+  describe(table: string): Promise<TableShape>;
   close(): Promise<void>;
 }
 

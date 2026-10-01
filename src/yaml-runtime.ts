@@ -52,6 +52,7 @@ function describeStep(step: Step) {
   if ("stub" in step) return `stub ${step.stub} ${step.on}`;
   if ("received" in step) return `received ${step.received}${step.call ? ` ${step.call}` : ""}`;
   if ("insert" in step) return `insert ${step.insert}`;
+  if ("make" in step) return `make ${step.make}`;
   if ("db" in step) return `db ${step.db}`;
   if ("changes" in step) return "changes";
   if ("checkpoint" in step) return "checkpoint";
@@ -192,6 +193,15 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
 
   if ("insert" in step) {
     const rows = await ctx.db.insert(step.insert, interpolate(step.rows, vars) as Record<string, unknown>[]);
+    capture(step.capture, { rows, row: rows[0] }, vars);
+    return;
+  }
+
+  if ("make" in step) {
+    const given = (interpolate(step.rows, vars) as Record<string, unknown> | Record<string, unknown>[] | undefined) ?? {};
+    const rows = [];
+    if (Array.isArray(given)) for (const r of given) rows.push(await ctx.db.make(step.make, r));
+    else rows.push(...(await ctx.db.makeMany(step.make, step.count ?? 1, given)));
     capture(step.capture, { rows, row: rows[0] }, vars);
     return;
   }

@@ -39,3 +39,9 @@ scenario("filters, counts and the sql tag use MySQL placeholders", async ({ db }
   expect(await db.sql`SELECT name FROM authors WHERE id > ${1} ORDER BY id`).toEqual([{ name: "Grace" }, { name: "Linus" }]);
   expect(await db.rows("authors", {}, { orderBy: "-id", limit: 1 })).toEqual([{ id: 3, name: "Linus" }]);
 });
+
+scenario("db.make fills required columns and creates the parent rows foreign keys need", async ({ db }) => {
+  const post = await db.make("posts");
+  expect(post).toEqual({ id: 1, author_id: 2, title: "title-1", published: false, slug: "title-1" });
+  expect(await db.one("authors", { id: 2 })).toEqual({ id: 2, name: "name-2" });
+});

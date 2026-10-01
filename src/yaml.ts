@@ -26,7 +26,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | InsertStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
+export type Step = (StubStep | RequestStep | InsertStep | MakeStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
   line: number;
   name?: string;
 };
@@ -66,6 +66,15 @@ export interface RequestStep {
 export interface InsertStep {
   insert: string;
   rows: Record<string, unknown> | Record<string, unknown>[];
+  capture?: Record<string, string>;
+}
+
+/** Rows built by `db.make()`: only the columns given are fixed, the rest is filled from the schema. */
+export interface MakeStep {
+  make: string;
+  rows?: Record<string, unknown> | Record<string, unknown>[];
+  /** Make this many rows, each with `rows` (a mapping). */
+  count?: number;
   capture?: Record<string, string>;
 }
 
@@ -153,6 +162,7 @@ const KINDS = {
   checkpoint: [],
   snapshot: ["mask"],
   mail: ["times", "within", "capture"],
+  make: ["rows", "count", "capture"],
 } as const;
 type Kind = keyof typeof KINDS;
 
@@ -307,6 +317,13 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       break;
     case "insert":
       if (!raw.rows || typeof raw.rows !== "object") fail(at("rows"), "an insert step needs `rows` (a mapping or a list of mappings)");
+      break;
+    case "make":
+      if (raw.rows !== undefined && (!raw.rows || typeof raw.rows !== "object")) fail(at("rows"), "`rows` must be a mapping or a list of mappings");
+      if (raw.count !== undefined) {
+        if (!(Number.isInteger(raw.count) && (raw.count as number) >= 1)) fail(at("count"), "`count` must be a positive whole number");
+        if (Array.isArray(raw.rows)) fail(at("count"), "use either `count` or a list of `rows`");
+      }
       break;
     case "log":
       try {

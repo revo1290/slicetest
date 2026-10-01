@@ -258,6 +258,42 @@
         {
           "type": "object",
           "required": [
+            "make"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "make": {
+              "type": "string",
+              "description": "Table to make rows in: required columns and parent rows are filled from the schema"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            },
+            "rows": {
+              "type": [
+                "object",
+                "array"
+              ],
+              "description": "Columns to set: a mapping, or a list of mappings for several rows"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Make this many rows, each with `rows`"
+            },
+            "capture": {
+              "type": "object",
+              "description": "Save values as variables for later steps, e.g. { orderId: row.id }",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "sql"
           ],
           "additionalProperties": false,

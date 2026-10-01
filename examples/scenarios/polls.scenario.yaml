@@ -58,6 +58,22 @@ scenarios:
             options: { a: ごはん, b: パン }
             votes: { a: 2, b: 1 }
 
+  - name: make は必須列を埋め、CHECK の許す値で票を作る（YAML）
+    steps:
+      - make: polls
+        rows: { title: 夏か冬か }
+        capture: { pollId: row.id }
+      - make: votes
+        rows: { poll_id: "{{pollId}}" }
+        count: 2
+      - request: GET /polls/{{pollId}}
+        expect:
+          status: 200
+          json:
+            title: 夏か冬か
+            options: { a: option_a-1, b: option_b-1 }
+            votes: { a: 2, b: 0 }
+
   - name: poll {{poll}} に {{choice}} で投票すると {{status}}（YAML）
     each:
       - { poll: 1, choice: a, status: 204, stored: 1 }

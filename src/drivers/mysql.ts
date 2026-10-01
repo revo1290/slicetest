@@ -1,6 +1,6 @@
 import type { Connection, FieldPacket, ResultSetHeader, TypeCastField } from "mysql2/promise";
 import mysql from "mysql2/promise";
-import type { Admin, Driver, Engine, Row, Table } from "./driver.js";
+import type { Admin, Driver, Engine, Row, Table, TableShape } from "./driver.js";
 
 /**
  * Makes rows look like the Postgres driver's, so the same scenarios pass on
@@ -144,6 +144,53 @@ export class MysqlDriver implements Driver {
     if (key.length === 0) return [row];
     const conds = Object.keys(where).map((k) => `${this.column(k)} = ?`);
     return this.query(`SELECT * FROM ${this.ident(table)} WHERE ${conds.join(" AND ")}`, Object.values(where));
+  }
+
+  async describe(table: string): Promise<TableShape> {
+    const [schema, name] = table.includes(".") ? table.split(".", 2) : [null, table];
+    const columns = await this.query<{ name: string; type: string; nullable: string; dflt: unknown; extra: string; max: number | null }>(
+      `SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable, COLUMN_DEFAULT AS dflt, EXTRA AS extra,
+              CHARACTER_MAXIMUM_LENGTH AS max
+         FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = COALESCE(?, DATABASE()) AND TABLE_NAME = ?
+        ORDER BY ORDINAL_POSITION`,
+      [schema, name],
+    );
+    if (columns.length === 0) throw new Error(`slicetest: there is no table "${table}"`);
+    const keys = await this.query<{ id: string; column: string; schema: string; table: string; ref: string; current: string }>(
+      `SELECT CONSTRAINT_NAME AS id, COLUMN_NAME AS \`column\`, REFERENCED_TABLE_SCHEMA AS \`schema\`,
+              REFERENCED_TABLE_NAME AS \`table\`, REFERENCED_COLUMN_NAME AS ref, DATABASE() AS current
+         FROM information_schema.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA = COALESCE(?, DATABASE()) AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+        ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION`,
+      [schema, name],
+    );
+    const foreignKeys = new Map<string, { columns: string[]; table: string; references: string[] }>();
+    for (const k of keys) {
+      const fk = foreignKeys.get(k.id) ?? { columns: [], table: k.schema === k.current ? k.table : `${k.schema}.${k.table}`, references: [] };
+      fk.columns.push(k.column);
+      fk.references.push(k.ref);
+      foreignKeys.set(k.id, fk);
+    }
+    const checks = await this.query<{ def: string }>(
+      `SELECT c.CHECK_CLAUSE AS def
+         FROM information_schema.CHECK_CONSTRAINTS c
+         JOIN information_schema.TABLE_CONSTRAINTS t ON t.CONSTRAINT_SCHEMA = c.CONSTRAINT_SCHEMA AND t.CONSTRAINT_NAME = c.CONSTRAINT_NAME
+        WHERE t.TABLE_SCHEMA = COALESCE(?, DATABASE()) AND t.TABLE_NAME = ?`,
+      [schema, name],
+    );
+    return {
+      columns: columns.map((c) => ({
+        name: c.name,
+        type: c.type,
+        nullable: c.nullable === "YES",
+        hasDefault: c.dflt !== null || /auto_increment|generated/i.test(c.extra),
+        maxLength: c.max === null ? undefined : Number(c.max),
+        values: /^enum\(/i.test(c.type) ? [...c.type.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1]!.replace(/''/g, "'")) : undefined,
+      })),
+      foreignKeys: [...foreignKeys.values()],
+      checks: checks.map((c) => c.def),
+    };
   }
 
   async #primaryKey(table: string) {

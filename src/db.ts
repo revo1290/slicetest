@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Driver, Row, Table } from "./drivers/driver.js";
+import { Factory } from "./factory.js";
 
 /** Tables that record applied migrations. Truncating them would make tools re-run migrations. */
 const MIGRATION_TABLES = [
@@ -63,6 +64,7 @@ export class Db {
   /** Contents right after the reset (and seed); undefined means every table was empty. */
   #start?: Snapshot;
   #checkpoint?: Snapshot | "start";
+  #factory: Factory;
 
   private constructor(
     driver: Driver,
@@ -70,6 +72,10 @@ export class Db {
     private readonly opts: { schemas: string[]; keep: string[] },
   ) {
     this.#driver = driver;
+    this.#factory = new Factory(
+      (table) => driver.describe(table),
+      (table, row) => driver.insert(table, row),
+    );
   }
 
   static async connect(driver: Driver, url: string, opts: { schemas: string[]; keep: string[]; seedFile?: string }) {
@@ -122,10 +128,31 @@ export class Db {
     return out;
   }
 
+  /**
+   * Insert a row that satisfies the schema, giving only the columns the test cares about.
+   * Required columns get a value of their type (enums and `CHECK (... IN (...))` their first
+   * allowed value) and required foreign keys a parent row made the same way.
+   *
+   * ```ts
+   * const order = await db.make("orders", { status: "paid" }); // also creates the customer it needs
+   * ```
+   */
+  async make<T extends Row = Row>(table: string, overrides: Row = {}): Promise<T> {
+    return (await this.#factory.make(table, overrides)) as T;
+  }
+
+  /** `count` rows made like `make()`; `overrides` may depend on the index. */
+  async makeMany<T extends Row = Row>(table: string, count: number, overrides: Row | ((i: number) => Row) = {}): Promise<T[]> {
+    const out: T[] = [];
+    for (let i = 0; i < count; i++) out.push(await this.make<T>(table, typeof overrides === "function" ? overrides(i) : overrides));
+    return out;
+  }
+
   /** Empty every data table without dropping the app's connections, then re-apply the seed. */
   async reset() {
     this.#tables ??= await this.#listTables();
     await this.#driver.truncate(this.#tables);
+    this.#factory.reset();
     this.#start = undefined;
     this.#checkpoint = undefined;
     if (this.#seed) {
