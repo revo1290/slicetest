@@ -71,7 +71,19 @@ export class App {
    * `key` names the process in placeholders and messages: `app`, or
    * `service.<name>` for a service (its port is then `{{service.<name>.port}}`).
    */
-  static async start(opts: ProcessOptions, root: string, vars: Record<string, string>, key = "app", fixedPort?: number) {
+  static async start(opts: ProcessOptions, root: string, vars: Record<string, string>, key = "app", fixedPort?: number): Promise<App> {
+    // A free port can be taken by someone else before the app binds it (another worker, another
+    // program). When that is why the app died, try again on a fresh port.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await App.#start(opts, root, vars, key, fixedPort);
+      } catch (e) {
+        if (fixedPort !== undefined || attempt >= PORT_ATTEMPTS || !(e instanceof PortInUse)) throw e;
+      }
+    }
+  }
+
+  static async #start(opts: ProcessOptions, root: string, vars: Record<string, string>, key: string, fixedPort?: number) {
     // A restarted service keeps its port, so URLs already handed to other processes stay valid.
     const port = fixedPort ?? (await freePort());
     vars = { ...vars, [`${key}.port`]: String(port) };
@@ -92,6 +104,7 @@ export class App {
       await app.#waitReady(opts);
     } catch (e) {
       await app.stop();
+      if (app.#exit && ADDRESS_IN_USE.test(app.logs())) throw new PortInUse((e as Error).message);
       throw e;
     }
     return app;
@@ -273,14 +286,29 @@ function mapValues<T, U>(obj: Record<string, T>, fn: (v: T) => U) {
   return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fn(v)]));
 }
 
-function freePort() {
-  return new Promise<number>((resolve, reject) => {
-    const srv = createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => resolve(port));
+const PORT_ATTEMPTS = 3;
+/** How Node, Python, Go, Ruby, the JVM and others report a port that is taken. */
+const ADDRESS_IN_USE = /EADDRINUSE|address already in use|Address in use|BindException/i;
+
+class PortInUse extends Error {}
+
+/** Ports this process has handed out; the OS may offer one again before the app has bound it. */
+const handedOut = new Set<number>();
+
+async function freePort(): Promise<number> {
+  for (;;) {
+    const port = await new Promise<number>((resolve, reject) => {
+      const srv = createServer();
+      srv.unref();
+      srv.on("error", reject);
+      srv.listen(0, "127.0.0.1", () => {
+        const { port } = srv.address() as { port: number };
+        srv.close(() => resolve(port));
+      });
     });
-  });
+    if (!handedOut.has(port)) {
+      handedOut.add(port);
+      return port;
+    }
+  }
 }

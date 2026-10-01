@@ -26,6 +26,8 @@ class Session {
   /** Stub base URLs of intercepted hosts, which redirects may lead to (an OAuth provider's login page). */
   external = new Map<string, string>();
   cookies = new Map<string, string>();
+  /** The Path each cookie was set for; a cookie without one (added by hand) goes everywhere. */
+  cookiePaths = new Map<string, string>();
   history: HttpResponse[] = [];
   listeners: ((res: HttpResponse) => void)[] = [];
 }
@@ -162,8 +164,9 @@ export class HttpClient {
     const stub = url.origin === new URL(this.baseUrl).origin ? undefined : lookupHost(this.#session.external, url.hostname);
     // The app's cookies stay with the app; the stub is reached at its own address.
     const target = stub ? new URL(url.pathname + url.search, stub) : url;
-    if (!stub && this.#session.cookies.size > 0 && !headers.has("cookie")) {
-      headers.set("cookie", [...this.#session.cookies].map(([k, v]) => `${k}=${v}`).join("; "));
+    if (!stub && !headers.has("cookie")) {
+      const cookie = this.#cookieHeader(url.pathname);
+      if (cookie) headers.set("cookie", cookie);
     }
     let payload: BodyInit | undefined;
     if (
@@ -189,7 +192,7 @@ export class HttpClient {
       this.#record({ method, url: url.pathname + url.search, status: 0, headers: new Headers(), text: `${e}${cause ? ` (${cause})` : ""}`, json: undefined, durationMs: Math.round(performance.now() - started) });
       throw e;
     }
-    if (!stub) for (const cookie of res.headers.getSetCookie()) this.#storeCookie(cookie);
+    if (!stub) for (const cookie of res.headers.getSetCookie()) this.#storeCookie(cookie, url.pathname);
     const text = await res.text();
     let json: unknown;
     try {
@@ -232,6 +235,7 @@ export class HttpClient {
 
   clearCookies() {
     this.#session.cookies.clear();
+    this.#session.cookiePaths.clear();
   }
 
   /** Requests made during the current scenario, oldest first (last 20). */
@@ -241,24 +245,61 @@ export class HttpClient {
 
   /** Start a new scenario: forget cookies and history. */
   reset() {
-    this.#session.cookies.clear();
+    this.clearCookies();
     this.#session.history = [];
   }
 
-  #storeCookie(header: string) {
+  /** Cookies whose Path covers `requestPath`, longest Path first as browsers send them (RFC 6265 5.4). */
+  #cookieHeader(requestPath: string) {
+    const { cookies, cookiePaths } = this.#session;
+    return [...cookies]
+      .map(([name, value]) => ({ name, value, path: cookiePaths.get(name) ?? "/" }))
+      .filter((c) => pathMatches(requestPath, c.path))
+      .sort((a, b) => b.path.length - a.path.length)
+      .map((c) => `${c.name}=${c.value}`)
+      .join("; ");
+  }
+
+  #storeCookie(header: string, requestPath: string) {
     const [pair, ...attrs] = header.split(";");
     const eq = pair!.indexOf("=");
     if (eq <= 0) return;
     const name = pair!.slice(0, eq).trim();
-    const expired = attrs.some((a) => {
-      const [k, v = ""] = a.split("=").map((s) => s.trim());
-      if (k!.toLowerCase() === "max-age") return Number(v) <= 0;
-      if (k!.toLowerCase() === "expires") return Date.parse(v) <= Date.now();
-      return false;
-    });
-    if (expired) this.#session.cookies.delete(name);
-    else this.#session.cookies.set(name, pair!.slice(eq + 1).trim());
+    let maxAge: number | undefined;
+    let expires: number | undefined;
+    let cookiePath: string | undefined;
+    for (const a of attrs) {
+      const i = a.indexOf("=");
+      const k = (i < 0 ? a : a.slice(0, i)).trim().toLowerCase();
+      const v = i < 0 ? "" : a.slice(i + 1).trim();
+      if (k === "max-age") maxAge = Number(v);
+      else if (k === "expires") expires = Date.parse(v);
+      else if (k === "path" && v.startsWith("/")) cookiePath = v;
+    }
+    // Max-Age wins over Expires whichever comes first.
+    const expired = maxAge !== undefined && !Number.isNaN(maxAge) ? maxAge <= 0 : expires !== undefined && expires <= Date.now();
+    // Keyed by name alone: a second cookie of the same name under another Path replaces the first.
+    if (expired) {
+      this.#session.cookies.delete(name);
+      this.#session.cookiePaths.delete(name);
+    } else {
+      this.#session.cookies.set(name, pair!.slice(eq + 1).trim());
+      this.#session.cookiePaths.set(name, cookiePath ?? defaultCookiePath(requestPath));
+    }
   }
+}
+
+/** RFC 6265 5.1.4: the request path's directory, e.g. "/auth" for "/auth/login". */
+function defaultCookiePath(requestPath: string) {
+  const slash = requestPath.lastIndexOf("/");
+  return slash <= 0 ? "/" : requestPath.slice(0, slash);
+}
+
+/** RFC 6265 5.1.4: "/api" covers "/api" and "/api/x" but not "/apix". */
+function pathMatches(requestPath: string, cookiePath: string) {
+  if (requestPath === cookiePath) return true;
+  if (!requestPath.startsWith(cookiePath)) return false;
+  return cookiePath.endsWith("/") || requestPath[cookiePath.length] === "/";
 }
 
 function merge(a: RequestOptions, b: RequestOptions): RequestOptions {

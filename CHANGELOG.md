@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Cookies are sent only to paths under their `Path` (a refresh token set for `Path=/auth/refresh` no longer goes with every request), longest `Path` first; without `Path`, the directory of the request that set it, as browsers do. Cookies added by hand through `http.cookies` still go everywhere. `Max-Age` now wins over `Expires` regardless of their order.
+- When the app dies at start-up because its port was taken in the moment between slicetest choosing it and the app binding it (another worker or program), it is started again on another port, up to 3 times. Ports already handed out in the process are not offered again.
+
 ## 0.6.0
 
 Tried on five real projects (Next.js with server actions, Clerk, Neon and Stripe; a Next.js aggregator of hard-coded feeds; three Spring Boot apps with GitHub, Google and springdoc), and changed wherever they didn't work as they were.

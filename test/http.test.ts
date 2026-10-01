@@ -15,6 +15,8 @@ beforeAll(async () => {
     if (req.url === "/session") return res.writeHead(303, { location: "/me", "set-cookie": "sid=xyz; Path=/" }).end();
     if (req.url === "/keep") return res.writeHead(307, { location: "/echo" }).end();
     if (req.url === "/away") return res.writeHead(302, { location: "https://example.com/" }).end();
+    if (req.url === "/auth/token") return res.writeHead(204, { "set-cookie": ["refresh=r1; Path=/auth/refresh; HttpOnly", "csrf=c1"] }).end();
+    if (req.url === "/stale") return res.writeHead(204, { "set-cookie": "late=1; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT" }).end();
     if (req.url === "/logout") return res.writeHead(204, { "set-cookie": "sid=; Max-Age=0; Path=/" }).end();
     res.writeHead(200, { "content-type": "application/json" }).end(
       JSON.stringify({ url: req.url, cookie: req.headers.cookie ?? null, type: req.headers["content-type"] ?? null, body }),
@@ -59,6 +61,27 @@ test("expired cookies are dropped", async () => {
   await client.post("/logout");
 
   expect(client.cookies.has("sid")).toBe(false);
+});
+
+test("sends a cookie only under its Path, and defaults the Path to the setting request's directory", async () => {
+  const client = new HttpClient(baseUrl);
+  await client.post("/login");
+  await client.post("/auth/token");
+
+  expect((await client.get("/auth/refresh")).json.cookie).toBe("refresh=r1; csrf=c1; sid=abc");
+  expect((await client.get("/auth/refresh/x")).json.cookie).toBe("refresh=r1; csrf=c1; sid=abc");
+  expect((await client.get("/auth/refreshx")).json.cookie).toBe("csrf=c1; sid=abc");
+  expect((await client.get("/me")).json.cookie).toBe("sid=abc");
+  // Set by hand: no Path known, so it goes everywhere.
+  client.cookies.set("manual", "1");
+  expect((await client.get("/me")).json.cookie).toBe("sid=abc; manual=1");
+});
+
+test("Max-Age wins over Expires", async () => {
+  const client = new HttpClient(baseUrl);
+  await client.get("/stale");
+
+  expect(client.cookies.get("late")).toBe("1");
 });
 
 test("refuses to send requests (and cookies) anywhere but the app", async () => {
