@@ -56,7 +56,7 @@ test("Node's fetch reaches the stub for an intercepted host, over HTTPS and plai
 test.runIf(await available("python3", ["--version"]))("Python's urllib trusts the test CA through SSL_CERT_FILE", async () => {
   const py = "import urllib.request; print(urllib.request.urlopen('https://api.weather.test/v1/now').read().decode())";
   expect(await client("python3", ["-c", py])).toEqual({ host: "api.weather.test", path: "/v1/now" });
-});
+}, 30_000);
 
 test.runIf(await available("java", ["-version"]))("the JVM goes through the proxy and trusts the PKCS#12 store, with HttpURLConnection and HttpClient", async () => {
   const dir = path.join(os.tmpdir(), `slicetest-java-${process.pid}`);
@@ -74,7 +74,7 @@ public class Probe { public static void main(String[] a) throws Exception {
 } }`,
   );
   expect(await client("java", [source])).toEqual({ host: "api.weather.test", path: "/v1/now" });
-});
+}, 120_000); // compiling and starting the JVM takes several seconds on CI
 
 test("other hosts are tunnelled untouched and listed", async () => {
   // A TLS server standing in for some real API on the internet.

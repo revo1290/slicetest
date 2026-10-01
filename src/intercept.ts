@@ -208,6 +208,7 @@ export class Interceptor {
   async close() {
     for (const s of this.#sockets) s.destroy();
     await new Promise((resolve) => this.#server.close(resolve));
-    await rm(this.files.dir, { recursive: true, force: true });
+    // On Windows a client still shutting down may hold the trust store open for a moment.
+    await rm(this.files.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
   }
 }
