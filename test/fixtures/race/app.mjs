@@ -4,12 +4,25 @@ import pg from "pg";
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 20 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The naive path holds each request after its check until a second one has passed the
+// check too (or a second has gone by), so overlapping requests double-book every time
+// rather than only when the timing happens to line up. Requests sent one after another
+// still can't: the first inserts before the second checks.
+let passedCheck = 0;
+let bothChecked;
+const secondCheck = new Promise((r) => (bothChecked = r));
+
 // Check, then insert: two requests can both pass the check. /book relies on the
 // unique constraint and turns the violation into a 409; /book-naive has none.
 async function book(table, seat) {
   const { rowCount } = await pool.query(`SELECT 1 FROM ${table} WHERE seat = $1`, [seat]);
   if (rowCount) return 409;
-  await sleep(30);
+  if (table === "naive_bookings") {
+    if (++passedCheck >= 2) bothChecked();
+    await Promise.race([secondCheck, sleep(1000)]);
+  } else {
+    await sleep(30);
+  }
   try {
     await pool.query(`INSERT INTO ${table} (seat) VALUES ($1)`, [seat]);
     return 201;
