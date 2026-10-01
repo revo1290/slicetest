@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - `slicetest gen` reads the spec's security: operations that need a bearer token (`http: bearer`, `oauth2`, `openIdConnect`) get `auth:` on their requests, with the required scopes in the `scope` claim, and their 401 responses become runnable scenarios without a token.
 - `slicetest init` turns on `auth` when `.env.example` names a token issuer (`OIDC_ISSUER`, `AUTH0_DOMAIN`, `JWKS_URL`, `JWT_AUDIENCE`, …), pointing those variables at slicetest's issuer instead of stubbing them, and suggests it when a JWT library is a dependency.

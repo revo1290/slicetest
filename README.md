@@ -720,4 +720,4 @@ npm run test:dist   # the built package, and the CLI with examples/slicetest.con
 
 ## Status
 
-Early. Postgres and MySQL. CI runs on Linux and Windows.
+Early. Postgres, MySQL and SQLite. CI runs on Linux and Windows.

@@ -13,7 +13,7 @@ export default defineConfig({
         env: { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}", SLACK_WEBHOOK_URL: "{{stub.slack}}/hook" },
         ready: { log: "listening on" },
       },
-      db: { migrate: { sql: "migrations/20260929000000_init.sql" }, seed: "seed.sql" },
+      db: { migrate: { sql: "migrations/20260929000000_init.sql" }, seed: "seed.sql", queries: true },
       stubs: [{ name: "slack", openapi: "slack.openapi.yaml" }],
       openapi: "openapi.yaml",
     }),
