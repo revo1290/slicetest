@@ -780,7 +780,7 @@ app:
   readyTimeout: 120000
 ```
 
-Atlas, Flyway-free setups with `ddl-auto: validate` work as they are: slicetest migrates, Hibernate validates against the result. For a faster start, build a jar once with `build: ./gradlew bootJar -q` and run `command: java -jar build/libs/app.jar`. Calls to hard-coded hosts (GitHub, Google, …) are caught with [`hosts`](#hard-coded-hosts-hosts).
+Apps that run Hibernate with `ddl-auto: validate` against schema-owning migrations (Atlas, or a migration command) work as they are: slicetest migrates, Hibernate validates the result at start-up. For a faster start, build a jar once with `build: ./gradlew bootJar -q` and run `command: java -jar build/libs/app.jar`. Calls to hard-coded hosts (GitHub, Google, …) are caught with [`hosts`](#hard-coded-hosts-hosts).
 
 ## Next.js
 
