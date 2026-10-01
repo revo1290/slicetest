@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Stubs for hard-coded hosts: `{ name: "github", hosts: ["api.github.com"] }` answers the app's calls to those hosts, over HTTPS or HTTP, without the app reading a base URL from its environment. The app is started with proxy variables and a certificate authority made for the run, in the forms Node (`NODE_USE_ENV_PROXY`, `NODE_EXTRA_CA_CERTS`), OpenSSL-based runtimes and Go (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`) and the JVM (`JAVA_TOOL_OPTIONS` with a PKCS#12 trust store) read. Other hosts are passed through and listed in the failure output. `{{proxy.url}}`, `{{proxy.ca}}`, `{{proxy.bundle}}`, `{{proxy.truststore}}`.
+- `hosts` takes `*.domain` for every subdomain of a domain (connpass group feeds at `<group>.connpass.com`).
+- `offline: true`: the app's HTTP(S) calls may only reach localhost and stubbed hosts; any other host is refused and the scenario fails naming it, so a forgotten stub never reaches a real service.
 - Redirects to an intercepted host are followed to its stub (with `follow: true`), so OAuth logins through a provider's consent page run in a scenario. The app's cookies aren't sent there.
 - `{{db.jdbcUrl}}`, `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}` for apps that don't take a database URL, such as Spring (`SPRING_DATASOURCE_URL`).
 - `slicetest init` finds the app in `backend/`, `server/`, `api/`, `app/` or `service/` when the root isn't one, recognizes Spring Boot (Gradle and Maven: `bootRun`, `SERVER_PORT`, `SPRING_DATASOURCE_*`, the actuator health check), reads the migrations directory from `atlas.hcl` (also in `atlas/` or `db/`), and reads `podman-compose.yml`.

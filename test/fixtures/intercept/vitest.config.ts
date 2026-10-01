@@ -12,6 +12,7 @@ export default defineConfig({
       stubs: [
         { name: "weather", hosts: ["api.weather.test"] },
         { name: "provider", hosts: ["id.provider.test"] },
+        { name: "groups", hosts: ["*.groups.test"] },
       ],
     }),
   ],

@@ -25,9 +25,28 @@ export interface Route {
 
 let authority: Authority | undefined;
 
+/**
+ * The entry of `map` for `host`: an exact name, else the closest `*.domain` pattern
+ * (which covers every subdomain, at any depth, but not the domain itself).
+ */
+export function lookupHost<T>(map: ReadonlyMap<string, T>, host: string): T | undefined {
+  host = host.toLowerCase();
+  const exact = map.get(host);
+  if (exact !== undefined) return exact;
+  for (let i = host.indexOf("."); i >= 0; i = host.indexOf(".", i + 1)) {
+    const wildcard = map.get(`*${host.slice(i)}`);
+    if (wildcard !== undefined) return wildcard;
+  }
+  return undefined;
+}
+
 export class Interceptor {
   /** Hosts the app reached that no stub intercepts, in the order first seen. */
   readonly passedThrough = new Set<string>();
+  /** With `offline`, hosts the app tried to reach and was refused. */
+  readonly blocked = new Set<string>();
+  /** Refuse hosts no stub intercepts instead of passing calls through. */
+  offline = false;
   readonly #server: http.Server;
   readonly #sockets = new Set<net.Socket>();
   readonly #contexts = new Map<string, tls.SecureContext>();
@@ -122,7 +141,7 @@ export class Interceptor {
     const host = (req.url ?? "").slice(0, at).replace(/^\[|\]$/g, "").toLowerCase();
     const port = (req.url ?? "").slice(at + 1);
     socket.on("error", () => {});
-    const route = this.routes.get(host);
+    const route = lookupHost(this.routes, host);
     if (route) {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head.length) socket.unshift(head);
@@ -131,6 +150,11 @@ export class Interceptor {
       const secure = new tls.TLSSocket(socket, { isServer: true, secureContext: this.#context(host), ALPNProtocols: ["http/1.1"] });
       secure.on("error", () => socket.destroy());
       route.attach(secure);
+      return;
+    }
+    if (this.offline) {
+      this.blocked.add(host);
+      socket.end("HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n");
       return;
     }
     this.passedThrough.add(host);
@@ -152,7 +176,12 @@ export class Interceptor {
       return;
     }
     const host = target.hostname.toLowerCase();
-    const route = this.routes.get(host);
+    const route = lookupHost(this.routes, host);
+    if (!route && this.offline) {
+      this.blocked.add(host);
+      res.writeHead(403, { "content-type": "text/plain" }).end(`slicetest: offline, ${host} is not stubbed`);
+      return;
+    }
     if (!route) this.passedThrough.add(host);
     const forward = http.request(
       {

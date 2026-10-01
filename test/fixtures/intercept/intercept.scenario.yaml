@@ -24,3 +24,16 @@ scenarios:
       - request: GET /login
         follow: true
         expect: { status: 200, json: { token: t-42 } }
+
+  - name: "*.domain sends every subdomain to one stub, which sees the host"
+    steps:
+      - stub: groups
+        on: GET /ja.atom
+        reply: { body: "feed of {{call.headers.host}}" }
+      - request: GET /feed?group=findy
+        expect: { json: { feed: feed of findy.groups.test } }
+      - request: GET /feed?group=mercari
+        expect: { json: { feed: feed of mercari.groups.test } }
+      - received: groups
+        call: GET /ja.atom
+        times: 2

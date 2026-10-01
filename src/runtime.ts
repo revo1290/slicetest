@@ -146,12 +146,13 @@ export class Runtime {
         vars[`container.${name}.port`] = String(c.port);
       }
       for (const [name, stub] of stubs) vars[`stub.${name}`] = stub.url;
-      if (Object.keys(opts.intercept).length > 0) {
+      if (Object.keys(opts.intercept).length > 0 || opts.offline) {
         const routes = new Map(Object.entries(opts.intercept).map(([host, name]) => {
           const stub = stubs.get(name)!;
           return [host, { attach: (s: import("node:net").Socket) => stub.attach(s), port: stub.port }];
         }));
         interceptor = await Interceptor.start(routes);
+        interceptor.offline = opts.offline;
         Object.assign(vars, { "proxy.url": interceptor.url, "proxy.ca": interceptor.files.ca, "proxy.bundle": interceptor.files.bundle, "proxy.truststore": interceptor.files.trustStore });
         // Every process gets the proxy settings; a key in its own `env` still wins.
         const baseEnv = interceptor.env();
@@ -241,6 +242,7 @@ export class Runtime {
     this.issuer?.reset();
     this.queryLog?.reset();
     this.interceptor?.passedThrough.clear();
+    this.interceptor?.blocked.clear();
     await Promise.all([...this.containers.values()].map((c) => c.reset()));
     this.http.reset();
     for (const p of this.#processes()) p.beginScenario();
@@ -250,6 +252,10 @@ export class Runtime {
   async afterScenario() {
     await Promise.all(this.#processes().map((p) => p.settle()));
     this.#assertAlive();
+    if (this.interceptor?.blocked.size) {
+      const hosts = [...this.interceptor.blocked];
+      throw new Error(`slicetest: offline: the app tried to reach ${hosts.join(", ")}, which no stub answers. Add ${hosts.length > 1 ? "them" : "it"} to a stub's \`hosts\` (or remove \`offline\`).`);
+    }
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) {
       throw new Error(`slicetest: the app called stubbed services with no matching route:\n${unmatched.join("\n")}`);

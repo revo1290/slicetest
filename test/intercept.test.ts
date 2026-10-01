@@ -106,3 +106,35 @@ test("the environment covers the common runtimes, keeps an existing JAVA_TOOL_OP
   expect(bundle.startsWith(await readFile(env.NODE_EXTRA_CA_CERTS!, "utf8"))).toBe(true);
   expect(bundle.match(/BEGIN CERTIFICATE/g)!.length).toBe(tls.rootCertificates.length + 1);
 });
+
+test("*.domain covers every subdomain but not the domain; exact names win", async () => {
+  const { lookupHost } = await import("../src/intercept.js");
+  const map = new Map([["*.connpass.com", "groups"], ["connpass.com", "site"], ["api.connpass.com", "api"]]);
+
+  expect(lookupHost(map, "findy.connpass.com")).toBe("groups");
+  expect(lookupHost(map, "a.b.Connpass.com")).toBe("groups");
+  expect(lookupHost(map, "connpass.com")).toBe("site");
+  expect(lookupHost(map, "api.connpass.com")).toBe("api");
+  expect(lookupHost(map, "connpass.com.evil.test")).toBeUndefined();
+  expect(lookupHost(new Map([["*.connpass.com", 1]]), "connpass.com")).toBeUndefined();
+});
+
+test("offline refuses hosts no stub answers, over CONNECT and plain HTTP, and lists them", async () => {
+  interceptor.offline = true;
+  try {
+    const port = Number(new URL(interceptor.url).port);
+    const proxy = net.connect(port, "127.0.0.1");
+    proxy.write("CONNECT api.real.test:443 HTTP/1.1\r\nHost: api.real.test:443\r\n\r\n");
+    expect(String(await new Promise((r) => proxy.once("data", r)))).toMatch(/^HTTP\/1\.1 403/);
+    proxy.destroy();
+
+    const plain = await new Promise<http.IncomingMessage>((resolve) => http.get({ host: "127.0.0.1", port, path: "http://plain.real.test/x" }, resolve));
+    expect(plain.statusCode).toBe(403);
+    // Stubbed hosts still work.
+    expect(await client(process.execPath, ["-e", "fetch('https://api.weather.test/ok').then(r => r.text()).then(console.log)"])).toEqual({ host: "api.weather.test", path: "/ok" });
+    expect([...interceptor.blocked]).toEqual(["api.real.test", "plain.real.test"]);
+  } finally {
+    interceptor.offline = false;
+    interceptor.blocked.clear();
+  }
+});

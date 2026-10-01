@@ -43,6 +43,12 @@ export interface SlicetestOptions {
    */
   mail?: boolean;
   /**
+   * Keep the app off the network: its HTTP(S) calls may only reach localhost and the
+   * hosts of stubs with `hosts`. A call anywhere else is refused and fails the
+   * scenario, naming the host, so a forgotten stub can't reach a real service.
+   */
+  offline?: boolean;
+  /**
    * An OpenID Connect issuer for apps that verify JWTs. The app gets
    * `{{auth.issuer}}`, `{{auth.jwks}}` and `{{auth.audience}}`; scenarios mint
    * tokens with `auth.token({ sub, roles })`. `true`, or `{ audience, claims }`.
@@ -178,6 +184,7 @@ export interface ResolvedOptions {
   services: Record<string, ResolvedProcess>;
   containers: Record<string, ContainerOptions>;
   mail: boolean;
+  offline: boolean;
   auth: AuthOptions | false;
   db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
@@ -203,6 +210,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     ),
     containers: opts.containers ?? {},
     mail: opts.mail ?? false,
+    offline: opts.offline ?? false,
     auth: opts.auth === true ? {} : (opts.auth ?? false),
     db: resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
@@ -286,6 +294,7 @@ function validate(opts: SlicetestOptions) {
       if (v !== undefined && !(Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string"))) fail(`containers.${name}.${key} must be a list of strings, e.g. ["redis-cli", "FLUSHALL"]`);
     }
   }
+  if (opts.offline !== undefined && typeof opts.offline !== "boolean") fail(`offline must be true or false, got ${JSON.stringify(opts.offline)}`);
   if (opts.mail !== undefined && typeof opts.mail !== "boolean") fail(`mail must be true or false, got ${JSON.stringify(opts.mail)}`);
   if (opts.auth !== undefined && typeof opts.auth !== "boolean") {
     if (!opts.auth || typeof opts.auth !== "object" || Array.isArray(opts.auth)) fail(`auth must be true or { audience, claims }, got ${JSON.stringify(opts.auth)}`);
@@ -318,8 +327,8 @@ function validate(opts: SlicetestOptions) {
     if (typeof s === "object" && s.hosts !== undefined) {
       if (!Array.isArray(s.hosts) || s.hosts.length === 0) fail(`stub "${s.name}": hosts must be a list of host names, e.g. ["api.github.com"]`);
       for (const h of s.hosts) {
-        if (typeof h !== "string" || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(h)) {
-          fail(`stub "${s.name}": hosts takes host names only (no scheme, port or path), got ${JSON.stringify(h)}`);
+        if (typeof h !== "string" || !/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$|^[a-z0-9-]+$/i.test(h)) {
+          fail(`stub "${s.name}": hosts takes host names (or *.domain for every subdomain), no scheme, port or path; got ${JSON.stringify(h)}`);
         }
         if (["localhost", "127.0.0.1"].includes(h.toLowerCase())) fail(`stub "${s.name}": ${h} can't be intercepted; point the app at {{stub.${s.name}}} instead`);
       }

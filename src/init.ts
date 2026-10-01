@@ -175,6 +175,7 @@ export async function detect(root: string): Promise<Detected> {
     );
   }
   const stubs = await stubsFromEnvExample(root, read, env, notes);
+  notes.push("network: URLs written in the code (https://api.example.com) can be stubbed with `hosts`. Add `offline: true` and the first run names every host the app calls");
   const mysqlDeps = !!deps.mysql2 || !!deps.mysql || /\b(pymysql|mysqlclient|aiomysql)\b/.test(python) || /\bgem ['"]mysql2['"]/.test(gemfile);
   if (!composeDb.engine && mysqlDeps) {
     composeDb.engine = "mysql";

@@ -1,4 +1,5 @@
 import { formRequest, type SubmitOptions } from "./form.js";
+import { lookupHost } from "./intercept.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
 
 export interface HttpResponse {
@@ -144,7 +145,7 @@ export class HttpClient {
       if (!location) break;
       const next = new URL(location, url);
       // Like a browser: on to the app, or to a host a stub stands in for; anywhere else is returned.
-      if (next.origin !== new URL(this.baseUrl).origin && !this.#session.external.has(next.hostname.toLowerCase())) break;
+      if (next.origin !== new URL(this.baseUrl).origin && lookupHost(this.#session.external, next.hostname) === undefined) break;
       // 307/308 repeat the request as it was; the others turn it into a GET without a body, like browsers do.
       if (res.status !== 307 && res.status !== 308 && method !== "HEAD") {
         method = "GET";
@@ -158,7 +159,7 @@ export class HttpClient {
 
   async #send(method: string, url: URL, body: unknown, opts: RequestOptions): Promise<HttpResponse> {
     const headers = new Headers(opts.headers);
-    const stub = url.origin === new URL(this.baseUrl).origin ? undefined : this.#session.external.get(url.hostname.toLowerCase());
+    const stub = url.origin === new URL(this.baseUrl).origin ? undefined : lookupHost(this.#session.external, url.hostname);
     // The app's cookies stay with the app; the stub is reached at its own address.
     const target = stub ? new URL(url.pathname + url.search, stub) : url;
     if (!stub && this.#session.cookies.size > 0 && !headers.has("cookie")) {

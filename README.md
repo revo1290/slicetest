@@ -361,6 +361,14 @@ stubs:
 
 The app is then started with `HTTPS_PROXY` / `HTTP_PROXY` pointing at slicetest and a certificate authority made for the run in the trust settings each runtime reads: `NODE_USE_ENV_PROXY` and `NODE_EXTRA_CA_CERTS` for Node (22.21+ / 24.5+), `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` for Python, Ruby, Go and curl, and proxy and trust-store system properties in `JAVA_TOOL_OPTIONS` for the JVM (`HttpURLConnection`, `java.net.http.HttpClient`, Spring's `RestClient` and `RestTemplate`). Calls to those hosts reach the stub with their path and `Host` header, over HTTPS or HTTP; calls to other hosts go to the real ones and are listed in the failure output. Nothing changes in the app. Variables you set in `app.env` win over these, and `{{proxy.url}}`, `{{proxy.ca}}`, `{{proxy.bundle}}` and `{{proxy.truststore}}` are there for clients configured some other way.
 
+`*.connpass.com` covers every subdomain (one stub for `findy.connpass.com`, `mercari.connpass.com`, …); the stub sees the `Host` header, so a reply can depend on it (`{{call.headers.host}}`, or `call.headers.host` in a reply function).
+
+With `offline: true`, the app can only reach localhost and the stubs' hosts. A call anywhere else is refused and fails the scenario with the host's name, so a forgotten stub can't quietly reach a real service, and the first run tells you which hosts to add:
+
+```
+slicetest: offline: the app tried to reach api.lu.ma, which no stub answers. Add it to a stub's `hosts` (or remove `offline`).
+```
+
 A redirect to an intercepted host is followed to its stub, as a browser would follow it to the real site. So a whole OAuth login runs in a scenario: the stub plays the provider's consent page and sends the browser back.
 
 ```yaml
@@ -610,6 +618,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `mail` | `false` | Start an SMTP server at `{{mail.host}}` / `{{mail.port}}` and collect the app's mail. See [Mail](#mail-catch-what-the-app-sends). |
 | `auth` | `false` | `true` or `{ audience, claims }`: an OpenID Connect issuer at `{{auth.issuer}}` (JWKS at `{{auth.jwks}}`) whose tokens scenarios mint with `auth.token()`. See [Auth](#auth-a-real-openid-issuer-tokens-with-any-claims). |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
+| `offline` | `false` | Refuse the app's HTTP(S) calls to hosts no stub intercepts, and fail the scenario naming them. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings?, hosts? }`: check calls against the provider's spec, answer from it, [replay recordings](#recording-a-real-service) of the real service, or answer for [hard-coded hosts](#hard-coded-hosts-hosts). |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
 | `http` | `{}` | Default `headers` / `query` for every request. |

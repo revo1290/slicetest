@@ -11,6 +11,10 @@ const server = http.createServer(async (req, res) => {
       if (!r.ok) return json(502, { error: `weather service answered ${r.status}` });
       return json(200, { city: url.searchParams.get("city"), temperature: (await r.json()).temp_c });
     }
+    if (url.pathname === "/feed") {
+      const r = await fetch(`https://${url.searchParams.get("group")}.groups.test/ja.atom`);
+      return json(200, { feed: await r.text() });
+    }
     // OAuth-style login: to the provider's page, back with a code, exchange it server-side.
     if (url.pathname === "/login") {
       const back = `http://${req.headers.host}/callback`;

@@ -51,7 +51,11 @@ test("an unknown project gets a placeholder command and explanations", async () 
   const { config, notes } = await detect(await project({}));
   expect(config.app.command).toContain("TODO");
   expect(config.db).toBeUndefined();
-  expect(notes).toEqual(["app: couldn't tell how to start the app. Set app.command.", "db: no migrations found; the database starts empty. Set db.migrate."]);
+  expect(notes).toEqual([
+    "app: couldn't tell how to start the app. Set app.command.",
+    "db: no migrations found; the database starts empty. Set db.migrate.",
+    "network: URLs written in the code (https://api.example.com) can be stubbed with `hosts`. Add `offline: true` and the first run names every host the app calls",
+  ]);
 });
 
 test("init writes a config with the detections as comments, and refuses to overwrite", async () => {
