@@ -44,11 +44,17 @@ export function slicetest(options?: SlicetestOptions | string): Plugin {
       const test = ((config as { test?: { include?: string[] } }).test ??= {});
       // `slicetest record` runs only its session file.
       if (!process.env[SESSION_ENV]) test.include = [...(test.include ?? configDefaults.include), YAML_SCENARIOS];
+      const resolved = resolveOptions(typeof options === "object" ? options : loadConfigFile(root, options), root);
       return {
         test: {
+          // One app per worker means module state (the running app) must survive from file to file.
+          ...(resolved.app.scope === "worker" ? { isolate: false } : {}),
+          // Vitest runs projects with different maxWorkers in separate groups and wants a distinct
+          // groupOrder for each; one per worker count keeps slicetest projects out of each other's way.
+          ...(resolved.workers ? { maxWorkers: resolved.workers, sequence: { groupOrder: 1000 + resolved.workers } } : {}),
           globalSetup: [path.join(here, `global-setup${ext}`)],
           setupFiles: [path.join(here, `setup-file${ext}`)],
-          provide: { slicetestOptions: resolveOptions(typeof options === "object" ? options : loadConfigFile(root, options), root) },
+          provide: { slicetestOptions: resolved },
           hookTimeout: 120_000,
         },
       } as Record<string, unknown>;

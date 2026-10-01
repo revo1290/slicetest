@@ -85,3 +85,9 @@ test("intercepted hosts are mapped to their stub, in lower case", () => {
     "github.com": "github",
   });
 });
+
+test("app.scope and workers are validated", () => {
+  expect(() => resolveOptions({ app: { command: "x", scope: "run" as never } }, "/")).toThrow('app.scope must be "file" or "worker", got "run"');
+  expect(() => resolveOptions({ ...valid, workers: 0 }, "/")).toThrow("workers must be a positive whole number, got 0");
+  expect(resolveOptions({ app: { command: "x", scope: "worker" }, workers: 2 }, "/")).toMatchObject({ app: { scope: "worker" }, workers: 2 });
+});

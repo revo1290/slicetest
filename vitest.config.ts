@@ -15,6 +15,7 @@ export default defineConfig({
       "test/fixtures/auth/vitest.config.ts",
       "test/fixtures/webhooks/vitest.config.ts",
       "test/fixtures/intercept/vitest.config.ts",
+      "test/fixtures/shared-app/vitest.config.ts",
     ],
   },
 });

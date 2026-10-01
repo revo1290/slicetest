@@ -7,3 +7,4 @@ __pycache__
 CLAUDE.local.md
 test/fixtures/record/recorded/
 test/fixtures/sqlite/.build-stamp
+test/fixtures/shared-app/starts.log

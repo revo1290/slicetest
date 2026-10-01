@@ -391,3 +391,8 @@ function nullableToType(node: any): any {
   }
   return node;
 }
+
+/** Where a spec fetched from the app (`openapi.fromApp`) is kept for the coverage report. */
+export function appSpecFile(coverageDir: string) {
+  return `${coverageDir}.spec.json`;
+}

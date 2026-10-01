@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import type { StartedTestContainer } from "testcontainers";
 import type { ContainerOptions } from "./config.js";
 import { configureContainerRuntime } from "./container-runtime.js";
@@ -21,7 +22,9 @@ export class Dependency {
     if (opts.command) definition = definition.withCommand(opts.command);
     if (opts.ready) definition = definition.withWaitStrategy(Wait.forLogMessage(opts.ready.log));
     try {
-      return new Dependency(name, await definition.start(), opts);
+      const dependency = new Dependency(name, await definition.start(), opts);
+      running.add(dependency);
+      return dependency;
     } catch (e) {
       throw new Error(`slicetest: container "${name}" (${opts.image}) didn't start: ${(e as Error).message}`);
     }
@@ -56,6 +59,22 @@ export class Dependency {
   }
 
   async stop() {
+    running.delete(this);
     await this.container.stop();
   }
+
+  /** Synchronous removal for a worker exiting without tearing down (Ryuk is often off with Podman). */
+  removeNow() {
+    for (const cli of ["docker", "podman"]) {
+      try {
+        execFileSync(cli, ["rm", "-f", this.container.getId()], { stdio: "ignore", timeout: 10_000, windowsHide: true });
+        return;
+      } catch {}
+    }
+  }
 }
+
+const running = new Set<Dependency>();
+process.once("exit", () => {
+  for (const d of running) d.removeNow();
+});

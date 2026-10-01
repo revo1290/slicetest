@@ -21,6 +21,23 @@ const TODO_COMMAND = "echo 'TODO: the command that starts your app' && exit 1";
 
 /** Files that mark a directory as an app slicetest can start. */
 const APP_MARKERS = ["manage.py", "requirements.txt", "pyproject.toml", "Gemfile", "go.mod", "Cargo.toml", "build.gradle", "build.gradle.kts", "pom.xml"];
+/** Build files of a Gradle or Maven multi-project build (two levels down), for dependencies declared in a subproject. */
+async function subprojectBuildFiles(dir: string, gradle: boolean) {
+  const names = gradle ? ["build.gradle", "build.gradle.kts"] : ["pom.xml"];
+  const texts: string[] = [];
+  const walk = async (d: string, depth: number) => {
+    if (depth > 2) return;
+    for (const entry of await readdir(d, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.isDirectory() || entry.name.startsWith(".") || ["build", "target", "node_modules", "src", "gradle"].includes(entry.name)) continue;
+      const sub = path.join(d, entry.name);
+      for (const n of names) if (existsSync(path.join(sub, n))) texts.push(await readFile(path.join(sub, n), "utf8"));
+      await walk(sub, depth + 1);
+    }
+  };
+  await walk(dir, 1);
+  return texts;
+}
+
 /** Where monorepos usually keep the server, when the root isn't one. */
 const APP_DIRS = ["backend", "server", "api", "app", "service"];
 
@@ -51,6 +68,8 @@ export async function detect(root: string): Promise<Detected> {
   let command = TODO_COMMAND;
   let build: string | undefined;
   let readyPath = "/";
+  let scope: "worker" | undefined;
+  let workers: number | undefined;
   let readyTimeout: number | undefined;
   const env: Record<string, string> = { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}" };
   if (pkg?.scripts?.start) {
@@ -82,8 +101,11 @@ export async function detect(root: string): Promise<Detected> {
     const wrapper = gradle ? (process.platform === "win32" ? "gradlew.bat" : "./gradlew") : process.platform === "win32" ? "mvnw.cmd" : "./mvnw";
     const tool = has(gradle ? "gradlew" : "mvnw") ? wrapper : gradle ? "gradle" : "mvn";
     if (/spring-boot|org\.springframework\.boot/.test(buildFile)) {
-      // bootRun / spring-boot:run compile first, so no separate build; Spring reads these variables (relaxed binding).
+      // Compiled once up front: bootRun / spring-boot:run in several workers would otherwise all
+      // compile changed sources at the same moment and trip over each other's build output.
+      build = gradle ? `${tool} classes -q` : `${tool} -q compile`;
       command = gradle ? `${tool} bootRun -q` : `${tool} -q spring-boot:run`;
+      // Spring reads these variables (relaxed binding).
       delete env.PORT;
       delete env.DATABASE_URL;
       Object.assign(env, {
@@ -93,8 +115,12 @@ export async function detect(root: string): Promise<Detected> {
         SPRING_DATASOURCE_PASSWORD: "{{db.password}}",
       });
       readyTimeout = 120_000;
-      if (/actuator/.test(buildFile)) readyPath = "/actuator/health";
+      // A JVM takes seconds to start: start it once per worker, and only in a couple of workers.
+      scope = "worker";
+      workers = 2;
+      if (/actuator/.test(buildFile) || (await subprojectBuildFiles(appRoot, gradle)).some((t) => /actuator/.test(t))) readyPath = "/actuator/health";
       notes.push(`app: Spring Boot (${gradle ? "Gradle" : "Maven"}). SERVER_PORT and SPRING_DATASOURCE_* override application.yml; {{db.jdbcUrl}} is the JDBC URL`);
+      notes.push("app: started once per worker (scope: worker) in 2 workers (workers: 2), since the JVM takes seconds to start");
     } else {
       command = gradle ? `${tool} run -q` : `${tool} -q exec:java`;
       notes.push(`app: ${gradle ? "Gradle" : "Maven"} project. Check the command; the app must listen on the port in {{app.port}}`);
@@ -111,7 +137,7 @@ export async function detect(root: string): Promise<Detected> {
 
   // --- migrations ---
   let migrate: MigrateOptions | undefined;
-  const migrationsSql = has("migrations") && (await readdir(path.join(root, "migrations"))).some((f) => f.endsWith(".sql"));
+  const migrationsSql = has("migrations") && (await readdir(path.join(appRoot, "migrations"))).some((f) => f.endsWith(".sql"));
   const atlas = await findAtlas(root, appDir);
   if (atlas) {
     migrate = { atlas: { dir: `file://${atlas}` } };
@@ -155,18 +181,18 @@ export async function detect(root: string): Promise<Detected> {
   const { db: composeDb, containers, appEnv, mail: composeMail } = await fromCompose(root, notes, [...new Set(["", appDir])]);
   Object.assign(env, appEnv);
   let mail = composeMail;
-  if (!mail && (deps.nodemailer || /\b(flask-mail|fastapi-mail|django-anymail)\b/.test(python) || (has("manage.py") && /EMAIL_HOST/.test(await read(await djangoSettings(root))) ))) {
+  if (!mail && (deps.nodemailer || /\b(flask-mail|fastapi-mail|django-anymail)\b/.test(python) || (has("manage.py") && /EMAIL_HOST/.test(await read(await djangoSettings(appRoot))) ))) {
     mail = true;
     Object.assign(env, { SMTP_HOST: "{{mail.host}}", SMTP_PORT: "{{mail.port}}" });
     notes.push("mail: the app sends mail; slicetest catches it over SMTP (SMTP_HOST / SMTP_PORT, rename them to what your app reads)");
   }
-  const sqlite = await detectSqlite(root, read, deps, python, gemfile);
+  const sqlite = await detectSqlite(appRoot, read, deps, python, gemfile);
   if (sqlite && !composeDb.engine) {
     composeDb.engine = "sqlite";
     env.DATABASE_URL = sqlite.url;
     notes.push(`db: SQLite (${sqlite.why}), no container needed. The app gets DATABASE_URL=${sqlite.url}; {{db.path}} is the plain file path`);
   }
-  const auth = await authFromEnvExample(root, read, env, notes);
+  const auth = await authFromEnvExample(appRoot, read, env, notes);
   const jwtDeps = ["jose", "jsonwebtoken", "passport-jwt", "express-oauth2-jwt-bearer", "express-jwt", "jwks-rsa", "@fastify/jwt", "next-auth"].filter((d) => deps[d]);
   const jwtPython = /\b(pyjwt|python-jose|authlib|fastapi-azure-auth|djangorestframework-simplejwt)\b/i.exec(python)?.[1];
   if (!auth && (jwtDeps.length || jwtPython)) {
@@ -174,7 +200,7 @@ export async function detect(root: string): Promise<Detected> {
       `auth: ${jwtDeps[0] ?? jwtPython} is a dependency, so the app may verify JWTs. To test with real tokens, add \`auth: true\` and pass {{auth.issuer}} / {{auth.jwks}} / {{auth.audience}} to the variables the app reads`,
     );
   }
-  const stubs = await stubsFromEnvExample(root, read, env, notes);
+  const stubs = await stubsFromEnvExample(appRoot, read, env, notes);
   notes.push("network: URLs written in the code (https://api.example.com) can be stubbed with `hosts`. Add `offline: true` and the first run names every host the app calls");
   const mysqlDeps = !!deps.mysql2 || !!deps.mysql || /\b(pymysql|mysqlclient|aiomysql)\b/.test(python) || /\bgem ['"]mysql2['"]/.test(gemfile);
   if (!composeDb.engine && mysqlDeps) {
@@ -187,7 +213,8 @@ export async function detect(root: string): Promise<Detected> {
   if (openapi) notes.push(`openapi: ${openapi}. Every response will be checked against it.`);
 
   const config: CliConfig = {
-    app: { ...(appDir ? { cwd: appDir } : {}), command, ...(build ? { build } : {}), env, ready: { path: readyPath }, ...(readyTimeout ? { readyTimeout } : {}) },
+    app: { ...(appDir ? { cwd: appDir } : {}), command, ...(build ? { build } : {}), env, ready: { path: readyPath }, ...(readyTimeout ? { readyTimeout } : {}), ...(scope ? { scope } : {}) },
+    ...(workers ? { workers } : {}),
     ...(migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
     ...(Object.keys(containers).length ? { containers } : {}),
     ...(mail ? { mail: true } : {}),
@@ -279,12 +306,13 @@ async function stubsFromEnvExample(root: string, read: (p: string) => Promise<st
   return stubs;
 }
 
-const SCENARIO = `# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
+/** A first scenario against the path the app is checked for readiness on (a 404 at / is normal for an API). */
+const scenario = (readyPath: string) => `# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
 # A first scenario. Run it with: npx slicetest
 scenarios:
   - name: the app answers
     steps:
-      - request: GET /
+      - request: GET ${readyPath}
         expect: { status: 200 }
 `;
 
@@ -305,7 +333,7 @@ export async function init(root: string, { force = false } = {}) {
   ].join("\n");
   await writeFile(configFile, `${header}${stringify(config)}`);
   await mkdir(path.dirname(scenarioFile), { recursive: true });
-  await writeFile(scenarioFile, SCENARIO);
+  await writeFile(scenarioFile, scenario((config.app.ready as { path?: string } | undefined)?.path ?? "/"));
   return { files: [configFile, scenarioFile].map((f) => path.relative(root, f)), notes };
 }
 

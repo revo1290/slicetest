@@ -11,7 +11,7 @@ import { configureContainerRuntime } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import type { Admin, Engine } from "./drivers/index.js";
 import { coverageCacheFile } from "./gen.js";
-import { formatCoverage, OpenApiSpec } from "./openapi.js";
+import { appSpecFile, formatCoverage, OpenApiSpec } from "./openapi.js";
 import { mergeRecordings, type Recording } from "./recording.js";
 import "./provided.js";
 
@@ -55,7 +55,7 @@ export default async function setup(project: TestProject) {
   const server = admin;
 
   // Each worker writes the documented responses it saw here; they are merged when the run ends.
-  const coverageDir = opts.openapi.app ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;
+  const coverageDir = opts.openapi.app || opts.openapi.fromApp ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;
   // Likewise for recordings made against real services, merged into the recordings files at the end.
   const recording = Object.values(opts.recordings).some((r) => r.record);
   const recordDir = recording ? await mkdtemp(path.join(os.tmpdir(), "slicetest-recordings-")) : undefined;
@@ -87,7 +87,8 @@ async function reportCoverage(opts: ResolvedOptions, dir: string) {
     }
     // No scenario ran (e.g. everything filtered out): nothing to report.
     if (hits.size === 0) return;
-    const spec = await OpenApiSpec.load(path.resolve(opts.root, opts.openapi.app!), opts.openapi.app);
+    // A spec served by the app was saved next to the coverage files by the first worker that fetched it.
+    const spec = opts.openapi.fromApp ? await OpenApiSpec.load(appSpecFile(dir), `GET ${opts.openapi.fromApp}`) : await OpenApiSpec.load(path.resolve(opts.root, opts.openapi.app!), opts.openapi.app);
     const report = formatCoverage(spec, hits);
     // For `slicetest gen --uncovered`.
     const cache = coverageCacheFile(opts.root);
@@ -99,11 +100,12 @@ async function reportCoverage(opts: ResolvedOptions, dir: string) {
       // Not thrown: Vitest reports teardown errors as a crash. The failing exit code is what CI needs.
       const message = `OpenAPI coverage ${report.percent}% is below openapi.minCoverage (${min}%)`;
       console.error(`slicetest: ${message}\n`);
-      if (onGitHub()) console.log(annotation("error", message, { file: repoPath(path.resolve(opts.root, opts.openapi.app!)), title: "slicetest: OpenAPI coverage" }));
+      if (onGitHub() && opts.openapi.app) console.log(annotation("error", message, { file: repoPath(path.resolve(opts.root, opts.openapi.app)), title: "slicetest: OpenAPI coverage" }));
       process.exitCode = 1;
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
+    await rm(appSpecFile(dir), { force: true });
   }
 }
 

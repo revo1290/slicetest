@@ -1,0 +1,9 @@
+scenarios:
+  - name: a response that matches the spec the app serves
+    steps:
+      - request: GET /items/1
+        expect: { status: 200 }
+  - name: a response that breaks it
+    steps:
+      - request: GET /items/2
+        expect: { status: 200 }

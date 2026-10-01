@@ -216,6 +216,7 @@ test("a Spring Boot app in backend/ with Atlas migrations named in atlas/atlas.h
   expect(config).toMatchObject({
     app: {
       cwd: "backend",
+      build: process.platform === "win32" ? "gradlew.bat classes -q" : "./gradlew classes -q",
       command: process.platform === "win32" ? "gradlew.bat bootRun -q" : "./gradlew bootRun -q",
       env: { SERVER_PORT: "{{app.port}}", SPRING_DATASOURCE_URL: "{{db.jdbcUrl}}", SPRING_DATASOURCE_USERNAME: "{{db.user}}", SPRING_DATASOURCE_PASSWORD: "{{db.password}}" },
       ready: { path: "/actuator/health" },
@@ -237,5 +238,35 @@ test("migrations of an app in a subdirectory are found and run there", async () 
   expect((await detect(root)).config).toMatchObject({
     app: { cwd: "server", command: "npm start" },
     db: { migrate: { command: "cd server && npx prisma migrate deploy", inputs: ["server/prisma/migrations"] } },
+  });
+});
+
+test("a Gradle Spring Boot app in backend/ with its own atlas.hcl and migrations", async () => {
+  const root = await project({
+    "package.json": JSON.stringify({ scripts: { prepare: "lefthook install" } }),
+    "backend/build.gradle.kts": 'plugins { id("org.springframework.boot") version "4.1.1" apply false }',
+    "backend/atlas.hcl": 'env "local" {\n  migration {\n    dir = "file://migrations"\n  }\n}\n',
+    "backend/migrations/1_users.sql": "",
+    "backend/podman-compose.yml": "services:\n  postgres:\n    image: docker.io/library/postgres:16\n",
+  });
+
+  expect((await detect(root)).config).toMatchObject({
+    app: { cwd: "backend", env: { SERVER_PORT: "{{app.port}}" } },
+    db: { image: "docker.io/library/postgres:16", migrate: { atlas: { dir: "file://backend/migrations" } } },
+  });
+});
+
+test("the first scenario requests the readiness path, and .env.example is read next to the app", async () => {
+  const root = await project({
+    "backend/pom.xml": "<parent><artifactId>spring-boot-starter-parent</artifactId></parent><dependency><artifactId>spring-boot-starter-actuator</artifactId></dependency>",
+    "backend/.env.example": "PAYMENTS_API_URL=https://api.payments.example/v1\n",
+  });
+
+  await init(root);
+
+  expect(await readFile(path.join(root, "scenarios", "smoke.scenario.yaml"), "utf8")).toContain("- request: GET /actuator/health");
+  expect(parse(await readFile(path.join(root, "slicetest.config.yaml"), "utf8"))).toMatchObject({
+    app: { cwd: "backend", env: { PAYMENTS_API_URL: "{{stub.payments}}/v1" } },
+    stubs: [{ name: "payments", upstream: "https://api.payments.example" }],
   });
 });

@@ -5,13 +5,26 @@ import "./provided.js";
 import "./matchers.js";
 
 let runtime: Runtime | undefined;
+// With app.scope "worker" the runtime outlives the file: Vitest runs this worker's next
+// files in the same module state (isolate: false), and the processes go when it exits.
+const shared = globalThis as { __slicetestRuntime?: Promise<Runtime> };
 
 beforeAll(async () => {
-  runtime = await Runtime.start(inject("slicetestOptions"), inject("slicetestDb"));
+  const options = inject("slicetestOptions");
+  if (options.app.scope === "worker") {
+    const starting = (shared.__slicetestRuntime ??= Runtime.start(options, inject("slicetestDb")));
+    starting.catch(() => {
+      if (shared.__slicetestRuntime === starting) shared.__slicetestRuntime = undefined;
+    });
+    runtime = await starting;
+  } else {
+    runtime = await Runtime.start(options, inject("slicetestDb"));
+  }
   setRuntime(runtime);
 });
 
 afterAll(async () => {
   setRuntime(undefined);
-  await runtime?.stop();
+  if (inject("slicetestOptions").app.scope === "worker") await runtime?.flush();
+  else await runtime?.stop();
 });

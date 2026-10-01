@@ -18,7 +18,7 @@ export interface SlicetestOptions {
    * documented responses the scenarios produced; with `minCoverage` (percent),
    * a lower coverage fails the run.
    */
-  openapi?: string | { spec: string; minCoverage?: number };
+  openapi?: string | { spec?: string; fromApp?: string; minCoverage?: number };
   /** Defaults for every request made with `http`, e.g. `{ headers: { accept: "application/json" } }`. */
   http?: RequestOptions;
   /**
@@ -48,6 +48,12 @@ export interface SlicetestOptions {
    * scenario, naming the host, so a forgotten stub can't reach a real service.
    */
   offline?: boolean;
+  /**
+   * Most Vitest workers to run test files in (Vitest's `maxWorkers`). Each worker has
+   * its own app and database; with `app.scope: "worker"`, fewer workers means fewer app
+   * starts, which is what makes a slow-starting app fast to test.
+   */
+  workers?: number;
   /**
    * An OpenID Connect issuer for apps that verify JWTs. The app gets
    * `{{auth.issuer}}`, `{{auth.jwks}}` and `{{auth.audience}}`; scenarios mint
@@ -99,7 +105,7 @@ export interface ServiceOptions extends Omit<AppOptions, "ready"> {
 type ResolvedReady = { path: string } | { log: string; flags: string };
 
 /** A process to start, with `ready` made JSON-serializable. The app always has `ready`; services may not. */
-export type ResolvedProcess = Omit<AppOptions, "ready"> & {
+export type ResolvedProcess = Omit<AppOptions, "ready" | "scope"> & {
   ready?: ResolvedReady;
   /** Set by slicetest (proxy variables for intercepted hosts); `env` overrides it. */
   baseEnv?: Record<string, string>;
@@ -125,6 +131,13 @@ export interface AppOptions {
   ready?: { path: string } | { log: string | RegExp };
   /** Milliseconds to wait for readiness. Default 30000. */
   readyTimeout?: number;
+  /**
+   * `"file"` (default) starts the app, stubs and services for each test file.
+   * `"worker"` starts them once per Vitest worker and keeps them for every file that
+   * worker runs, for apps that take seconds to start (a JVM, a large framework). It
+   * turns off Vitest's per-file module isolation (`isolate: false`).
+   */
+  scope?: "file" | "worker";
 }
 
 export interface DbOptions {
@@ -180,16 +193,18 @@ export type MigrateOptions =
 /** Normalized shape passed from the plugin to globalSetup and workers. Must stay JSON-serializable. */
 export interface ResolvedOptions {
   root: string;
-  app: ResolvedProcess & { ready: ResolvedReady };
+  app: ResolvedProcess & { ready: ResolvedReady; scope?: "file" | "worker" };
   services: Record<string, ResolvedProcess>;
   containers: Record<string, ContainerOptions>;
   mail: boolean;
   offline: boolean;
+  workers?: number;
   auth: AuthOptions | false;
   db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
-  openapi: { app?: string; minCoverage?: number; stubs: Record<string, string>; autoReply: string[] };
+  /** `fromApp`: a path the running app serves its own spec at (springdoc, FastAPI, NestJS). */
+  openapi: { app?: string; fromApp?: string; minCoverage?: number; stubs: Record<string, string>; autoReply: string[] };
   /** Stubs backed by recordings of a real service; `record` when SLICETEST_RECORD selects them. */
   recordings: Record<string, { file: string; upstream: string; record: boolean }>;
   /** Intercepted host (lower case) → the stub that answers it. */
@@ -211,11 +226,13 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     containers: opts.containers ?? {},
     mail: opts.mail ?? false,
     offline: opts.offline ?? false,
+    workers: opts.workers,
     auth: opts.auth === true ? {} : (opts.auth ?? false),
     db: resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
     openapi: {
       app: typeof opts.openapi === "object" ? opts.openapi.spec : opts.openapi,
+      fromApp: typeof opts.openapi === "object" ? opts.openapi.fromApp : undefined,
       minCoverage: typeof opts.openapi === "object" ? opts.openapi.minCoverage : undefined,
       stubs: Object.fromEntries((opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.openapi ? [[s.name, s.openapi]] : []))),
       autoReply: (opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.autoReply ? [s.name] : [])),
@@ -275,6 +292,7 @@ function validate(opts: SlicetestOptions) {
     if (ready && "path" in ready && !ready.path.startsWith("/")) fail(`${where}.ready.path must start with "/", got "${ready.path}"`);
   };
   checkReady(opts.app.ready, "app");
+  if (opts.app.scope !== undefined && opts.app.scope !== "file" && opts.app.scope !== "worker") fail(`app.scope must be "file" or "worker", got ${JSON.stringify(opts.app.scope)}`);
   const checkBuild = (build: unknown, where: string) => {
     if (build !== undefined && (typeof build !== "string" || !build.trim())) fail(`${where}.build must be a command, e.g. "npm run build"`);
   };
@@ -294,6 +312,7 @@ function validate(opts: SlicetestOptions) {
       if (v !== undefined && !(Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string"))) fail(`containers.${name}.${key} must be a list of strings, e.g. ["redis-cli", "FLUSHALL"]`);
     }
   }
+  if (opts.workers !== undefined && !(Number.isInteger(opts.workers) && opts.workers >= 1)) fail(`workers must be a positive whole number, got ${JSON.stringify(opts.workers)}`);
   if (opts.offline !== undefined && typeof opts.offline !== "boolean") fail(`offline must be true or false, got ${JSON.stringify(opts.offline)}`);
   if (opts.mail !== undefined && typeof opts.mail !== "boolean") fail(`mail must be true or false, got ${JSON.stringify(opts.mail)}`);
   if (opts.auth !== undefined && typeof opts.auth !== "boolean") {
@@ -315,7 +334,11 @@ function validate(opts: SlicetestOptions) {
   const oas = opts.openapi;
   if (oas !== undefined) {
     const spec = typeof oas === "object" && oas ? oas.spec : oas;
-    if (typeof spec !== "string" || !spec) fail('openapi must be the path of an OpenAPI file, or { spec, minCoverage }');
+    const fromApp = typeof oas === "object" && oas ? oas.fromApp : undefined;
+    if (fromApp !== undefined) {
+      if (spec !== undefined) fail("openapi takes either spec (a file) or fromApp (a path the app serves its spec at), not both");
+      if (typeof fromApp !== "string" || !fromApp.startsWith("/")) fail(`openapi.fromApp must be a path on the app such as "/v3/api-docs", got ${JSON.stringify(fromApp)}`);
+    } else if (typeof spec !== "string" || !spec) fail('openapi must be the path of an OpenAPI file, or { spec, minCoverage }, or { fromApp: "/v3/api-docs" }');
     const min = typeof oas === "object" ? oas.minCoverage : undefined;
     if (min !== undefined && !(typeof min === "number" && min >= 0 && min <= 100)) fail("openapi.minCoverage must be a percentage between 0 and 100");
   }

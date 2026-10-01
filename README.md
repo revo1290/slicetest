@@ -605,6 +605,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
 | `app.readyTimeout` | `30000` | |
+| `app.scope` | `"file"` | `"worker"`: start the app (and stubs, services) once per Vitest worker and keep it for all of that worker's test files, for apps that start slowly. Sets Vitest's `isolate: false`. |
 | `db.engine` | `postgres`, or `mysql` for a `mysql://` URL | `postgres`, `mysql` (see [MySQL](#mysql)) or `sqlite` (see [SQLite](#sqlite)). |
 | `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs? }` (gets `DATABASE_URL`). |
 | `db.seed` | none | SQL file re-run after every reset. |
@@ -619,8 +620,9 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `auth` | `false` | `true` or `{ audience, claims }`: an OpenID Connect issuer at `{{auth.issuer}}` (JWKS at `{{auth.jwks}}`) whose tokens scenarios mint with `auth.token()`. See [Auth](#auth-a-real-openid-issuer-tokens-with-any-claims). |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
 | `offline` | `false` | Refuse the app's HTTP(S) calls to hosts no stub intercepts, and fail the scenario naming them. |
+| `workers` | Vitest's default | Most Vitest workers (`maxWorkers`). Each has its own app and database. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings?, hosts? }`: check calls against the provider's spec, answer from it, [replay recordings](#recording-a-real-service) of the real service, or answer for [hard-coded hosts](#hard-coded-hosts-hosts). |
-| `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
+| `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`, or `{ fromApp: "/v3/api-docs" }` for a spec the running app serves (springdoc, FastAPI's `/openapi.json`, NestJS). Every response must match it; the run ends with a coverage report. |
 | `http` | `{}` | Default `headers` / `query` for every request. |
 
 The config is validated up front: a missing `app.command`, an ambiguous `db.migrate` or a duplicate stub name fails with a clear message instead of a timeout.
@@ -779,6 +781,7 @@ Checks what a run needs before it starts, instead of failing with a timeout half
 ```yaml
 app:
   cwd: backend
+  build: ./gradlew classes -q      # compiled once, so workers don't compile at the same time
   command: ./gradlew bootRun -q
   env:
     SERVER_PORT: "{{app.port}}"
@@ -787,7 +790,13 @@ app:
     SPRING_DATASOURCE_PASSWORD: "{{db.password}}"
   ready: { path: /actuator/health }
   readyTimeout: 120000
+  scope: worker                    # one JVM per worker, kept for all of its test files
+workers: 2
 ```
+
+Starting a JVM takes seconds, so by default (`scope: file`, one app per test file) the start-up dominates: 8 test files took 28 s on a Spring Boot 4 app. With `scope: worker` the app is started once per Vitest worker and kept for every file that worker runs, and `workers` caps how many there are: 18 s with the default worker count, 10 s with 2, 8 s with 1. Scenarios stay independent, since the database, stubs and cookies are reset between them either way; what's shared is the app process (and its in-memory state, such as caches).
+
+Springdoc serves the spec at `/v3/api-docs`: `openapi: { fromApp: /v3/api-docs }` checks every response against it and reports its coverage, without a spec file in the repository. Generated specs often miss error responses and nullable fields, which this makes visible.
 
 Apps that run Hibernate with `ddl-auto: validate` against schema-owning migrations (Atlas, or a migration command) work as they are: slicetest migrates, Hibernate validates the result at start-up. For a faster start, build a jar once with `build: ./gradlew bootJar -q` and run `command: java -jar build/libs/app.jar`. Calls to hard-coded hosts (GitHub, Google, …) are caught with [`hosts`](#hard-coded-hosts-hosts).
 

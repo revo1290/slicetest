@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { App } from "./app.js";
 import { Issuer } from "./auth.js";
@@ -10,7 +11,7 @@ import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { Interceptor } from "./intercept.js";
 import { Mailbox } from "./mail.js";
-import { OpenApiSpec } from "./openapi.js";
+import { appSpecFile, OpenApiSpec } from "./openapi.js";
 import { QueryLog } from "./query-log.js";
 import { Recorder } from "./recording.js";
 import { Stub, type RecordedCall } from "./stub.js";
@@ -165,6 +166,7 @@ export class Runtime {
         vars[`service.${name}.port`] = String(started.port);
       }
       const app = await App.start(opts.app, opts.root, vars);
+      if (opts.openapi.fromApp) specs.app = await fetchAppSpec(app.url, opts.openapi.fromApp, shared.coverageDir);
       return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog, interceptor);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
@@ -345,15 +347,22 @@ export class Runtime {
     return sections.join("\n\n");
   }
 
-  async stop() {
+  /** Hand the coverage and recordings gathered so far to the run (merged when it ends). */
+  async flush() {
     if (this.coverageDir && this.#covered.size > 0) {
       await writeFile(path.join(this.coverageDir, `${process.pid}-${randomUUID()}.json`), JSON.stringify([...this.#covered])).catch(() => {});
+      this.#covered.clear();
     }
     for (const [name, recorder] of this.recorders) {
-      if (this.recordDir && recorder.added().length > 0) {
-        await writeFile(path.join(this.recordDir, `${name}.${process.pid}-${randomUUID()}.json`), JSON.stringify(recorder.added())).catch(() => {});
+      const added = recorder.added().splice(0);
+      if (this.recordDir && added.length > 0) {
+        await writeFile(path.join(this.recordDir, `${name}.${process.pid}-${randomUUID()}.json`), JSON.stringify(added)).catch(() => {});
       }
     }
+  }
+
+  async stop() {
+    await this.flush();
     const results = await Promise.allSettled([
       this.app.stop(),
       ...[...this.services.values()].map((s) => s.stop()),
@@ -422,4 +431,19 @@ export function connectionVars(engine: string, url: string, sqlitePath?: string)
     "db.password": decodeURIComponent(u.password),
     "db.jdbcUrl": `jdbc:${engine === "mysql" ? "mysql" : "postgresql"}://${u.hostname}:${port}/${encodeURIComponent(name)}`,
   };
+}
+
+/** The app's own spec, served at `route` (springdoc's /v3/api-docs, FastAPI's /openapi.json, …). */
+async function fetchAppSpec(appUrl: string, route: string, coverageDir?: string) {
+  let text: string;
+  try {
+    const res = await fetch(new URL(route, appUrl));
+    if (!res.ok) throw new Error(`it answered ${res.status}`);
+    text = await res.text();
+  } catch (e) {
+    throw new Error(`slicetest: openapi.fromApp: couldn't get the spec from GET ${route}: ${(e as Error).message}`);
+  }
+  const file = coverageDir ? appSpecFile(coverageDir) : path.join(os.tmpdir(), `slicetest-spec-${process.pid}.json`);
+  await writeFile(file, text);
+  return OpenApiSpec.load(file, `GET ${route}`);
 }
