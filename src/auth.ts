@@ -28,12 +28,13 @@ interface Key {
   kid: string;
   privateKey: KeyObject;
   jwk: Record<string, unknown>;
+  pem: string;
 }
 
 function newKey(): Key {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const kid = randomUUID();
-  return { kid, privateKey, jwk: { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "sig" } };
+  return { kid, privateKey, jwk: { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "sig" }, pem: publicKey.export({ type: "spki", format: "pem" }) as string };
 }
 
 /**
@@ -77,6 +78,20 @@ export class Issuer {
 
   get audience() {
     return this.opts.audience;
+  }
+
+  /**
+   * The signing key as a PEM public key, for libraries that verify tokens with a key
+   * given in the environment instead of fetching a JWKS (Clerk's CLERK_JWT_KEY, …).
+   * The app gets it at start as {{auth.publicKey}}; tokens minted after `rotate()` use a key it doesn't know.
+   */
+  get publicKeyPem() {
+    return this.#key.pem;
+  }
+
+  /** The JWKS document itself (`{ keys: [...] }`), for a stub that serves keys at another provider's URL (Clerk's /v1/jwks, …). */
+  get jwks() {
+    return { keys: [this.#key.jwk] };
   }
 
   get jwksUrl() {

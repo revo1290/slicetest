@@ -332,6 +332,25 @@ To fail the run below a threshold, use `openapi: { spec: "openapi.yaml", minCove
 
 The example apps in `examples/` run every scenario against `examples/openapi.yaml` with `minCoverage: 100`, and their Slack calls against `examples/slack.openapi.yaml`.
 
+#### Streaming replies: `sse()`
+
+LLM APIs stream their answers as Server-Sent Events. `sse(events)` makes such a reply, each event as `[event, data]` or `{ event, data, id }`, data that isn't a string as JSON:
+
+```ts
+import { sse } from "slicetest";
+
+stub("anthropic").on("POST", "/v1/messages").reply(sse([
+  ["message_start", { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", content: [], model: "claude-sonnet-4-6", usage: { input_tokens: 5, output_tokens: 1 } } }],
+  ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
+  ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello" } }],
+  ["content_block_stop", { type: "content_block_stop", index: 0 }],
+  ["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } }],
+  ["message_stop", { type: "message_stop" }],
+]));
+```
+
+In YAML, `reply: { sse: [{ event: message_start, data: { ... } }, ...] }` instead of `body`.
+
 #### Chaos: faults the app must survive
 
 `chaos()` makes a stub misbehave for the rest of the scenario, to test retries, timeouts and fallbacks against the app's real HTTP client:
@@ -368,6 +387,8 @@ With `offline: true`, the app can only reach localhost and the stubs' hosts. A c
 ```
 slicetest: offline: the app tried to reach api.lu.ma, which no stub answers. Add it to a stub's `hosts` (or remove `offline`).
 ```
+
+Node apps also get a small preload (`NODE_OPTIONS=--require …`) that gives the proxy settings to `http.Agent`s that libraries make themselves (the Stripe SDK, many API clients), which `NODE_USE_ENV_PROXY` alone doesn't reach. A client in any language that ignores proxy settings altogether goes straight to the real host; `offline` can't stop what doesn't pass through it.
 
 The proxy settings reach every process the app command starts. When that command is a build tool (`gradle bootRun`, `mvn spring-boot:run`, `go run`), its own downloads go through the proxy too, and `offline` refuses them; the failure says so when the host is a package registry. Download dependencies in `app.build` (`./gradlew bootJar`, `mvn package`, which `slicetest init` sets up for Spring Boot), or start a built artifact.
 
@@ -530,6 +551,8 @@ scenario("the app rejects tokens it must not trust", async ({ http, auth }) => {
 
 `auth.token(claims, opts)` returns the JWT itself. Tokens get `iss`, `aud`, `sub: "user-1"`, `iat`, `nbf`, `exp` (1 hour, or `expiresIn`) and the configured `claims`, all overridable. `auth.rotate()` switches to a new signing key, to check that the app refetches the JWKS. Apps that fetch tokens themselves can use `POST {{auth.issuer}}/token` with the client-credentials grant: `sub` is the client id, and `scope` and `audience` are carried over. No dependencies: keys and signatures come from `node:crypto`.
 
+For libraries that don't take an issuer URL: `{{auth.publicKey}}` is the signing key as a PEM public key, and `auth.jwks` the JWKS document, for a stub to serve at the provider's own URL (see [Clerk](#clerk)).
+
 In YAML, `auth` on a `request` step sends `Authorization: Bearer` with those claims (`auth: true` for the defaults):
 
 ```yaml
@@ -602,7 +625,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | Option | Default | |
 |---|---|---|
 | `app.command` | (required) | Shell command. May use `{{app.port}}` and the other placeholders. |
-| `app.build` | none | Shell command run once per run before the app starts, while the database starts, e.g. `npm run build` for `next start`. Not repeated in watch mode. Services take `build` too. |
+| `app.build` | none | Shell command run once per run before the app starts, while the database starts, e.g. `npm run build` for `next start`. It gets `app.env`'s literal values (Next.js inlines `NEXT_PUBLIC_*` at build time), not those with placeholders. Not repeated in watch mode. Services take `build` too. |
 | `db` | Postgres in a container | Database options (below), or `false` for an app without a database: nothing is started, `{{db.*}}` aren't set and `db.*` in scenarios explains that it's off. `slicetest init` writes `false` when it finds no migrations, no database service and no database library. |
 | `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. For apps that don't take one URL: `{{db.jdbcUrl}}` (`jdbc:postgresql://…`), `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}`. The rest of `process.env` is inherited. |
 | `app.cwd` | vitest root | |
@@ -614,6 +637,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.seed` | none | SQL file re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |
 | `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |
+| `db.neon` | `false` | For Neon's serverless driver over HTTP: `{{db.url}}` is a Neon-style URL and slicetest answers the driver's queries from the test database ([Neon](#neon-and-vercel-postgres)). |
 | `db.queries` | `false` | Point the app at a proxy that records its SQL (Postgres, MySQL), for [`db.queries()`](#dbqueries--the-sql-the-app-ran-from-any-language). |
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
 | `db.image` | `postgres:17-alpine` / `mysql:8.4` | |
@@ -776,6 +800,47 @@ Checks what a run needs before it starts, instead of failing with a timeout half
 
 1 problem(s) to fix before running.
 ```
+
+## Neon and Vercel Postgres
+
+Apps on Neon's serverless driver (`neon()` from `@neondatabase/serverless`, `drizzle-orm/neon-http`, `@vercel/postgres`'s `sql`) send each query over HTTPS to Neon, not to a Postgres port. With `db: { neon: true }`, `{{db.url}}` is a Neon-style connection string, and slicetest answers the driver's HTTP queries (single statements and `transaction()` batches) from the test database. The driver, its type parsing and its errors (with Postgres's `code`) are the real ones; `db.queries` sees the SQL. `slicetest init` sets it when the driver is a dependency. The driver's WebSocket mode (`Pool`, `Client`) isn't covered.
+
+With Drizzle, `drizzle-kit push` and `migrate` connect through the project's driver; with only Neon's installed, they try a WebSocket a local server doesn't answer, and exit 0 anyway (slicetest stops when a migration leaves the database without tables). Generate the SQL instead (`npx drizzle-kit generate`) and let slicetest apply it: `migrate: { sql: db/migrations }`, which `slicetest init` reads from `drizzle.config`'s `out`.
+
+## Clerk
+
+Clerk verifies session tokens with keys from its Backend API, and reads users from it. Both are stubbed, and the tokens come from slicetest's issuer, so requests run as any user, with no Clerk account:
+
+```yaml
+# slicetest.config.yaml (what `slicetest init` writes when @clerk/nextjs is a dependency)
+app:
+  env:
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuc2xpY2V0ZXN0LnRlc3Qk   # base64 of "clerk.slicetest.test$"
+    CLERK_SECRET_KEY: sk_test_slicetest
+auth: true
+stubs:
+  - name: clerk
+    hosts: [api.clerk.com, clerk.slicetest.test]
+```
+
+```ts
+function signIn({ auth, stub }: ScenarioContext, id = "user_1", email = "ada@example.com") {
+  stub("clerk").on("GET", "/v1/jwks").reply(200, auth.jwks);   // the keys Clerk verifies tokens with
+  stub("clerk").on("GET", `/v1/users/${id}`).reply(200, {
+    object: "user", id, first_name: "Ada", last_name: null, primary_email_address_id: "e1",
+    email_addresses: [{ object: "email_address", id: "e1", email_address: email, verification: { status: "verified" }, linked_to: [] }],
+    phone_numbers: [], web3_wallets: [], external_accounts: [], created_at: 0, updated_at: 0,
+  });
+  return auth.header({ sub: id, sid: "sess_1" });
+}
+
+scenario("checkout as a signed-in user", async (ctx) => {
+  const res = await ctx.http.post("/api/checkout", undefined, { headers: signIn(ctx) });
+  expect(res).toHaveStatus(200);
+});
+```
+
+`CLERK_JWT_KEY` with `{{auth.publicKey}}` would avoid the JWKS stub, but Next.js inlines environment variables into middleware at build time, before the key exists. Without a token, `auth.protect()` in middleware answers API routes with 404.
 
 ## Spring Boot and other JVM apps
 

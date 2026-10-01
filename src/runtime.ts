@@ -11,6 +11,7 @@ import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { Interceptor } from "./intercept.js";
 import { Mailbox } from "./mail.js";
+import { NEON_DOMAIN, NeonEndpoint, neonUrl } from "./neon.js";
 import { appSpecFile, OpenApiSpec } from "./openapi.js";
 import { QueryLog } from "./query-log.js";
 import { Recorder } from "./recording.js";
@@ -61,6 +62,7 @@ export class Runtime {
     readonly issuer?: Issuer,
     readonly queryLog?: QueryLog,
     readonly interceptor?: Interceptor,
+    readonly neon?: NeonEndpoint,
   ) {
     this.#http = this.#client();
   }
@@ -100,6 +102,7 @@ export class Runtime {
     let issuer: Issuer | undefined;
     let queryLog: QueryLog | undefined;
     let interceptor: Interceptor | undefined;
+    let neon: NeonEndpoint | undefined;
     try {
       // Loaded first: a broken spec should fail before anything is started.
       const specs = {
@@ -135,13 +138,18 @@ export class Runtime {
       }
       if (engine?.name === "sqlite") vars["db.path"] = (await import("./drivers/sqlite.js")).sqlitePath(url);
       if (engine) Object.assign(vars, connectionVars(engine.name, vars["db.url"]!, vars["db.path"]));
+      if (opts.db.neon) {
+        // Queries the app sends to Neon's HTTP API run on the worker database (through the db.queries proxy, if on).
+        neon = await NeonEndpoint.start(vars["db.url"]!);
+        vars["db.url"] = neonUrl(url);
+      }
       if (opts.mail) {
         mailbox = await Mailbox.start();
         Object.assign(vars, { "mail.host": mailbox.host, "mail.port": String(mailbox.port), "mail.url": mailbox.url });
       }
       if (opts.auth) {
         issuer = await Issuer.start(opts.auth);
-        Object.assign(vars, { "auth.issuer": issuer.url, "auth.jwks": issuer.jwksUrl, "auth.audience": issuer.audience });
+        Object.assign(vars, { "auth.issuer": issuer.url, "auth.jwks": issuer.jwksUrl, "auth.audience": issuer.audience, "auth.publicKey": issuer.publicKeyPem });
       }
       for (const [name, c] of containers) {
         vars[`container.${name}`] = c.address;
@@ -149,11 +157,15 @@ export class Runtime {
         vars[`container.${name}.port`] = String(c.port);
       }
       for (const [name, stub] of stubs) vars[`stub.${name}`] = stub.url;
-      if (Object.keys(opts.intercept).length > 0 || opts.offline) {
+      if (Object.keys(opts.intercept).length > 0 || opts.offline || neon) {
         const routes = new Map(Object.entries(opts.intercept).map(([host, name]) => {
           const stub = stubs.get(name)!;
           return [host, { attach: (s: import("node:net").Socket) => stub.attach(s), port: stub.port }];
         }));
+        if (neon) {
+          const endpoint = neon;
+          routes.set(`*.${NEON_DOMAIN}`, { attach: (s) => endpoint.attach(s), port: endpoint.port });
+        }
         interceptor = await Interceptor.start(routes);
         interceptor.offline = opts.offline;
         Object.assign(vars, { "proxy.url": interceptor.url, "proxy.ca": interceptor.files.ca, "proxy.bundle": interceptor.files.bundle, "proxy.truststore": interceptor.files.trustStore });
@@ -169,7 +181,7 @@ export class Runtime {
       }
       const app = await App.start(opts.app, opts.root, vars);
       if (opts.openapi.fromApp) specs.app = await fetchAppSpec(app.url, opts.openapi.fromApp, shared.coverageDir);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog, interceptor);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog, interceptor, neon);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
@@ -180,6 +192,7 @@ export class Runtime {
       await queryLog?.close();
       if (interceptor?.blocked.size && e instanceof Error) e.message += `\n${blockedHint([...interceptor.blocked])}`;
       await interceptor?.close();
+      await neon?.close();
       throw e;
     }
   }
@@ -373,6 +386,7 @@ export class Runtime {
       this.issuer?.close(),
       this.queryLog?.close(),
       this.interceptor?.close(),
+      this.neon?.close(),
     ]);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) throw failed.reason;

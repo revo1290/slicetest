@@ -15,3 +15,9 @@ test("services are built too, alongside the app", async () => {
   const fail = `node -e "process.exit(3)"`;
   await expect(buildAll({ root: os.tmpdir(), app, services: { worker: { command: "x", build: fail } } })).rejects.toThrow("slicetest: service worker build failed");
 });
+
+test("the build sees the process's literal env values, not the ones with placeholders", async () => {
+  const build = `node -e "if (process.env.NEXT_PUBLIC_KEY !== 'pk' || 'DATABASE_URL' in process.env) process.exit(1)"`;
+  delete process.env.DATABASE_URL;
+  await expect(buildAll({ root: os.tmpdir(), app: { ...app, build, env: { NEXT_PUBLIC_KEY: "pk", DATABASE_URL: "{{db.url}}" } }, services: {} })).resolves.toBeUndefined();
+});

@@ -11,6 +11,12 @@ const server = http.createServer(async (req, res) => {
       if (!r.ok) return json(502, { error: `weather service answered ${r.status}` });
       return json(200, { city: url.searchParams.get("city"), temperature: (await r.json()).temp_c });
     }
+    if (url.pathname === "/ask") {
+      // Relays a streamed answer, as an app in front of an LLM API does.
+      const r = await fetch("https://api.weather.test/v1/forecast/stream", { method: "POST" });
+      const text = (await r.text()).split("\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)).text ?? "").join("");
+      return json(200, { contentType: r.headers.get("content-type"), text });
+    }
     if (url.pathname === "/feed") {
       const r = await fetch(`https://${url.searchParams.get("group")}.groups.test/ja.atom`);
       return json(200, { feed: await r.text() });

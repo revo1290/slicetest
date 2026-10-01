@@ -293,3 +293,30 @@ test("the first scenario doesn't insist on 200 at / ", async () => {
   expect(text).toContain("      - request: GET /\n        # expect: { status: 200 }");
   expect(parse(text).scenarios[0].steps).toEqual([{ request: "GET /" }]);
 });
+
+test("a Next.js SaaS: Drizzle SQL migrations from drizzle.config's out, Neon, Clerk, and SDK hosts as stubs", async () => {
+  const root = await project({
+    "package.json": JSON.stringify({
+      scripts: { build: "next build", start: "next start" },
+      dependencies: { next: "15", "@neondatabase/serverless": "0.10", "drizzle-orm": "0.36", "@clerk/nextjs": "7", stripe: "17", "@anthropic-ai/sdk": "0.40" },
+      devDependencies: { "drizzle-kit": "0.30" },
+    }),
+    "drizzle.config.ts": "export default { schema: './db/schema.ts', out: './db/migrations', dialect: 'postgresql' };",
+    ".env.example": "STRIPE_SECRET_KEY=sk_test_...\nANTHROPIC_API_KEY=sk-ant-...\n",
+  });
+
+  const { config, notes } = await detect(root);
+
+  expect(config).toMatchObject({
+    db: { neon: true, migrate: { sql: "db/migrations" } },
+    auth: true,
+    app: { env: { STRIPE_SECRET_KEY: "sk_test_slicetest", ANTHROPIC_API_KEY: "sk-ant-slicetest", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuc2xpY2V0ZXN0LnRlc3Qk", CLERK_SECRET_KEY: "sk_test_slicetest" } },
+    stubs: [
+      { name: "stripe", hosts: ["api.stripe.com"] },
+      { name: "anthropic", hosts: ["api.anthropic.com"] },
+      { name: "clerk", hosts: ["api.clerk.com", "clerk.slicetest.test"] },
+    ],
+  });
+  expect(config.app.env).not.toHaveProperty("STRIPE_WEBHOOK_SECRET"); // not in .env.example
+  expect(notes).toContain("db: Drizzle, migrations expected in db/migrations/ (drizzle.config's out), which doesn't exist yet: run `npx drizzle-kit generate` and commit them");
+});

@@ -35,8 +35,9 @@ export interface StubStep {
   stub: string;
   on: string;
   when?: Conditions;
-  reply?: { status?: number; headers?: Record<string, string>; body?: unknown };
-  sequence?: { status?: number; headers?: Record<string, string>; body?: unknown }[];
+  /** `sse`: a streamed reply, a list of { event, data, id } (instead of `body`). */
+  reply?: { status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] };
+  sequence?: { status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] }[];
   networkError?: boolean;
   times?: number;
   delay?: number;
@@ -211,7 +212,7 @@ const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature"
 const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard"];
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];
-const RESPONSE_KEYS = ["status", "headers", "body"];
+const RESPONSE_KEYS = ["status", "headers", "body", "sse"];
 const SCENARIO_KEYS = ["name", "steps", "each", "skip", "only", "timeout"];
 const CALL = /^([A-Za-z]+|\*)\s+(\/\S*)$/;
 /** A request may also go to a captured URL of the app, e.g. a link from a mail: `GET {{link}}`. */
@@ -343,6 +344,15 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       const answers = ["reply", "sequence", "networkError"].filter((k) => raw[k] !== undefined);
       if (answers.length !== 1) fail(node, "a stub step needs exactly one of reply / sequence / networkError");
       keysOf("reply", RESPONSE_KEYS);
+      for (const [where, r] of [["reply", raw.reply], ...((Array.isArray(raw.sequence) ? raw.sequence : []) as unknown[]).map((r) => ["sequence", r] as const)] as const) {
+        if (!r || typeof r !== "object") continue;
+        const { body, sse } = r as { body?: unknown; sse?: unknown };
+        if (sse === undefined) continue;
+        if (body !== undefined) fail(at(where), "a reply has either `body` or `sse`, not both");
+        if (!Array.isArray(sse) || sse.some((e) => !e || typeof e !== "object" || Array.isArray(e) || !("data" in e) || Object.keys(e).some((k) => !["event", "data", "id"].includes(k)))) {
+          fail(at(where), "`sse` must be a list of events such as { event: message_start, data: { ... } }");
+        }
+      }
       if (raw.sequence !== undefined && (!Array.isArray(raw.sequence) || raw.sequence.length === 0)) fail(at("sequence"), "`sequence` must be a non-empty list of responses");
       number("times");
       number("delay");

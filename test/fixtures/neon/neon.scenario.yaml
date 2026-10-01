@@ -1,0 +1,27 @@
+scenarios:
+  - name: queries over Neon's HTTP API run on the test database, with types parsed by the driver
+    steps:
+      - request: POST /notes
+        json: { title: first, tags: [a, b] }
+        expect: { status: 201, json: { id: "1", title: first, tags: [a, b], createdIsDate: true } }
+      - db: notes
+        expect: { rows: [{ id: 1, title: first, tags: [a, b] }] }
+      - insert: notes
+        rows: [{ title: from the test }]
+      - request: GET /notes
+        expect: { json: [{ id: "1", title: first }, { id: "2", title: from the test }] }
+
+  - name: Postgres errors keep their code
+    steps:
+      - insert: notes
+        rows: [{ title: taken }]
+      - request: POST /notes
+        json: { title: taken, tags: [] }
+        expect: { status: 409, json: { code: "23505" } }
+
+  - name: transactions, and db.queries sees the app's SQL
+    steps:
+      - insert: notes
+        rows: [{ title: a }, { title: b }]
+      - request: GET /stats
+        expect: { json: { count: 2, latest: "2" }, queries: 2 }

@@ -111,7 +111,33 @@
                 },
                 "body": {
                   "description": "String, or anything else to send as JSON. May use {{call.params.x}}, {{call.json.x}}, {{call.query.x}}"
+                },
+                "sse": {
+                  "type": "array",
+                  "description": "A streamed reply (Server-Sent Events), instead of body: a list of { event, data, id }. Data that isn't a string is sent as JSON",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "data"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string"
+                      },
+                      "data": {},
+                      "id": {
+                        "type": "string"
+                      }
+                    }
+                  }
                 }
+              },
+              "not": {
+                "required": [
+                  "body",
+                  "sse"
+                ]
               }
             },
             "sequence": {
@@ -131,7 +157,33 @@
                   },
                   "body": {
                     "description": "String, or anything else to send as JSON. May use {{call.params.x}}, {{call.json.x}}, {{call.query.x}}"
+                  },
+                  "sse": {
+                    "type": "array",
+                    "description": "A streamed reply (Server-Sent Events), instead of body: a list of { event, data, id }. Data that isn't a string is sent as JSON",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "data"
+                      ],
+                      "properties": {
+                        "event": {
+                          "type": "string"
+                        },
+                        "data": {},
+                        "id": {
+                          "type": "string"
+                        }
+                      }
+                    }
                   }
+                },
+                "not": {
+                  "required": [
+                    "body",
+                    "sse"
+                  ]
                 }
               },
               "minItems": 1

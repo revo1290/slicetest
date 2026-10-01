@@ -145,3 +145,11 @@ test("offline explains package registries: the build tool starting the app is do
   expect(blockedHint(["api.lu.ma"])).toBe("slicetest: offline: the app tried to reach api.lu.ma, which no stub answers. Add it to a stub's `hosts` (or remove `offline`).");
   expect(blockedHint(["repo.maven.apache.org", "api.lu.ma"])).toContain("repo.maven.apache.org is a package registry: the command that starts the app");
 });
+
+test("Node agents that libraries make themselves go through the proxy too (the preload)", async () => {
+  // Like the Stripe SDK: its own keep-alive agent rather than the default one.
+  const code = `const https = require("https"); const agent = new https.Agent({ keepAlive: true });
+https.get("https://api.weather.test/agent", { agent }, (r) => { let b = ""; r.on("data", (d) => (b += d)); r.on("end", () => { console.log(b); agent.destroy(); }); });`;
+  expect(await client(process.execPath, ["-e", code])).toEqual({ host: "api.weather.test", path: "/agent" });
+  expect(interceptor.env({ NODE_OPTIONS: "--max-old-space-size=512" }).NODE_OPTIONS).toMatch(/^--max-old-space-size=512 --require .*preload[\\/]node-proxy\.cjs$/);
+});

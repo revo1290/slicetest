@@ -51,6 +51,12 @@ scenarios:
       - stub: pay
         on: "* /down"
         networkError: true
+      - stub: pay
+        on: POST /stream
+        reply: { status: 200, headers: { x: y }, sse: [{ event: start, data: { a: 1 }, id: "1" }, { data: done }] }
+      - stub: pay
+        on: POST /streams
+        sequence: [{ sse: [{ data: one }] }, { status: 529 }]
       - request: POST /x
         headers: { a: b }
         query: { q: 1 }
@@ -131,6 +137,8 @@ test.each([
   ["checkpoint that isn't true", "scenarios:\n  - name: a\n    steps:\n      - checkpoint: yes please\n"],
   ["submit without a button", "scenarios:\n  - name: a\n    steps:\n      - submit: false\n"],
   ["a submit field that is a mapping", "scenarios:\n  - name: a\n    steps:\n      - submit: Go\n        fields: { a: { b: 1 } }\n"],
+  ["a reply with both body and sse", "scenarios:\n  - name: a\n    steps:\n      - stub: s\n        on: GET /\n        reply: { body: x, sse: [{ data: y }] }\n"],
+  ["an sse event without data", "scenarios:\n  - name: a\n    steps:\n      - stub: s\n        on: GET /\n        reply: { sse: [{ event: start }] }\n"],
   ["statuses on submit", "scenarios:\n  - name: a\n    steps:\n      - submit: Go\n        expect: { statuses: { 200: 1 } }\n"],
 ])("the schema and the parser both reject %s", (_, text) => {
   expect(parserError(text)).toBeDefined();

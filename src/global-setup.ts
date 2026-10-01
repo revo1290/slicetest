@@ -229,9 +229,25 @@ async function dropStale(admin: Admin) {
 async function migrate(opts: ResolvedOptions, engine: Engine, url: string) {
   const m = opts.db.migrate;
   if (!m) return;
+  const output = await applyMigrations(opts, engine, url, m);
+  // Some tools exit 0 when they couldn't connect (drizzle-kit push through a driver that can't reach
+  // the server): an empty database after migrating means they did nothing.
+  const driver = await engine.driver(url);
+  try {
+    if ((await driver.listTables(opts.db.schemas, [])).length > 0) return;
+  } finally {
+    await driver.close();
+  }
+  const tail = output.trim().split("\n").slice(-15).join("\n");
+  throw new Error(
+    `slicetest: db.migrate finished without error but created no tables${engine.name === "sqlite" ? "" : ` in ${opts.db.schemas.join(", ")}`}. Check that it reaches the database at DATABASE_URL.${tail ? `\nIts output:\n${tail}` : ""}`,
+  );
+}
+
+async function applyMigrations(opts: ResolvedOptions, engine: Engine, url: string, m: NonNullable<ResolvedOptions["db"]["migrate"]>): Promise<string> {
   if ("atlas" in m) {
     const dir = atlasDirUrl(m.atlas.dir, opts.root);
-    await run("atlas", ["migrate", "apply", "--url", engine.atlasUrl(url), "--dir", dir], opts.root);
+    return run("atlas", ["migrate", "apply", "--url", engine.atlasUrl(url), "--dir", dir], opts.root);
   } else if ("sql" in m) {
     const target = path.resolve(opts.root, m.sql);
     const files = (await stat(target)).isDirectory()
@@ -243,10 +259,10 @@ async function migrate(opts: ResolvedOptions, engine: Engine, url: string) {
     } finally {
       await driver.close();
     }
-  } else {
-    // Through the platform shell (sh or cmd.exe), like app.command.
-    await run(m.command, [], opts.root, { DATABASE_URL: url }, true);
+    return "";
   }
+  // Through the platform shell (sh or cmd.exe), like app.command.
+  return run(m.command, [], opts.root, { DATABASE_URL: url }, true);
 }
 
 /**
@@ -266,7 +282,10 @@ export async function buildAll(opts: Pick<ResolvedOptions, "app" | "services" | 
       .filter(([, p]) => p.build)
       .map(async ([label, p]) => {
         try {
-          await exec(p.build!, [], { cwd: path.resolve(opts.root, p.cwd ?? "."), shell: true, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+          // The process's literal settings apply to its build too: Next.js inlines NEXT_PUBLIC_* at build
+          // time. Values with placeholders ({{db.url}}, …) don't exist yet and are left out.
+          const literal = Object.fromEntries(Object.entries(p.env ?? {}).filter(([, v]) => !v.includes("{{")));
+          await exec(p.build!, [], { cwd: path.resolve(opts.root, p.cwd ?? "."), env: { ...process.env, ...literal }, shell: true, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
         } catch (e) {
           const err = e as { stdout?: string; stderr?: string; message: string };
           const output = `${err.stdout ?? ""}${err.stderr ?? ""}`.trim().split("\n").slice(-40).join("\n");
@@ -278,7 +297,8 @@ export async function buildAll(opts: Pick<ResolvedOptions, "app" | "services" | 
 
 async function run(cmd: string, args: string[], cwd: string, env: Record<string, string> = {}, shell = false) {
   try {
-    await exec(cmd, args, { cwd, env: { ...process.env, ...env }, shell, windowsHide: true });
+    const { stdout, stderr } = await exec(cmd, args, { cwd, env: { ...process.env, ...env }, shell, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+    return `${stdout}${stderr}`;
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; message: string };
     throw new Error(`slicetest: migration failed: ${cmd} ${args.join(" ")}\n${err.stderr || err.stdout || err.message}`);

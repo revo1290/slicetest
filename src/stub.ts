@@ -49,6 +49,25 @@ export interface StubResponse {
   body?: unknown;
 }
 
+/** One server-sent event: `[event, data]`, or `{ event, data, id }`. Data that isn't a string is sent as JSON. */
+export type ServerSentEvent = [event: string, data: unknown] | { event?: string; data: unknown; id?: string };
+
+/**
+ * A streaming reply in Server-Sent Events format, as LLM APIs stream (Anthropic, OpenAI):
+ * `stub("anthropic").on("POST", "/v1/messages").reply(sse([["message_start", {...}], ...]))`.
+ */
+export function sse(events: ServerSentEvent[], init: Omit<StubResponse, "body"> = {}): StubResponse {
+  const body = events
+    .map((e) => {
+      const { event, data, id } = Array.isArray(e) ? { event: e[0], data: e[1], id: undefined } : e;
+      const text = typeof data === "string" ? data : JSON.stringify(data);
+      const lines = [...(id !== undefined ? [`id: ${id}`] : []), ...(event ? [`event: ${event}`] : []), ...text.split("\n").map((l) => `data: ${l}`)];
+      return `${lines.join("\n")}\n\n`;
+    })
+    .join("");
+  return { status: init.status ?? 200, headers: { "content-type": "text/event-stream", "cache-control": "no-cache", ...init.headers }, body };
+}
+
 export type Responder = StubResponse | ((call: RecordedCall) => StubResponse | Promise<StubResponse>);
 
 /**

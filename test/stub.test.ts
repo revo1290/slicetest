@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { Stub } from "../src/stub.js";
+import { sse, Stub } from "../src/stub.js";
 import "../src/matchers.js";
 
 let stub: Stub;
@@ -170,4 +170,13 @@ test("chaos latency delays every call, and reset() turns chaos off", async () =>
   expect(performance.now() - started).toBeGreaterThanOrEqual(75);
   stub.reset();
   expect(stub.describeChaos()).toBeUndefined();
+});
+
+test("sse() replies with a Server-Sent Events stream: event lines, JSON data, multi-line data, ids", async () => {
+  stub.on("POST", "/v1/messages").reply(sse([["message_start", { type: "message_start" }], { data: "line 1\nline 2", id: "7" }, ["ping", "{}"]]));
+
+  const res = await fetch(`${stub.url}/v1/messages`, { method: "POST" });
+
+  expect(res.headers.get("content-type")).toBe("text/event-stream");
+  expect(await res.text()).toBe('event: message_start\ndata: {"type":"message_start"}\n\nid: 7\ndata: line 1\ndata: line 2\n\nevent: ping\ndata: {}\n\n');
 });

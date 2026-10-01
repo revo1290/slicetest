@@ -53,6 +53,7 @@
   },
   "files": [
     "dist",
+    "preload",
     "schema"
   ],
   "engines": {
@@ -66,9 +67,9 @@
     "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
-    "vitest": ">=4",
+    "@testcontainers/mysql": ">=11",
     "mysql2": ">=3",
-    "@testcontainers/mysql": ">=11"
+    "vitest": ">=4"
   },
   "dependencies": {
     "@testcontainers/postgresql": "^12.2.0",
@@ -79,6 +80,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@testcontainers/mysql": "^12.2.0",
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",

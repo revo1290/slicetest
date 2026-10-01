@@ -127,9 +127,14 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const { startVitest, version } = await import("vitest/node");
+  if (Number.parseInt(version, 10) < 4) {
+    process.stderr.write(`slicetest: needs Vitest 4 or later, and this project has Vitest ${version}. Upgrade it (npm i -D vitest@latest), or run slicetest from a folder with its own package.json.\n`);
+    process.exitCode = 1;
+    return;
+  }
   const { slicetest, YAML_SCENARIOS } = await import("./vitest.js");
   // Vitest 4 takes the mode ("test") first; 5 dropped it.
-  const start = (Number.parseInt(version, 10) < 5 ? startVitest.bind(null, "test") : startVitest) as typeof startVitest;
+  const start = (Number.parseInt(version, 10) === 4 ? startVitest.bind(null, "test") : startVitest) as typeof startVitest;
   const vitest = await start(
     positionals,
     {

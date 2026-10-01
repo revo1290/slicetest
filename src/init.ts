@@ -19,6 +19,18 @@ export interface Detected {
 
 const TODO_COMMAND = "echo 'TODO: the command that starts your app' && exit 1";
 
+/** SDKs whose API hosts are written into them: a stub with `hosts` answers there. Packages are npm or PyPI names. */
+const KNOWN_APIS: { packages: string[]; stub: string; hosts: string[]; env: Record<string, string> }[] = [
+  { packages: ["stripe"], stub: "stripe", hosts: ["api.stripe.com"], env: { STRIPE_SECRET_KEY: "sk_test_slicetest", STRIPE_WEBHOOK_SECRET: "whsec_slicetest" } },
+  { packages: ["@anthropic-ai/sdk", "anthropic"], stub: "anthropic", hosts: ["api.anthropic.com"], env: { ANTHROPIC_API_KEY: "sk-ant-slicetest" } },
+  { packages: ["openai"], stub: "openai", hosts: ["api.openai.com"], env: { OPENAI_API_KEY: "sk-slicetest" } },
+  { packages: ["resend"], stub: "resend", hosts: ["api.resend.com"], env: { RESEND_API_KEY: "re_slicetest" } },
+  { packages: ["@sendgrid/mail", "sendgrid"], stub: "sendgrid", hosts: ["api.sendgrid.com"], env: { SENDGRID_API_KEY: "SG.slicetest" } },
+  { packages: ["@slack/web-api", "slack_sdk"], stub: "slack", hosts: ["slack.com"], env: { SLACK_BOT_TOKEN: "xoxb-slicetest" } },
+  { packages: ["@octokit/rest", "octokit", "PyGithub"], stub: "github", hosts: ["api.github.com"], env: { GITHUB_TOKEN: "ghp_slicetest" } },
+  { packages: ["twilio"], stub: "twilio", hosts: ["api.twilio.com"], env: { TWILIO_ACCOUNT_SID: "AC00000000000000000000000000000000", TWILIO_AUTH_TOKEN: "slicetest" } },
+];
+
 /** Files that mark a directory as an app slicetest can start. */
 const APP_MARKERS = ["manage.py", "requirements.txt", "pyproject.toml", "Gemfile", "go.mod", "Cargo.toml", "build.gradle", "build.gradle.kts", "pom.xml"];
 /** Build files of a Gradle or Maven multi-project build (two levels down), for dependencies declared in a subproject. */
@@ -159,8 +171,16 @@ export async function detect(root: string): Promise<Detected> {
     migrate = { command: "bin/rails db:migrate", inputs: ["db/migrate"] };
     notes.push("db: Rails migrations");
   } else if (deps["drizzle-kit"]) {
-    migrate = { command: "npx drizzle-kit migrate", inputs: ["drizzle"] };
-    notes.push("db: Drizzle (drizzle-kit migrate). Check that `inputs` points at your migrations folder.");
+    // drizzle-kit migrate/push connect with whatever driver the project has (with only Neon's,
+    // over a WebSocket that a local server doesn't answer); the generated SQL needs no driver.
+    const configFile = ["drizzle.config.ts", "drizzle.config.js", "drizzle.config.mjs", "drizzle.config.json"].find(has);
+    const out = (configFile && /\bout\s*:\s*["'`]([^"'`]+)["'`]/.exec(await read(configFile))?.[1]?.replace(/^\.\//, "")) || "drizzle";
+    migrate = { sql: out };
+    notes.push(
+      has(out)
+        ? `db: Drizzle migrations in ${out}/, applied as SQL in name order`
+        : `db: Drizzle, migrations expected in ${out}/ (drizzle.config's out), which doesn't exist yet: run \`npx drizzle-kit generate\` and commit them`,
+    );
   } else if (deps.knex) {
     migrate = { command: "npx knex migrate:latest", inputs: ["migrations"] };
     notes.push("db: Knex migrations");
@@ -195,6 +215,7 @@ export async function detect(root: string): Promise<Detected> {
     env.DATABASE_URL = sqlite.url;
     notes.push(`db: SQLite (${sqlite.why}), no container needed. The app gets DATABASE_URL=${sqlite.url}; {{db.path}} is the plain file path`);
   }
+  let authClerk = false;
   const auth = await authFromEnvExample(appRoot, read, env, notes);
   const jwtDeps = ["jose", "jsonwebtoken", "passport-jwt", "express-oauth2-jwt-bearer", "express-jwt", "jwks-rsa", "@fastify/jwt", "next-auth"].filter((d) => deps[d]);
   const jwtPython = /\b(pyjwt|python-jose|authlib|fastapi-azure-auth|djangorestframework-simplejwt)\b/i.exec(python)?.[1];
@@ -203,7 +224,25 @@ export async function detect(root: string): Promise<Detected> {
       `auth: ${jwtDeps[0] ?? jwtPython} is a dependency, so the app may verify JWTs. To test with real tokens, add \`auth: true\` and pass {{auth.issuer}} / {{auth.jwks}} / {{auth.audience}} to the variables the app reads`,
     );
   }
-  const stubs = await stubsFromEnvExample(appRoot, read, env, notes);
+  const stubs: NonNullable<CliConfig["stubs"]> = await stubsFromEnvExample(appRoot, read, env, notes);
+  const envExample = [".env.example", ".env.sample", ".env.template", ".env.dist"].map((f) => (has(f) ? f : "")).find(Boolean);
+  const exampleText = envExample ? await read(envExample) : "";
+  for (const api of KNOWN_APIS) {
+    if (!api.packages.some((p) => deps[p] || new RegExp(`\\b${p.replace(/[^\w-]/g, "")}\\b`).test(python))) continue;
+    if (stubs.some((s) => (typeof s === "string" ? s : s.name) === api.stub)) continue;
+    stubs.push({ name: api.stub, hosts: api.hosts });
+    // Placeholder credentials for the variables the app is documented to read; the stub doesn't check them.
+    for (const [k, v] of Object.entries(api.env)) if (!(k in env) && new RegExp(`^\\s*${k}\\s*=`, "m").test(exampleText)) env[k] = v;
+    notes.push(`stubs.${api.stub}: ${api.packages.find((p) => deps[p]) ?? api.packages[0]} calls ${api.hosts.join(", ")}; the stub answers there (register its routes in scenarios)`);
+  }
+  if (deps["@clerk/nextjs"] || deps["@clerk/express"] || deps["@clerk/backend"]) {
+    // A publishable key is the Frontend API host, base64-encoded with a trailing "$".
+    env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ??= `pk_test_${Buffer.from("clerk.slicetest.test$").toString("base64")}`;
+    env.CLERK_SECRET_KEY ??= "sk_test_slicetest";
+    authClerk = true;
+    stubs.push({ name: "clerk", hosts: ["api.clerk.com", "clerk.slicetest.test"] });
+    notes.push("auth: Clerk. Sessions are tokens from slicetest's issuer (auth: true); the clerk stub serves its keys at /v1/jwks and users at /v1/users/:id. See the README's Clerk section");
+  }
   notes.push("network: URLs written in the code (https://api.example.com) can be stubbed with `hosts`. Add `offline: true` and the first run names every host the app calls");
   const mysqlDeps = !!deps.mysql2 || !!deps.mysql || /\b(pymysql|mysqlclient|aiomysql)\b/.test(python) || /\bgem ['"]mysql2['"]/.test(gemfile);
   if (!composeDb.engine && mysqlDeps) {
@@ -214,6 +253,9 @@ export async function detect(root: string): Promise<Detected> {
   // --- OpenAPI ---
   const openapi = ["openapi.yaml", "openapi.yml", "openapi.json", "docs/openapi.yaml", "docs/openapi.yml", "docs/openapi.json"].find(has);
   if (openapi) notes.push(`openapi: ${openapi}. Every response will be checked against it.`);
+
+  const neon = !!(deps["@neondatabase/serverless"] || deps["@vercel/postgres"]);
+  if (neon) notes.push("db: Neon's serverless driver (db.neon): DATABASE_URL is a Neon-style URL whose HTTP queries slicetest answers from the test database");
 
   // An app with no migrations, no database in compose and no database library gets no database at all.
   const dbLibrary =
@@ -233,10 +275,10 @@ export async function detect(root: string): Promise<Detected> {
   const config: CliConfig = {
     app: { ...(appDir ? { cwd: appDir } : {}), command, ...(build ? { build } : {}), env, ready: { path: readyPath }, ...(readyTimeout ? { readyTimeout } : {}), ...(scope ? { scope } : {}) },
     ...(workers ? { workers } : {}),
-    ...(noDb ? { db: false as const } : migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
+    ...(noDb ? { db: false as const } : migrate || neon || Object.keys(composeDb).length ? { db: { ...composeDb, ...(neon ? { neon: true } : {}), ...(migrate ? { migrate } : {}) } } : {}),
     ...(Object.keys(containers).length ? { containers } : {}),
     ...(mail ? { mail: true } : {}),
-    ...(auth ? { auth: true } : {}),
+    ...(auth || authClerk ? { auth: true } : {}),
     stubs,
     ...(openapi ? { openapi } : {}),
   };

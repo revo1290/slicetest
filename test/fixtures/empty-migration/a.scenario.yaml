@@ -1,0 +1,4 @@
+scenarios:
+  - name: never runs
+    steps:
+      - request: GET /

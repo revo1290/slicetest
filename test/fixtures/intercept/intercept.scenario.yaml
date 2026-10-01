@@ -37,3 +37,16 @@ scenarios:
       - received: groups
         call: GET /ja.atom
         times: 2
+
+  - name: a stub streams Server-Sent Events, with what was asked
+    steps:
+      - stub: weather
+        on: POST /v1/forecast/stream
+        reply:
+          sse:
+            - { event: start, data: { text: "" } }
+            - { event: delta, data: { text: "sunny " } }
+            - { event: delta, data: { text: "from {{call.headers.host}}" } }
+            - { event: stop, data: {} }
+      - request: GET /ask
+        expect: { json: { contentType: text/event-stream, text: sunny from api.weather.test } }

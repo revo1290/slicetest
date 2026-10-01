@@ -15,6 +15,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
+import { fileURLToPath } from "node:url";
 import { Authority, pemBundle, pemToDer, pkcs12TrustStore } from "./x509.js";
 
 /** Where an intercepted host's calls go: its stub's server (TLS connections) and port (plain HTTP). */
@@ -24,6 +25,9 @@ export interface Route {
 }
 
 let authority: Authority | undefined;
+
+/** preload/node-proxy.cjs, from src/ and dist/ alike. */
+const PRELOAD = fileURLToPath(new URL("../preload/node-proxy.cjs", import.meta.url));
 
 /**
  * The entry of `map` for `host`: an exact name, else the closest `*.domain` pattern
@@ -112,8 +116,10 @@ export class Interceptor {
       https_proxy: this.url,
       NO_PROXY: local,
       no_proxy: local,
-      // Node 22.21+ / 24.5+ honour the proxy variables for fetch and http(s) with this set.
+      // Node 22.21+ / 24.5+ honour the proxy variables for fetch and the default agents with this set;
+      // the preload extends that to agents libraries make themselves.
       NODE_USE_ENV_PROXY: "1",
+      NODE_OPTIONS: [base.NODE_OPTIONS, `--require ${quote(PRELOAD)}`].filter(Boolean).join(" "),
       NODE_EXTRA_CA_CERTS: this.files.ca,
       // OpenSSL-based runtimes (Python, Ruby, PHP), Go, requests and curl replace their
       // default roots with these files, so the bundle also holds the public roots.

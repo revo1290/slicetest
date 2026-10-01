@@ -176,6 +176,12 @@ export interface DbOptions {
    * statement, whatever the app's language or driver. Off by default.
    */
   queries?: boolean;
+  /**
+   * For apps on Neon's serverless driver over HTTP (`neon()` from @neondatabase/serverless,
+   * drizzle-orm/neon-http): `{{db.url}}` becomes a Neon-style connection string, and
+   * slicetest answers the driver's HTTP queries from the test database. Postgres only.
+   */
+  neon?: boolean;
 }
 
 export type MigrateOptions =
@@ -329,6 +335,8 @@ function validate(opts: SlicetestOptions) {
   const engine = dbOpts?.engine;
   if (engine !== undefined && engine !== "postgres" && engine !== "mysql" && engine !== "sqlite") fail(`db.engine must be "postgres", "mysql" or "sqlite", got ${JSON.stringify(engine)}`);
   if (dbOpts?.queries !== undefined && typeof dbOpts!.queries !== "boolean") fail(`db.queries must be true or false, got ${JSON.stringify(dbOpts!.queries)}`);
+  if (dbOpts?.neon !== undefined && typeof dbOpts.neon !== "boolean") fail(`db.neon must be true or false, got ${JSON.stringify(dbOpts.neon)}`);
+  if (dbOpts?.neon && (engine === "mysql" || engine === "sqlite")) fail("db.neon is Neon's protocol for Postgres; it doesn't apply to " + engine);
   if (engine === "sqlite" && dbOpts?.queries) fail("db.queries needs a database server (postgres or mysql): an SQLite app opens the file directly, so there is no connection to read");
   if (engine === "sqlite" && dbOpts?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");
   const migrate = dbOpts?.migrate;

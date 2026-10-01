@@ -8,7 +8,7 @@ import { scenario } from "./scenario.js";
 import type { HttpResponse } from "./http.js";
 import type { MailFilter } from "./mail.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
-import type { MatchOptions, RecordedCall, StubResponse } from "./stub.js";
+import { sse, type MatchOptions, type RecordedCall, type ServerSentEvent, type StubResponse } from "./stub.js";
 import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
 
 type Vars = Record<string, unknown>;
@@ -146,8 +146,10 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
     if (step.times !== undefined) route = route.times(step.times);
     if (step.delay !== undefined) route = route.delay(step.delay);
     // Replies are interpolated when a call arrives, so they can echo it: {{call.params.id}}, {{call.json.name}}.
-    const answer = (template: unknown) => (call: RecordedCall) =>
-      interpolate(template, { ...vars, call: callVars(call) }) as StubResponse;
+    const answer = (template: unknown) => (call: RecordedCall) => {
+      const { sse: events, ...response } = interpolate(template, { ...vars, call: callVars(call) }) as StubResponse & { sse?: ServerSentEvent[] };
+      return events ? sse(events, response) : response;
+    };
     if (step.networkError) route.networkError();
     else if (step.sequence) {
       let n = 0;
