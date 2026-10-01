@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { Driver, Row, Table } from "./drivers/driver.js";
 import { Factory } from "./factory.js";
+import type { QueryList, QueryLog } from "./query-log.js";
 
 /** Tables that record applied migrations. Truncating them would make tools re-run migrations. */
 const MIGRATION_TABLES = [
@@ -65,6 +66,7 @@ export class Db {
   #start?: Snapshot;
   #checkpoint?: Snapshot | "start";
   #factory: Factory;
+  #queryLog?: QueryLog;
 
   private constructor(
     driver: Driver,
@@ -146,6 +148,32 @@ export class Db {
     const out: T[] = [];
     for (let i = 0; i < count; i++) out.push(await this.make<T>(table, typeof overrides === "function" ? overrides(i) : overrides));
     return out;
+  }
+
+  /** @internal Set by the runtime when `db.queries` is on. */
+  attachQueryLog(log: QueryLog) {
+    this.#queryLog = log;
+  }
+
+  /**
+   * SQL the app ran during this scenario, or only while `fn` ran. Needs `db: { queries: true }`.
+   * The test's own `db` calls aren't included.
+   *
+   * ```ts
+   * const queries = await db.queries(() => http.get("/posts"));
+   * expect(queries.repeated()).toEqual([]);   // no statement shape ran 3+ times: no N+1
+   * expect(queries.length).toBeLessThanOrEqual(3);
+   * ```
+   */
+  async queries(fn?: () => unknown): Promise<QueryList> {
+    const log = this.#queryLog;
+    if (!log) throw new Error("slicetest: db.queries() needs `db: { queries: true }` in the config (Postgres or MySQL); the app then connects through a proxy that records its SQL.");
+    if (!fn) return log.queries();
+    const mark = log.mark();
+    await fn();
+    // Let statements already on the wire arrive.
+    await new Promise((r) => setTimeout(r, 10));
+    return log.queries(mark);
   }
 
   /** Empty every data table without dropping the app's connections, then re-apply the seed. */

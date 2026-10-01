@@ -134,6 +134,12 @@ export interface DbOptions {
    * Default: on, except when `CI` is set or `url` is given.
    */
   reuse?: boolean;
+  /**
+   * Record the SQL the app runs: `{{db.url}}` points the app at a proxy that
+   * reads the wire protocol (Postgres and MySQL), so `db.queries()` lists every
+   * statement, whatever the app's language or driver. Off by default.
+   */
+  queries?: boolean;
 }
 
 export type MigrateOptions =
@@ -262,6 +268,8 @@ function validate(opts: SlicetestOptions) {
   }
   const engine = opts.db?.engine;
   if (engine !== undefined && engine !== "postgres" && engine !== "mysql" && engine !== "sqlite") fail(`db.engine must be "postgres", "mysql" or "sqlite", got ${JSON.stringify(engine)}`);
+  if (opts.db?.queries !== undefined && typeof opts.db.queries !== "boolean") fail(`db.queries must be true or false, got ${JSON.stringify(opts.db.queries)}`);
+  if (engine === "sqlite" && opts.db?.queries) fail("db.queries needs a database server (postgres or mysql): an SQLite app opens the file directly, so there is no connection to read");
   if (engine === "sqlite" && opts.db?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");
   const migrate = opts.db?.migrate;
   if (migrate) {

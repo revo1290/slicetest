@@ -10,6 +10,7 @@ import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { Mailbox } from "./mail.js";
 import { OpenApiSpec } from "./openapi.js";
+import { QueryLog } from "./query-log.js";
 import { Recorder } from "./recording.js";
 import { Stub, type RecordedCall } from "./stub.js";
 import { buildTrace, mask, type MaskOptions, type Trace } from "./trace.js";
@@ -56,6 +57,7 @@ export class Runtime {
     readonly containers = new Map<string, Dependency>(),
     readonly mailbox?: Mailbox,
     readonly issuer?: Issuer,
+    readonly queryLog?: QueryLog,
   ) {
     this.#http = this.#client();
   }
@@ -92,6 +94,7 @@ export class Runtime {
     let db: Db | undefined;
     let mailbox: Mailbox | undefined;
     let issuer: Issuer | undefined;
+    let queryLog: QueryLog | undefined;
     try {
       // Loaded first: a broken spec should fail before anything is started.
       const specs = {
@@ -117,6 +120,12 @@ export class Runtime {
       const failed = started.find((r) => r.status === "rejected");
       if (failed) throw failed.reason;
       const vars: Record<string, string> = { "db.url": url };
+      if (opts.db.queries && engine.name !== "sqlite") {
+        const u = new URL(url);
+        queryLog = await QueryLog.start(engine.name as "postgres" | "mysql", { host: u.hostname, port: Number(u.port || (engine.name === "mysql" ? 3306 : 5432)) });
+        vars["db.url"] = queryLog.proxyUrl(url);
+        db.attachQueryLog(queryLog);
+      }
       if (engine.name === "sqlite") vars["db.path"] = (await import("./drivers/sqlite.js")).sqlitePath(url);
       if (opts.mail) {
         mailbox = await Mailbox.start();
@@ -139,7 +148,7 @@ export class Runtime {
         vars[`service.${name}.port`] = String(started.port);
       }
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
@@ -147,6 +156,7 @@ export class Runtime {
       await Promise.allSettled([...containers.values()].map((c) => c.stop()));
       await mailbox?.close();
       await issuer?.close();
+      await queryLog?.close();
       throw e;
     }
   }
@@ -212,6 +222,7 @@ export class Runtime {
     for (const recorder of this.recorders.values()) recorder.reset();
     this.mailbox?.reset();
     this.issuer?.reset();
+    this.queryLog?.reset();
     await Promise.all([...this.containers.values()].map((c) => c.reset()));
     this.http.reset();
     for (const p of this.#processes()) p.beginScenario();
@@ -293,6 +304,11 @@ export class Runtime {
       sections.push(`database changes during this scenario: unavailable (${(e as Error).message})`);
     }
     if (this.mailbox) sections.push(this.mailbox.describe());
+    if (this.queryLog) {
+      const q = this.queryLog.queries();
+      const top = q.shapes().slice(0, 5).map((s) => `  ${s.count > 1 ? `×${s.count} ` : ""}${s.sql.length > 160 ? `${s.sql.slice(0, 157)}...` : s.sql}`);
+      sections.push(q.length ? `SQL the app ran during this scenario (${q.length} statements, most frequent first):\n${top.join("\n")}` : "SQL the app ran during this scenario: (none)");
+    }
     const logs = this.app.scenarioLogs();
     sections.push(logs ? `app output during this scenario:\n${logs}` : "app output during this scenario: (none)");
     for (const [name, service] of this.services) {
@@ -319,6 +335,7 @@ export class Runtime {
       ...[...this.containers.values()].map((c) => c.stop()),
       this.mailbox?.close(),
       this.issuer?.close(),
+      this.queryLog?.close(),
     ]);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) throw failed.reason;

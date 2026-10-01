@@ -63,7 +63,8 @@ export interface RequestStep {
   webhook?: { provider: string | { header: string; algorithm?: string; encoding?: "hex" | "base64"; prefix?: string }; secret: string; event?: string; stale?: boolean; invalidSignature?: boolean };
   /** Send the request this many times at once. `expect` applies to every response; `statuses` counts them. */
   concurrency?: number;
-  expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown };
+  /** `queries`: at most this many SQL statements (not counting BEGIN/COMMIT), with `db.queries` on. */
+  expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number };
   capture?: Record<string, string>;
 }
 
@@ -183,7 +184,7 @@ const KINDS = {
 type Kind = keyof typeof KINDS;
 
 const EXPECT_KEYS: Record<string, string[]> = {
-  request: ["status", "statuses", "headers", "json", "text"],
+  request: ["status", "statuses", "headers", "json", "text", "queries"],
   sql: ["rows", "count"],
   db: ["rows", "count"],
 };
@@ -333,6 +334,11 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       }
       if (raw.auth !== undefined && raw.auth !== true && !(raw.auth && typeof raw.auth === "object" && !Array.isArray(raw.auth))) fail(at("auth"), "`auth` must be true or the token's claims, e.g. { sub: u1, roles: [admin] }");
       if (raw.concurrency !== undefined && !(Number.isInteger(raw.concurrency) && (raw.concurrency as number) >= 1)) fail(at("concurrency"), "`concurrency` must be a positive whole number");
+      {
+        const q = (raw.expect as Record<string, unknown> | undefined)?.queries;
+        if (q !== undefined && !(Number.isInteger(q) && (q as number) >= 0)) fail(at("expect"), "`expect.queries` is the most SQL statements the request may run, e.g. 3");
+        if (q !== undefined && raw.concurrency !== undefined) fail(at("expect"), "`expect.queries` can't be used with `concurrency`");
+      }
       if (raw.concurrency !== undefined && raw.capture !== undefined) fail(at("capture"), "`capture` can't be used with `concurrency`: there is more than one response");
       {
         const statuses = (raw.expect as Record<string, unknown> | undefined)?.statuses;

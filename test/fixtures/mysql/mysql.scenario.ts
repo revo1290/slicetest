@@ -45,3 +45,9 @@ scenario("db.make fills required columns and creates the parent rows foreign key
   expect(post).toEqual({ id: 1, author_id: 2, title: "title-1", published: false, slug: "title-1" });
   expect(await db.one("authors", { id: 2 })).toEqual({ id: 2, name: "name-2" });
 });
+
+scenario("db.queries records the app's statements through the MySQL protocol", async ({ http, db }) => {
+  const queries = await db.queries(() => http.post("/posts", { authorId: 1, title: "q" }));
+  expect(queries.some((q) => /^INSERT INTO posts/i.test(q.sql.trim()))).toBe(true);
+  expect((await db.queries()).length).toBeGreaterThanOrEqual(queries.length);
+});

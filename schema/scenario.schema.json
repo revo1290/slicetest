@@ -287,6 +287,11 @@
                     "minimum": 0
                   },
                   "description": "With `concurrency`: how many responses have each status, e.g. { 201: 1, 409: 9 }"
+                },
+                "queries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "At most this many SQL statements for this request, not counting BEGIN/COMMIT (needs db.queries)"
                 }
               }
             },

@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [
     slicetest({
       app: { command: "node app.mjs", ready: { log: "app ready" } },
-      db: { engine: "mysql", migrate: { sql: "schema.sql" }, seed: "seed.sql", keep: ["categories"] },
+      db: { engine: "mysql", migrate: { sql: "schema.sql" }, seed: "seed.sql", keep: ["categories"], queries: true },
     }),
   ],
   test: { name: "mysql", include: ["*.scenario.ts", "*.scenario.yaml"] },

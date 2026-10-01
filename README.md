@@ -55,6 +55,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
 - **Webhooks signed like the real sender.** Stripe, GitHub, Slack, Shopify and Standard Webhooks signatures, plus forged and replayed deliveries, so signature checks are tested instead of bypassed.
 - **Reproducible chaos.** Stubs can fail the first calls, drop connections or add latency, from a seed the failure output prints, so a resilience test that fails once fails again on demand.
+- **N+1 detection for any stack.** A wire-protocol proxy records the SQL the app runs, so query counts are asserted at the HTTP boundary, whatever the ORM or language.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
@@ -219,6 +220,26 @@ expect(await db.changes()).toEqual({
 ```
 
 `toEqual` fails if the app wrote to a table you didn't list, which catches unexpected side effects. Each entry in `updated` has `key`, `before`, `after` and `changed`. Tables without a primary key report an update as one deleted row plus one inserted row. `bigint` columns (bigserial ids, `count(*)`) come back as numbers when they fit safely.
+
+#### `db.queries()` — the SQL the app ran, from any language
+
+With `db: { queries: true }`, the app's `{{db.url}}` points at a proxy that reads the Postgres or MySQL wire protocol and records every statement the app runs. Nothing changes in the app, and it works the same for an ORM in Node, Python, Ruby, Go or Java. So you can pin down N+1 queries and query counts at the HTTP boundary:
+
+```ts
+const queries = await db.queries(() => http.get("/posts"));   // only what ran during the request
+expect(queries.repeated()).toEqual([]);                         // no statement shape ran 3+ times
+expect(queries.withoutTransactions()).toHaveLength(2);          // ignore BEGIN / COMMIT that some drivers add
+```
+
+`repeated(min = 3)` and `shapes()` group statements by shape, with literals and parameters replaced by `?`. `db.queries()` without a function returns the whole scenario so far. The test's own `db` calls aren't included. When a scenario fails, the output lists the SQL the app ran, most frequent first, so an N+1 stands out:
+
+```
+SQL the app ran during this scenario (21 statements, most frequent first):
+  ×20 SELECT * FROM authors WHERE id = ?
+  SELECT * FROM posts ORDER BY id
+```
+
+YAML: `expect: { queries: 3 }` on a `request` step fails if the request ran more than 3 statements (not counting transaction control). Connections that switch to TLS are forwarded but not read. SQLite apps open the file directly, so this isn't available for them.
 
 ### `stub(name)` — fake the services the app calls
 
@@ -524,6 +545,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.seed` | none | SQL file re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |
 | `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |
+| `db.queries` | `false` | Point the app at a proxy that records its SQL (Postgres, MySQL), for [`db.queries()`](#dbqueries--the-sql-the-app-ran-from-any-language). |
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
 | `db.image` | `postgres:17-alpine` / `mysql:8.4` | |
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |

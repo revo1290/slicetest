@@ -126,3 +126,12 @@ scenario("作成から投票までの流れ全体がスナップショットと�
 
   expect(await trace()).toMatchSnapshot();
 });
+
+scenario("集計は1本のSQLで返す（N+1 にならない）", async ({ http, db }) => {
+  // The Python driver wraps it in BEGIN / COMMIT; the Node one doesn't.
+  const queries = (await db.queries(() => http.get("/polls/1"))).withoutTransactions();
+
+  expect(queries).toHaveLength(1);
+  expect(queries[0]!.sql).toMatch(/FROM polls p LEFT JOIN votes/);
+  expect(queries.repeated()).toEqual([]);
+});

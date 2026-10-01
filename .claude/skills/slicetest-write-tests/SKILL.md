@@ -66,6 +66,7 @@ scenarios:
 - When the config has `auth`, authenticate with `auth.header({ sub, roles })` (YAML: `auth:` on the request) instead of logging in through the UI or reading tokens from the database. Cover rejection with `auth.header({}, { expired: true })` / `{ wrongKey: true }`.
 - Send inbound webhooks with `http.webhook(path, payload, { provider, secret })` using the secret from the app's env, and cover `invalidSignature: true` / `stale: true`. Don't disable the app's signature check.
 - To test retries or fallbacks, register the normal reply and add `stub(name).chaos({ failFirst: n })` (YAML: `chaos:` step) instead of chaining `replySequence` of errors; use a fixed `seed` for random faults.
+- With `db: { queries: true }`, guard list endpoints against N+1 with `expect((await db.queries(() => http.get(path))).repeated()).toEqual([])` (YAML: `expect: { queries: n }`).
 - Arrange rows with `db.make(table, { only the columns the scenario is about })` (YAML: `make:`) rather than spelling out every required column; it creates parent rows for required foreign keys.
 - If `openapi` has `minCoverage`, add scenarios for the documented statuses the coverage table marks with ✗.
 

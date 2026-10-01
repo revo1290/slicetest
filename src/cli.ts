@@ -42,7 +42,7 @@ Options:
 
 Config (paths are relative to the config file):
   app:      { command, env, cwd, ready: { path } | { log }, readyTimeout }
-  db:       { migrate: { atlas: { dir } } | { sql } | { command, inputs }, engine, seed, url, image, schemas, keep, reuse }
+  db:       { migrate: { atlas: { dir } } | { sql } | { command, inputs }, engine, seed, url, image, schemas, keep, reuse, queries }
   stubs:    [name | { name, openapi, autoReply, upstream, recordings }]
   services: { name: { command, env, cwd, ready } }
   containers: { name: { image, port, env, command, ready: { log }, reset } }

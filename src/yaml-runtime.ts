@@ -193,7 +193,17 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
       all.forEach(verify);
       return;
     }
-    const res = await ctx.http.request(method, path, body, opts);
+    const max = e?.queries === undefined ? undefined : (interpolate(e.queries, vars) as number);
+    let res!: HttpResponse;
+    const queries = await (max === undefined ? undefined : ctx.db.queries(async () => (res = await ctx.http.request(method, path, body, opts))));
+    if (!queries) res = await ctx.http.request(method, path, body, opts);
+    if (queries && max !== undefined) {
+      const ran = queries.withoutTransactions();
+      if (ran.length > max) {
+        const shapes = ran.shapes().map((s) => `  ${s.count > 1 ? `×${s.count} ` : ""}${s.sql}`);
+        throw new Error(`expected at most ${max} SQL statements for ${method} ${path}, the app ran ${ran.length}:\n${shapes.join("\n")}`);
+      }
+    }
     verify(res);
     capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers) }, vars);
     return;

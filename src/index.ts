@@ -9,6 +9,7 @@ export type { App } from "./app.js";
 export type { Dependency } from "./containers.js";
 export type { Mailbox, Mail, MailFilter } from "./mail.js";
 export type { Issuer, TokenOptions, AuthOptions } from "./auth.js";
+export { normalizeSql, type Query, type QueryList } from "./query-log.js";
 export { signWebhook, type WebhookOptions, type WebhookProvider, type HmacScheme } from "./webhook.js";
 export type { SlicetestOptions, ContainerOptions } from "./config.js";
 // Type-only: pulls the matcher declarations (toHaveStatus, toHaveRow, ...) into

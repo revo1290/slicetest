@@ -16,7 +16,7 @@ export default defineConfig({
         },
         ready: { path: "/health" },
       },
-      db: { migrate: { atlas: { dir: "file://migrations" } }, seed: "seed.sql" },
+      db: { migrate: { atlas: { dir: "file://migrations" } }, seed: "seed.sql", queries: true },
       stubs: [{ name: "slack", openapi: "slack.openapi.yaml" }],
       openapi: { spec: "openapi.yaml", minCoverage: 100 },
     }),

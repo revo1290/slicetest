@@ -58,6 +58,11 @@ scenarios:
             options: { a: ごはん, b: パン }
             votes: { a: 2, b: 1 }
 
+  - name: 投票の集計は1本のSQLで済む（YAML）
+    steps:
+      - request: GET /polls/1
+        expect: { status: 200, queries: 1 }
+
   - name: Slack が一時的に 503 を返すと投票は作られない（YAML）
     steps:
       - stub: slack
