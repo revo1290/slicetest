@@ -41,3 +41,21 @@ scenario("db.make fills required columns and creates the parent rows foreign key
   expect([a!.name, b!.name]).toEqual(["writer 0", "writer 1"]);
   await expect(db.make("posts", { body: "x" })).rejects.toThrow(/there is no column "body"/);
 });
+
+scenario("app.build ran once before the app started", async () => {
+  const { readFile, stat } = await import("node:fs/promises");
+  const stamp = Number(await readFile(new URL(".build-stamp", import.meta.url), "utf8"));
+  expect(Date.now() - stamp).toBeLessThan(120_000);
+  expect((await stat(new URL(".build-stamp", import.meta.url))).isFile()).toBe(true);
+});
+
+scenario("http.submit picks the form by its button and says what's on the page otherwise", async ({ http }) => {
+  const page = await http.get("/signup");
+
+  const res = await http.submit(page, { button: "Sign up", fields: { name: "linus" } });
+  expect(res).toHaveStatus(303);
+  expect(res.headers.get("location")).toBe("/authors/1");
+  expect((await http.submit(page, { button: "Search", fields: { q: "a b" } })).url).toBe("/search?q=a+b");
+  await expect(http.submit(page)).rejects.toThrow("the page has 2 forms");
+  await expect(http.submit(res)).rejects.toThrow("(the page: POST /signup → 303, a redirect to /authors/1; request it with follow: true)");
+});

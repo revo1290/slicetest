@@ -16,6 +16,8 @@ test.each([
   [{ app: { command: " " } }, "app.command is required"],
   [{ app: { command: "x", ready: {} } }, "app.ready must be { path } or { log }"],
   [{ app: { command: "x", ready: { path: "health" } } }, 'must start with "/"'],
+  [{ app: { command: "x", build: "" } }, 'app.build must be a command, e.g. "npm run build"'],
+  [{ ...valid, services: { worker: { command: "x", build: ["make"] } } }, "services.worker.build must be a command"],
   [{ ...valid, db: { migrate: { sql: "a.sql", command: "make migrate" } } }, "exactly one of atlas / sql / command, got sql, command"],
   [{ ...valid, stubs: ["slack.hook"] }, 'stub name "slack.hook"'],
   [{ ...valid, stubs: ["a", "a"] }, 'stub "a" is declared twice'],

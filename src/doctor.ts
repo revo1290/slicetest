@@ -128,10 +128,13 @@ export async function doctor(configPath: string | undefined, probes: Probes = ma
 
   for (const [label, p] of [["app", opts.app], ...Object.entries(opts.services).map(([n, s]) => [`service ${n}`, s] as const)] as const) {
     if (p.cwd) await checkPath(add, `${label} cwd`, p.cwd, root, rel);
-    const program = firstWord(p.command);
-    if (program && !/^[.\\/]|\{\{|\$/.test(program)) {
+    const seen = new Set<string>();
+    for (const command of [p.build, p.command]) {
+      const program = command && firstWord(command);
+      if (!program || /^[.\\/]|\{\{|\$/.test(program) || seen.has(program)) continue;
+      seen.add(program);
       if (await onPath(program, env)) add("ok", `${label}: ${program} found`);
-      else add("warn", `${label}: ${program} not found on PATH`, `\`${p.command}\` may fail to start. Fine if a shell alias or a relative script provides it`);
+      else add("warn", `${label}: ${program} not found on PATH`, `\`${command}\` may fail to start. Fine if a shell alias or a relative script provides it`);
     }
   }
 

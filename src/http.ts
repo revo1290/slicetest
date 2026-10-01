@@ -1,3 +1,4 @@
+import { formRequest, type SubmitOptions } from "./form.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
 
 export interface HttpResponse {
@@ -27,6 +28,13 @@ class Session {
 }
 
 const HISTORY = 20;
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+/** A redirected request that lost its body must not keep claiming a content type. */
+function withoutContentType(headers: Record<string, string> | undefined, body: unknown) {
+  if (body !== undefined || !headers) return headers;
+  return Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== "content-type"));
+}
 
 /** HTTP client bound to the app under test. Keeps cookies for the duration of a scenario. */
 export class HttpClient {
@@ -70,6 +78,28 @@ export class HttpClient {
   }
 
   /**
+   * Submit a form of `page` (a response from the app) as a browser with JavaScript off would:
+   * hidden fields such as CSRF tokens or a Next.js server action's id are sent along,
+   * plus the pressed button and the values you type.
+   * `http.submit(await http.get("/signup"), { button: "Sign up", fields: { email: "a@b.test" } })`.
+   */
+  async submit(page: HttpResponse, opts: SubmitOptions & RequestOptions = {}): Promise<HttpResponse> {
+    const { button, form, fields, ...request } = opts;
+    let built: ReturnType<typeof formRequest>;
+    try {
+      built = formRequest(page.text, { button, form, fields });
+    } catch (e) {
+      // A redirect or an error page is the usual reason there is no such form.
+      (e as Error).message += `\n(the page: ${page.method} ${page.url} → ${page.status}${REDIRECTS.has(page.status) ? `, a redirect to ${page.headers.get("location")}; request it with follow: true` : ""})`;
+      throw e;
+    }
+    const { method, action, body } = built;
+    const target = new URL(action, new URL(page.url, this.baseUrl));
+    target.hash = "";
+    return this.request(method, target.pathname + target.search, body, request);
+  }
+
+  /**
    * POST `payload` to the app as `provider` would deliver it, signed with `secret`:
    * `http.webhook("/webhooks/stripe", event, { provider: "stripe", secret: "whsec_test" })`.
    * `{ invalidSignature: true }` and `{ stale: true }` make deliveries the app must refuse.
@@ -93,15 +123,37 @@ export class HttpClient {
     return all;
   }
 
-  /** Strings, URLSearchParams, FormData, Blob and byte arrays are sent as-is; anything else is sent as JSON. */
+  /**
+   * Strings, URLSearchParams, FormData, Blob and byte arrays are sent as-is; anything else is sent as JSON.
+   * With `follow`, redirects are followed here rather than by fetch, so cookies set along the way are kept
+   * (a login answering 302 + Set-Cookie) and nothing is sent outside the app: a redirect elsewhere is returned.
+   */
   async request(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<HttpResponse> {
     const opts = merge(this.defaults, options);
-    const url = new URL(path, this.baseUrl);
+    let url = new URL(path, this.baseUrl);
     if (url.origin !== new URL(this.baseUrl).origin) {
       throw new Error(`slicetest: http only talks to the app under test; "${path}" resolves to ${url.origin}`);
     }
     for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
 
+    let res = await this.#send(method, url, body, opts);
+    for (let hops = 0; opts.follow && REDIRECTS.has(res.status) && hops < 20; hops++) {
+      const location = res.headers.get("location");
+      if (!location) break;
+      const next = new URL(location, url);
+      if (next.origin !== url.origin) break;
+      // 307/308 repeat the request as it was; the others turn it into a GET without a body, like browsers do.
+      if (res.status !== 307 && res.status !== 308 && method !== "HEAD") {
+        method = "GET";
+        body = undefined;
+      }
+      url = next;
+      res = await this.#send(method, url, body, { ...opts, headers: withoutContentType(opts.headers, body) });
+    }
+    return res;
+  }
+
+  async #send(method: string, url: URL, body: unknown, opts: RequestOptions): Promise<HttpResponse> {
     const headers = new Headers(opts.headers);
     if (this.#session.cookies.size > 0 && !headers.has("cookie")) {
       headers.set("cookie", [...this.#session.cookies].map(([k, v]) => `${k}=${v}`).join("; "));
@@ -124,7 +176,7 @@ export class HttpClient {
     const started = performance.now();
     let res: Response;
     try {
-      res = await fetch(url, { method, headers, body: payload, redirect: opts.follow ? "follow" : "manual" });
+      res = await fetch(url, { method, headers, body: payload, redirect: "manual" });
     } catch (e) {
       const cause = (e as { cause?: { code?: string } }).cause?.code;
       this.#record({ method, url: url.pathname + url.search, status: 0, headers: new Headers(), text: `${e}${cause ? ` (${cause})` : ""}`, json: undefined, durationMs: Math.round(performance.now() - started) });

@@ -9,3 +9,20 @@ scenarios:
         expect: { status: 201, json: { id: 1 } }
       - changes:
           posts: { inserted: [{ title: From YAML }] }
+
+  - name: submitting a server-rendered form carries its CSRF token
+    steps:
+      - request: GET /signup
+      - submit: Sign up
+        fields: { name: grace, newsletter: true }
+        follow: true
+        expect: { status: 200, text: { $contains: "Welcome, grace (news)" } }
+      - db: authors
+        expect: { rows: [{ id: 1, name: grace (news) }] }
+
+  - name: the token is what makes it pass
+    steps:
+      - request: GET /signup
+      - request: POST /signup
+        form: { csrf: forged, name: mallory, intent: join }
+        expect: { status: 403 }

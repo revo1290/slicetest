@@ -22,6 +22,11 @@ test.each([
     { app: { command: "npm start" }, db: { migrate: { command: "npx prisma migrate deploy", inputs: ["prisma/migrations"] } }, openapi: "openapi.yaml" },
   ],
   [
+    "Next.js (build before start)",
+    { "package.json": JSON.stringify({ scripts: { build: "next build", start: "next start" }, dependencies: { next: "16.0.0" } }) },
+    { app: { command: "npm start", build: "npm run build" } },
+  ],
+  [
     "FastAPI + Alembic",
     { "requirements.txt": "fastapi\nuvicorn\n", "alembic.ini": "[alembic]\nscript_location = db/alembic\n" },
     { app: { command: "uvicorn main:app --port {{app.port}}" }, db: { migrate: { command: "alembic upgrade head", inputs: ["db/alembic/versions"] } } },

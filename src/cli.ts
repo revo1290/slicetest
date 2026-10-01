@@ -9,9 +9,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { parse } from "yaml";
-import type { SlicetestOptions } from "./config.js";
+import { CONFIG_NAMES, type SlicetestOptions } from "./config.js";
 
-const CONFIG_NAMES = ["slicetest.config.yaml", "slicetest.config.yml", "slicetest.config.json"];
 
 const HELP = `Usage: slicetest [filters...] [options]
        slicetest init [--force]
@@ -127,9 +126,11 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
 
-  const { startVitest } = await import("vitest/node");
+  const { startVitest, version } = await import("vitest/node");
   const { slicetest, YAML_SCENARIOS } = await import("./vitest.js");
-  const vitest = await startVitest(
+  // Vitest 4 takes the mode ("test") first; 5 dropped it.
+  const start = (Number.parseInt(version, 10) < 5 ? startVitest.bind(null, "test") : startVitest) as typeof startVitest;
+  const vitest = await start(
     positionals,
     {
       config: false,

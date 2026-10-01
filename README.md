@@ -55,6 +55,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
 - **Webhooks signed like the real sender.** Stripe, GitHub, Slack, Shopify and Standard Webhooks signatures, plus forged and replayed deliveries, so signature checks are tested instead of bypassed.
 - **Reproducible chaos.** Stubs can fail the first calls, drop connections or add latency, from a seed the failure output prints, so a resilience test that fails once fails again on demand.
+- **Forms as a browser sends them.** `http.submit()` presses a button on a server-rendered page, hidden fields included, so CSRF tokens and Next.js server actions work without knowing their internals.
 - **N+1 detection for any stack.** A wire-protocol proxy records the SQL the app runs, so query counts are asserted at the HTTP boundary, whatever the ORM or language.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
@@ -171,12 +172,30 @@ res.status; res.headers; res.text; res.json; res.durationMs;
 await http.get("/polls", { query: { page: 2 }, headers: { accept: "text/html" } });
 await http.post("/login", http.form({ user: "a", pass: "b" }));  // urlencoded; FormData, Blob and bytes also work
 await http.get("/old-path", { follow: true });                    // redirects are NOT followed by default
+await http.submit(await http.get("/signup"), { button: "Sign up", fields: { email: "a@b.test" } }); // a form, as a browser sends it
 
 const admin = http.with({ headers: { authorization: `Bearer ${token}` } }); // shares cookies with http
 http.cookies.get("session");                                     // cookies persist within a scenario
 ```
 
-Requests may only go to the app under test; absolute URLs to other hosts are rejected. Defaults for every request can be set with `http: { headers }` in the plugin config.
+Requests may only go to the app under test; absolute URLs to other hosts are rejected. Defaults for every request can be set with `http: { headers }` in the plugin config. With `follow`, cookies set by each redirect are kept (a login answering `302` with `Set-Cookie`), `303` and `301`/`302` turn into a `GET` as in browsers, and a redirect to another host is returned instead of followed.
+
+#### Forms: `http.submit()`
+
+`http.submit(page, opts)` sends a form of a page the app returned, the way a browser with JavaScript off does: every field with its value, the hidden ones included, plus the button that was pressed. So the test doesn't need to know about CSRF tokens (Django, Rails, Laravel) or the action ids and bound arguments of **Next.js server actions** — they are hidden inputs, sent along like a browser sends them.
+
+```ts
+const page = await http.get(`/q/${q.id}`);                    // a Next.js page with <button formAction={vote.bind(null, id, "a")}>
+const res = await http.submit(page, { button: "Dogs", follow: true });
+expect(res.text).toContain("Your choice");
+
+await http.submit(await http.get("/settings"), {
+  form: "profile",                                            // by id, name or position, when the page has several
+  fields: { name: "Ada", newsletter: true, tags: ["a", "b"] }, // checkboxes and radios by true / false / value
+});
+```
+
+`button` matches a submit button's text, `value`, `name` or `id`, and picks its form; its `formaction` / `formmethod` / `formenctype` apply. `fields` replace what the page had and must name existing fields, so a typo fails. When nothing matches, the error lists the page's forms and their buttons. In YAML, `submit:` uses the page the previous step requested.
 
 ### `db` — arrange and inspect the real database
 
@@ -536,6 +555,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | Option | Default | |
 |---|---|---|
 | `app.command` | (required) | Shell command. May use `{{app.port}}` and the other placeholders. |
+| `app.build` | none | Shell command run once per run before the app starts, while the database starts, e.g. `npm run build` for `next start`. Not repeated in watch mode. Services take `build` too. |
 | `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. The rest of `process.env` is inherited. |
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
@@ -606,6 +626,7 @@ scenarios:
 | Step | Keys |
 |---|---|
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed), `when: { query, headers, json, body }`, one of `reply: { status, headers, body }` / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`. |
+| `submit: <button>` | `form`, `fields`, `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |
@@ -631,7 +652,7 @@ scenarios:
 
 ### Without any JavaScript: `npx slicetest`
 
-Put the plugin options in `slicetest.config.yaml` and run the CLI. It needs Node, but no `package.json` scripts, TypeScript or Vitest config:
+Put the plugin options in `slicetest.config.yaml` and run the CLI. It needs Node, but no `package.json` scripts, TypeScript or Vitest config. To add TypeScript scenarios later, `slicetest()` without options in a `vitest.config.ts` reads the same file (`slicetest("path/to/config.yaml")` for another one):
 
 ```yaml
 # slicetest.config.yaml
@@ -704,6 +725,21 @@ Checks what a run needs before it starts, instead of failing with a timeout half
 
 1 problem(s) to fix before running.
 ```
+
+## Next.js
+
+Nothing Next-specific is needed beyond two settings. `slicetest init` writes both when `package.json` has `build` and `start` scripts:
+
+```yaml
+app:
+  build: npm run build   # `next start` serves the last build; without this, scenarios can pass against old code
+  command: npm start     # next start reads $PORT
+  env: { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}" }
+```
+
+- **Server actions** are ordinary form posts when JavaScript is off. Request the page, then `submit:` the button; the action id and bound arguments travel in hidden inputs, so scenarios keep working when a build changes the ids.
+- **Route handlers and pages** are plain HTTP: `request: GET /api/...` and `text: { $contains: ... }`. React may put `<!-- -->` between adjacent text nodes, so match on a word rather than on `75%` built from two values.
+- **Rows inserted by migrations** (seed data in an Atlas or Prisma migration) are truncated before every scenario, like everything else. Create what a scenario needs with `make`, or move shared rows to `db.seed`.
 
 ## Examples
 

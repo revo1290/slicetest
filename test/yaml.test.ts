@@ -22,7 +22,7 @@ scenarios:
 
 test.each([
   ["scenarios: []", "s.scenario.yaml:1: `scenarios:` must be a non-empty list"],
-  ["scenarios:\n  - name: a\n    steps:\n      - reqest: GET /\n", "s.scenario.yaml:4: a step needs one of: stub, request, insert, sql, db, received"],
+  ["scenarios:\n  - name: a\n    steps:\n      - reqest: GET /\n", "s.scenario.yaml:4: a step needs one of: stub, request, submit, insert, sql, db, received"],
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { stauts: 200 }\n", 's.scenario.yaml:5: unknown key "stauts" in expect'],
   ["scenarios:\n  - name: a\n    steps:\n      - request: /polls\n", 's.scenario.yaml:4: `request` must look like "POST /path", got "/polls"'],
   ["scenarios:\n  - name: a\n    steps:\n      - stub: s\n        on: GET /\n", "exactly one of reply / sequence / networkError"],

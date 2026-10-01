@@ -92,6 +92,12 @@ export type ResolvedProcess = Omit<AppOptions, "ready"> & { ready?: ResolvedRead
 export interface AppOptions {
   /** Command that starts the app, run through the shell. */
   command: string;
+  /**
+   * Command run once per run, before any worker starts the process, e.g.
+   * `npm run build` for an app started with `next start`. Runs in `cwd` while
+   * the database starts. Not repeated on re-runs in watch mode.
+   */
+  build?: string;
   cwd?: string;
   /**
    * Environment passed to the app. Values may reference
@@ -172,6 +178,9 @@ export interface ResolvedOptions {
   http?: RequestOptions;
 }
 
+/** The config files `npx slicetest` (and `slicetest()` without options) look for, in order. */
+export const CONFIG_NAMES = ["slicetest.config.yaml", "slicetest.config.yml", "slicetest.config.json"];
+
 export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOptions {
   validate(opts);
   return {
@@ -245,10 +254,15 @@ function validate(opts: SlicetestOptions) {
     if (ready && "path" in ready && !ready.path.startsWith("/")) fail(`${where}.ready.path must start with "/", got "${ready.path}"`);
   };
   checkReady(opts.app.ready, "app");
+  const checkBuild = (build: unknown, where: string) => {
+    if (build !== undefined && (typeof build !== "string" || !build.trim())) fail(`${where}.build must be a command, e.g. "npm run build"`);
+  };
+  checkBuild(opts.app.build, "app");
   for (const [name, s] of Object.entries(opts.services ?? {})) {
     if (!/^[\w-]+$/.test(name)) fail(`service name "${name}" may only contain letters, digits, "_" and "-"`);
     if (!s || typeof s.command !== "string" || !s.command.trim()) fail(`services.${name}.command is required`);
     checkReady(s.ready, `services.${name}`);
+    checkBuild(s.build, `services.${name}`);
   }
   for (const [name, c] of Object.entries(opts.containers ?? {})) {
     if (!/^[\w-]+$/.test(name)) fail(`container name "${name}" may only contain letters, digits, "_" and "-"`);

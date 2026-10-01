@@ -12,6 +12,9 @@ beforeAll(async () => {
     let body = "";
     for await (const c of req) body += c;
     if (req.url?.startsWith("/login")) return res.writeHead(204, { "set-cookie": "sid=abc; Path=/; HttpOnly" }).end();
+    if (req.url === "/session") return res.writeHead(303, { location: "/me", "set-cookie": "sid=xyz; Path=/" }).end();
+    if (req.url === "/keep") return res.writeHead(307, { location: "/echo" }).end();
+    if (req.url === "/away") return res.writeHead(302, { location: "https://example.com/" }).end();
     if (req.url === "/logout") return res.writeHead(204, { "set-cookie": "sid=; Max-Age=0; Path=/" }).end();
     res.writeHead(200, { "content-type": "application/json" }).end(
       JSON.stringify({ url: req.url, cookie: req.headers.cookie ?? null, type: req.headers["content-type"] ?? null, body }),
@@ -70,4 +73,22 @@ test("toHaveStatus shows the response body on failure", async () => {
 
   expect(res).toHaveStatus(200);
   expect(() => expect(res).toHaveStatus(201)).toThrow(/expected GET \/x to respond 201, got 200\nResponse body:\n {2}\{"url":"\/x"/);
+});
+
+test("follow keeps cookies set by each redirect, switches to GET on 303 and keeps the body on 307", async () => {
+  const client = new HttpClient(baseUrl);
+
+  const res = await client.post("/session", client.form({ a: 1 }), { follow: true });
+
+  expect(res.json).toMatchObject({ url: "/me", cookie: "sid=xyz", type: null, body: "" });
+  expect(res.method).toBe("GET");
+  expect((await client.post("/keep", "x", { follow: true })).json).toMatchObject({ url: "/echo", body: "x" });
+  expect(client.history.map((r) => `${r.method} ${r.url} ${r.status}`)).toEqual(["POST /session 303", "GET /me 200", "POST /keep 307", "POST /echo 200"]);
+});
+
+test("follow stops at a redirect away from the app", async () => {
+  const res = await new HttpClient(baseUrl).get("/away", { follow: true });
+
+  expect(res.status).toBe(302);
+  expect(res.headers.get("location")).toBe("https://example.com/");
 });

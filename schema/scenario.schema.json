@@ -307,6 +307,94 @@
         {
           "type": "object",
           "required": [
+            "submit"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "submit": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "const": true
+                }
+              ],
+              "description": "Submit a form of the page the last request returned, as a browser with JavaScript off would (hidden fields such as CSRF tokens and Next.js server action ids included). Names the button to press by its text, value, name or id; `true` for the form's only button"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            },
+            "form": {
+              "type": [
+                "string",
+                "integer"
+              ],
+              "description": "The form by id, name or 0-based position, when the page has several"
+            },
+            "fields": {
+              "type": "object",
+              "description": "Values typed into the form by field name; true / false / a list of values check checkboxes and radios",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "type": "object"
+            },
+            "follow": {
+              "type": "boolean"
+            },
+            "expect": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "headers": {
+                  "type": "object"
+                },
+                "json": {
+                  "description": "Subset of the response JSON"
+                },
+                "text": {}
+              }
+            },
+            "capture": {
+              "type": "object",
+              "description": "Save values as variables for later steps, e.g. { pollId: json.id }",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "insert",
             "rows"
           ],

@@ -64,6 +64,15 @@ scenarios:
         expect: { statuses: { 201: 1, 409: 4 } }
       - request: POST /raw
         body: hello
+      - submit: Sign up
+        form: signup
+        fields: { email: a@b.test, age: 3, terms: true, tags: [a, b] }
+        headers: { a: b }
+        follow: true
+        expect: { status: 200, headers: { x: y }, json: { ok: true }, text: { $contains: ok } }
+        capture: { page: text }
+      - submit: true
+        form: 0
       - insert: users
         rows: [{ name: a }]
         capture: { userId: row.id }
@@ -120,6 +129,9 @@ test.each([
   ["statuses that aren't status codes", "scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        concurrency: 2\n        expect: { statuses: { ok: 2 } }\n"],
   ["an unknown mail key", "scenarios:\n  - name: a\n    steps:\n      - mail: { subjct: Hi }\n"],
   ["checkpoint that isn't true", "scenarios:\n  - name: a\n    steps:\n      - checkpoint: yes please\n"],
+  ["submit without a button", "scenarios:\n  - name: a\n    steps:\n      - submit: false\n"],
+  ["a submit field that is a mapping", "scenarios:\n  - name: a\n    steps:\n      - submit: Go\n        fields: { a: { b: 1 } }\n"],
+  ["statuses on submit", "scenarios:\n  - name: a\n    steps:\n      - submit: Go\n        expect: { statuses: { 200: 1 } }\n"],
 ])("the schema and the parser both reject %s", (_, text) => {
   expect(parserError(text)).toBeDefined();
   expect(schemaErrors(text)).not.toEqual([]);

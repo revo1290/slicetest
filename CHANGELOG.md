@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `http.submit(page, { button, form, fields })`: submit a form of a page the app returned, as a browser with JavaScript off would: every field with its value, hidden ones included, and the pressed button with its `formaction` / `formmethod` / `formenctype`. CSRF tokens and Next.js server actions (action id and bound arguments in hidden inputs) work without the scenario knowing about them. `fields` must name existing fields; checkboxes and radios take `true` / `false` / values. Errors list the page's forms and buttons. YAML: a `submit` step that uses the page the previous step requested.
+- `app.build` (and `services.<name>.build`): a command run once per run before the app starts, while the database starts. `slicetest init` sets `npm run build` when `package.json` has a build script, so `next start` and other apps that serve a build are tested against the current code.
+- `slicetest()` in a `vitest.config.ts` without options reads `slicetest.config.yaml`, or the file given as a string, so the CLI and TypeScript scenarios share one config.
+- Vitest 4 is supported (peer `vitest >=4`). The CLI failed with `filters.map is not a function` under Vitest 4.
+- Fixed: `follow: true` dropped cookies set by intermediate redirects (a login answering `302` with `Set-Cookie`), and followed redirects to other hosts. Redirects are now followed by slicetest: cookies are kept, `301`/`302`/`303` become `GET` like in browsers, `307`/`308` keep the method and body, and a redirect away from the app is returned.
+
 ## 0.5.0
 
 - `slicetest gen` reads the spec's security: operations that need a bearer token (`http: bearer`, `oauth2`, `openIdConnect`) get `auth:` on their requests, with the required scopes in the `scope` claim, and their 401 responses become runnable scenarios without a token.

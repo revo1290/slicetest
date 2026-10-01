@@ -30,10 +30,16 @@ export async function detect(root: string): Promise<Detected> {
 
   // --- app ---
   let command = TODO_COMMAND;
+  let build: string | undefined;
   const env: Record<string, string> = { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}" };
   if (pkg?.scripts?.start) {
     command = "npm start";
     notes.push("app: `npm start` (package.json start script). It must listen on $PORT.");
+    if (pkg.scripts.build) {
+      // Otherwise `next start` and the like serve whatever was built last, and scenarios pass against stale code.
+      build = "npm run build";
+      notes.push("app: `npm run build` once per run, before starting (package.json build script).");
+    }
   } else if (pkg?.scripts?.dev) {
     command = "npm run dev";
     notes.push("app: `npm run dev` (no start script). A production start command is usually faster to boot.");
@@ -129,7 +135,7 @@ export async function detect(root: string): Promise<Detected> {
   if (openapi) notes.push(`openapi: ${openapi}. Every response will be checked against it.`);
 
   const config: CliConfig = {
-    app: { command, env, ready: { path: "/" } },
+    app: { command, ...(build ? { build } : {}), env, ready: { path: "/" } },
     ...(migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
     ...(Object.keys(containers).length ? { containers } : {}),
     ...(mail ? { mail: true } : {}),

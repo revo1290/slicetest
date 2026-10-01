@@ -20,6 +20,9 @@ const exec = promisify(execFile);
 /** Runs once per vitest run: start the database server, migrate a template database, hand its location to the workers. */
 export default async function setup(project: TestProject) {
   const opts = project.getProvidedContext().slicetestOptions;
+  // Builds don't need the database, so they run while it starts.
+  const builds = buildAll(opts);
+  builds.catch(() => {});
   const engine = await engineFor(opts);
   let adminUrl: string;
   let stopContainer: (() => Promise<unknown>) | undefined;
@@ -43,6 +46,7 @@ export default async function setup(project: TestProject) {
     if (!stopContainer) await dropStale(admin);
     const key = opts.db.reuse ? await migrationKey(opts) : undefined;
     template = key ? await cachedTemplate(admin, engine, opts, key) : await freshTemplate(admin, engine, opts, prefix);
+    await builds;
   } catch (e) {
     await admin?.close().catch(() => {});
     await stopContainer?.();
@@ -234,6 +238,23 @@ export function atlasDirUrl(dir: string, root: string) {
   if (dir.startsWith("file://")) return dir;
   const rel = path.isAbsolute(dir) || /^[a-zA-Z]:[\\/]/.test(dir) ? path.relative(root, dir) : dir;
   return `file://${rel.replace(/\\/g, "/")}`;
+}
+
+export async function buildAll(opts: Pick<ResolvedOptions, "app" | "services" | "root">) {
+  const processes = [["app", opts.app], ...Object.entries(opts.services).map(([n, s]) => [`service ${n}`, s] as const)] as const;
+  await Promise.all(
+    processes
+      .filter(([, p]) => p.build)
+      .map(async ([label, p]) => {
+        try {
+          await exec(p.build!, [], { cwd: path.resolve(opts.root, p.cwd ?? "."), shell: true, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+        } catch (e) {
+          const err = e as { stdout?: string; stderr?: string; message: string };
+          const output = `${err.stdout ?? ""}${err.stderr ?? ""}`.trim().split("\n").slice(-40).join("\n");
+          throw new Error(`slicetest: ${label} build failed: ${p.build}\n${output || err.message}`);
+        }
+      }),
+  );
 }
 
 async function run(cmd: string, args: string[], cwd: string, env: Record<string, string> = {}, shell = false) {

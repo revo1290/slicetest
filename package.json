@@ -66,7 +66,7 @@
     "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
-    "vitest": ">=5",
+    "vitest": ">=4",
     "mysql2": ">=3",
     "@testcontainers/mysql": ">=11"
   },

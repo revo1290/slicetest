@@ -49,6 +49,7 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
 }
 
 function describeStep(step: Step) {
+  if ("submit" in step) return step.submit === true ? "submit" : `submit ${JSON.stringify(step.submit)}`;
   if ("request" in step) return step.concurrency ? `${step.request} ×${step.concurrency}` : step.request;
   if ("stub" in step) return `stub ${step.stub} ${step.on}`;
   if ("received" in step) return `received ${step.received}${step.call ? ` ${step.call}` : ""}`;
@@ -156,6 +157,21 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
     return;
   }
 
+  if ("submit" in step) {
+    const page = ctx.http.history.at(-1);
+    if (!page) throw new Error("submit needs a page with a form: request it first, e.g. `- request: GET /signup`");
+    const res = await ctx.http.submit(page, {
+      button: step.submit === true ? undefined : (interpolate(step.submit, vars) as string),
+      form: interpolate(step.form, vars) as string | number | undefined,
+      fields: interpolate(step.fields, vars) as Record<string, string>,
+      headers: interpolate(step.headers, vars) as Record<string, string> | undefined,
+      follow: step.follow,
+    });
+    verifyResponse(res, step.expect, vars);
+    capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers) }, vars);
+    return;
+  }
+
   if ("request" in step) {
     const [method, rawPath] = splitCall(step.request);
     const path = interpolate(rawPath, vars) as string;
@@ -177,15 +193,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
       opts.headers = { "content-type": signed.type, ...signWebhook(signed.body, interpolate(step.webhook, vars) as WebhookOptions), ...opts.headers };
     }
     const e = step.expect;
-    const verify = (res: HttpResponse) => {
-      if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as number);
-      if (e?.headers !== undefined) {
-        const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
-        check(Object.fromEntries(res.headers), expected, vars, "response headers");
-      }
-      if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
-      if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
-    };
+    const verify = (res: HttpResponse) => verifyResponse(res, e, vars);
     if (step.concurrency !== undefined) {
       // Each request gets its own body: a URLSearchParams body can only be read once.
       const all = await ctx.http.concurrently(step.concurrency, () => ctx.http.request(method, path, body instanceof URLSearchParams ? new URLSearchParams(body) : body, opts));
@@ -389,4 +397,14 @@ function interpolateTitle(name: string, row: Record<string, unknown>, index: num
     const v = lookup(row, key);
     return v === undefined ? m : typeof v === "object" ? JSON.stringify(v) : String(v);
   });
+}
+
+function verifyResponse(res: HttpResponse, e: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown } | undefined, vars: Vars) {
+  if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as number);
+  if (e?.headers !== undefined) {
+    const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
+    check(Object.fromEntries(res.headers), expected, vars, "response headers");
+  }
+  if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
+  if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
 }

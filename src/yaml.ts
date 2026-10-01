@@ -26,7 +26,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
+export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
   line: number;
   name?: string;
 };
@@ -65,6 +65,22 @@ export interface RequestStep {
   concurrency?: number;
   /** `queries`: at most this many SQL statements (not counting BEGIN/COMMIT), with `db.queries` on. */
   expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number };
+  capture?: Record<string, string>;
+}
+
+/**
+ * Submit a form of the page the last request returned, as a browser with JavaScript off would.
+ * `submit:` names the button to press (its text, value, name or id), or is `true` for the form's only button.
+ */
+export interface SubmitStep {
+  submit: string | true;
+  /** The form by id, name or 0-based position, when the page has several. */
+  form?: string | number;
+  /** Values typed into the form by field name; true / false / a list check checkboxes and radios. */
+  fields?: Record<string, string | number | boolean | (string | number)[]>;
+  headers?: Record<string, string>;
+  follow?: boolean;
+  expect?: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown };
   capture?: Record<string, string>;
 }
 
@@ -169,6 +185,7 @@ export interface MailStep {
 const KINDS = {
   stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
   request: ["headers", "query", "json", "form", "body", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
+  submit: ["form", "fields", "headers", "follow", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
   db: ["where", "orderBy", "expect", "capture", "within"],
@@ -185,6 +202,7 @@ type Kind = keyof typeof KINDS;
 
 const EXPECT_KEYS: Record<string, string[]> = {
   request: ["status", "statuses", "headers", "json", "text", "queries"],
+  submit: ["status", "headers", "json", "text"],
   sql: ["rows", "count"],
   db: ["rows", "count"],
 };
@@ -278,6 +296,17 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     const filter = raw.mail;
     if (!filter || typeof filter !== "object" || Array.isArray(filter)) fail(at(kind), "`mail:` must be a mapping such as { to: alice@example.com, subject: Welcome } ({} for any)");
     for (const k of Object.keys(filter as object)) if (!MAIL_KEYS.includes(k)) fail(at(kind), `unknown key "${k}" in mail (allowed: ${MAIL_KEYS.join(", ")})`);
+  } else if (kind === "submit") {
+    if (raw.submit !== true && (typeof raw.submit !== "string" || !raw.submit.trim())) fail(at(kind), "`submit:` names the button to press (its text), or is `true` for the form's only button");
+    if (raw.form !== undefined && !(typeof raw.form === "string" || (Number.isInteger(raw.form) && (raw.form as number) >= 0))) fail(at("form"), "`form` is the form's id or name, or its position on the page (0 for the first)");
+    const fields = raw.fields;
+    if (fields !== undefined) {
+      if (!fields || typeof fields !== "object" || Array.isArray(fields)) fail(at("fields"), "`fields` must map field names to values, e.g. { email: a@b.test }");
+      for (const [k, v] of Object.entries(fields as object)) {
+        const scalar = (x: unknown) => typeof x === "string" || typeof x === "number";
+        if (!(scalar(v) || typeof v === "boolean" || (Array.isArray(v) && v.every(scalar)))) fail(at("fields"), `field "${k}" must be a string, number, true / false or a list`);
+      }
+    }
   } else if (kind === "checkpoint") {
     if (raw.checkpoint !== true) fail(at(kind), "use `checkpoint: true`");
   } else if (kind === "snapshot") {
