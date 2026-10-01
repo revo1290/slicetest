@@ -1,34 +1,49 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+Tried on five real projects (Next.js with server actions, Clerk, Neon and Stripe; a Next.js aggregator of hard-coded feeds; three Spring Boot apps with GitHub, Google and springdoc), and changed wherever they didn't work as they were.
+
+Stubbing services the app calls by a URL written in its code:
 
 - Stubs for hard-coded hosts: `{ name: "github", hosts: ["api.github.com"] }` answers the app's calls to those hosts, over HTTPS or HTTP, without the app reading a base URL from its environment. The app is started with proxy variables and a certificate authority made for the run, in the forms Node (`NODE_USE_ENV_PROXY`, `NODE_EXTRA_CA_CERTS`), OpenSSL-based runtimes and Go (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`) and the JVM (`JAVA_TOOL_OPTIONS` with a PKCS#12 trust store) read. Other hosts are passed through and listed in the failure output. `{{proxy.url}}`, `{{proxy.ca}}`, `{{proxy.bundle}}`, `{{proxy.truststore}}`.
+- Node apps also get a preload (`NODE_OPTIONS=--require`) so that `http.Agent`s made by libraries (the Stripe SDK, …) use the proxy, which `NODE_USE_ENV_PROXY` alone doesn't reach.
 - `hosts` takes `*.domain` for every subdomain of a domain (connpass group feeds at `<group>.connpass.com`).
-- `offline: true`: the app's HTTP(S) calls may only reach localhost and stubbed hosts; any other host is refused and the scenario fails naming it, so a forgotten stub never reaches a real service.
+- `offline: true`: the app's HTTP(S) calls may only reach localhost and stubbed hosts; any other host is refused and the scenario fails naming it, so a forgotten stub never reaches a real service. When the host is a package registry (Maven Central, npm, the Go proxy, PyPI, …), the message explains that the command starting the app is downloading dependencies.
 - Redirects to an intercepted host are followed to its stub (with `follow: true`), so OAuth logins through a provider's consent page run in a scenario. The app's cookies aren't sent there.
-- `{{db.jdbcUrl}}`, `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}` for apps that don't take a database URL, such as Spring (`SPRING_DATASOURCE_URL`).
-- `app.scope: "worker"`: start the app, stubs and services once per Vitest worker and keep them for all of its test files, instead of once per file. For apps that take seconds to start: a Spring Boot suite of 8 files went from 28 s to 10 s with `workers: 2`. Sets Vitest's `isolate: false`.
-- `workers`: the most Vitest workers to run (Vitest's `maxWorkers`), each with its own app and database.
-- `openapi: { fromApp: "/v3/api-docs" }`: check responses against, and report coverage of, the spec the running app serves (springdoc, FastAPI, NestJS), with no spec file in the repository.
-- Containers from `containers` are removed when a worker exits without tearing down, also with Podman, where Testcontainers' reaper is off.
-- `slicetest init` for Spring Boot compiles once with `app.build` (`./gradlew classes`, `mvn compile`), so workers don't compile at the same time, starts the app once per worker in 2 workers, and finds the actuator in a subproject's build file. Its first scenario requests the readiness path instead of `/`, and `.env.example` is read in the app's directory.
-- `db: false` for an app without a database: no container, no migrations, no resets, no `DATABASE_URL`; `db.*` in a scenario says the database is off. `slicetest init` writes it when there are no migrations, no database service in compose and no database library in the dependencies, and `doctor` skips the database checks.
-- `offline` failures name package registries (Maven Central, npm, the Go proxy, PyPI, …) as a build tool downloading dependencies on its way to start the app, with what to do instead. `slicetest init` builds Spring Boot apps with `bootJar` / `package` up front, so `bootRun` downloads nothing.
-- `slicetest init`'s first scenario only requests `/` (without expecting 200) when no health check was found.
-- `db: { neon: true }`: for apps on Neon's serverless driver over HTTP (`@neondatabase/serverless`, `drizzle-orm/neon-http`, `@vercel/postgres`), `{{db.url}}` is a Neon-style URL and slicetest answers the driver's HTTP queries and transaction batches from the test database, with Postgres's error fields. `slicetest init` sets it when the driver is a dependency.
-- Node apps under interception get a preload (`NODE_OPTIONS=--require`) so that `http.Agent`s made by libraries (the Stripe SDK, …) use the proxy too. Before, such calls bypassed the stubs and `offline` and reached the real host.
 - `sse(events)` replies with a Server-Sent Events stream, as LLM APIs stream answers; YAML `reply: { sse: [...] }`.
-- `auth.jwks` (the JWKS document) and `{{auth.publicKey}}` (PEM), for libraries that read keys from their provider's URL or the environment, such as Clerk.
-- A migration that finishes without error but leaves no tables stops the run with its output (drizzle-kit exits 0 when it can't connect).
-- `app.build` gets `app.env`'s literal values, since Next.js inlines `NEXT_PUBLIC_*` at build time.
-- `npx slicetest` stops with a clear message under Vitest 3 or older instead of running the project's own tests.
-- `slicetest init`: Drizzle migrations are applied as SQL from `drizzle.config`'s `out` (with a note to generate them when missing); SDKs with built-in hosts (Stripe, Anthropic, OpenAI, Resend, SendGrid, Slack, Octokit, Twilio) get stubs with `hosts`, and placeholder keys for the variables `.env.example` lists; Clerk gets a publishable key, `auth: true` and a stub.
-- `slicetest init` finds the app in `backend/`, `server/`, `api/`, `app/` or `service/` when the root isn't one, recognizes Spring Boot (Gradle and Maven: `bootRun`, `SERVER_PORT`, `SPRING_DATASOURCE_*`, the actuator health check), reads the migrations directory from `atlas.hcl` (also in `atlas/` or `db/`), and reads `podman-compose.yml`.
+
+Next.js:
 
 - `http.submit(page, { button, form, fields })`: submit a form of a page the app returned, as a browser with JavaScript off would: every field with its value, hidden ones included, and the pressed button with its `formaction` / `formmethod` / `formenctype`. CSRF tokens and Next.js server actions (action id and bound arguments in hidden inputs) work without the scenario knowing about them. `fields` must name existing fields; checkboxes and radios take `true` / `false` / values. Errors list the page's forms and buttons. YAML: a `submit` step that uses the page the previous step requested.
-- `app.build` (and `services.<name>.build`): a command run once per run before the app starts, while the database starts. `slicetest init` sets `npm run build` when `package.json` has a build script, so `next start` and other apps that serve a build are tested against the current code.
+- `app.build` (and `services.<name>.build`): a command run once per run before the app starts, while the database starts, with `app.env`'s literal values (Next.js inlines `NEXT_PUBLIC_*` at build time). Without it, `next start` served the last build and scenarios passed against stale code.
+- `db: { neon: true }`: for apps on Neon's serverless driver over HTTP (`@neondatabase/serverless`, `drizzle-orm/neon-http`, `@vercel/postgres`), `{{db.url}}` is a Neon-style URL and slicetest answers the driver's HTTP queries and transaction batches from the test database, with Postgres's error fields.
+- `auth.jwks` (the JWKS document) and `{{auth.publicKey}}` (PEM), for libraries that read keys from their provider's URL or the environment. The README shows Clerk with them.
+
+Spring Boot and other slow-starting apps:
+
+- `app.scope: "worker"`: start the app, stubs and services once per Vitest worker and keep them for all of its test files, instead of once per file. A Spring Boot suite of 8 files went from 28 s to 10 s with `workers: 2`. Sets Vitest's `isolate: false`.
+- `workers`: the most Vitest workers to run (Vitest's `maxWorkers`), each with its own app and database.
+- `{{db.jdbcUrl}}`, `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}` for apps that don't take a database URL, such as Spring (`SPRING_DATASOURCE_URL`).
+- `openapi: { fromApp: "/v3/api-docs" }`: check responses against, and report coverage of, the spec the running app serves (springdoc, FastAPI, NestJS), with no spec file in the repository.
+- `db: false` for an app without a database: no container, no migrations, no resets, no `DATABASE_URL`; `db.*` in a scenario says the database is off, and `doctor` skips the database checks.
+
+`slicetest init`:
+
+- Finds the app in `backend/`, `server/`, `api/`, `app/` or `service/` when the root isn't one, and reads its migrations and `.env.example` there.
+- Spring Boot (Gradle and Maven): `bootRun` after building once with `bootJar` / `package` (so workers neither compile at the same time nor download while running), `SERVER_PORT` and `SPRING_DATASOURCE_*`, the actuator health check (also from a subproject's build file), `scope: worker` in 2 workers.
+- Atlas migrations from `atlas.hcl`'s `dir` (also in `atlas/` or `db/`); `podman-compose.yml`; Drizzle migrations applied as SQL from `drizzle.config`'s `out`, with a note to generate them when missing.
+- `db: false` when there are no migrations, no database service and no database library; `db.neon` when Neon's driver is a dependency.
+- SDKs with built-in hosts (Stripe, Anthropic, OpenAI, Resend, SendGrid, Slack, Octokit, Twilio) get stubs with `hosts`, and placeholder keys for the variables `.env.example` lists; Clerk gets a publishable key, `auth: true` and a stub; every project gets a note about `hosts` and `offline`.
+- `npm run build` as `app.build` when `package.json` has a build script.
+- The first scenario requests the health check path, and doesn't expect 200 at `/` when there's none.
+
+Also:
+
 - `slicetest()` in a `vitest.config.ts` without options reads `slicetest.config.yaml`, or the file given as a string, so the CLI and TypeScript scenarios share one config.
-- Vitest 4 is supported (peer `vitest >=4`). The CLI failed with `filters.map is not a function` under Vitest 4.
+- Vitest 4 is supported (peer `vitest >=4`); the CLI failed with `filters.map is not a function` under it. Under Vitest 3 or older, `npx slicetest` stops with a clear message instead of running the project's own tests.
+- A migration that finishes without error but leaves no tables stops the run with its output (drizzle-kit exits 0 when it can't connect).
+- Containers from `containers` are removed when a worker exits without tearing down, also with Podman, where Testcontainers' reaper is off.
 - Fixed: `follow: true` dropped cookies set by intermediate redirects (a login answering `302` with `Set-Cookie`), and followed redirects to other hosts. Redirects are now followed by slicetest: cookies are kept, `301`/`302`/`303` become `GET` like in browsers, `307`/`308` keep the method and body, and a redirect away from the app is returned.
 
 ## 0.5.0
