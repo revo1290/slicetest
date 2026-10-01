@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../../../schema/scenario.schema.json
+scenarios:
+  - name: webhook on a request signs the body like the provider
+    steps:
+      - request: POST /webhooks/stripe
+        webhook: { provider: stripe, secret: whsec_test }
+        json: { type: checkout.session.completed }
+        expect: { status: 200 }
+      - request: POST /webhooks/stripe
+        webhook: { provider: stripe, secret: whsec_test, invalidSignature: true }
+        json: { type: checkout.session.completed }
+        expect: { status: 400 }
+      - request: GET /events
+        expect:
+          json: [{ source: stripe, type: checkout.session.completed }]

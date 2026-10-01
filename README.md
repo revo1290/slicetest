@@ -53,6 +53,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
 - **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
+- **Webhooks signed like the real sender.** Stripe, GitHub, Slack, Shopify and Standard Webhooks signatures, plus forged and replayed deliveries, so signature checks are tested instead of bypassed.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
@@ -434,6 +435,23 @@ In YAML, `auth` on a `request` step sends `Authorization: Bearer` with those cla
   expect: { status: 200 }
 ```
 
+### Webhooks: deliveries signed like the provider's
+
+`http.webhook()` posts a payload the way Stripe, GitHub, Slack, Shopify or any [Standard Webhooks](https://www.standardwebhooks.com/) sender (Svix, Resend, Clerk, …) delivers it, signed with the secret the app is configured with, so the app's real verification code runs. The signatures are checked against the providers' documented examples.
+
+```ts
+const stripe = { provider: "stripe", secret: "whsec_test" } as const;   // the same secret as in app.env
+
+await http.webhook("/webhooks/stripe", { type: "invoice.paid", data: { object: { id: "in_1" } } }, stripe);
+await http.webhook("/webhooks/github", { action: "opened" }, { provider: "github", secret: "s", event: "pull_request" });
+
+// Deliveries the app must refuse:
+expect(await http.webhook("/webhooks/stripe", event, { ...stripe, invalidSignature: true })).toHaveStatus(400);
+expect(await http.webhook("/webhooks/stripe", event, { ...stripe, stale: true })).toHaveStatus(400);   // signed 10 minutes ago
+```
+
+Objects are sent as JSON, `URLSearchParams` as a form (Slack slash commands), strings as they are. Other HMAC schemes: `provider: { header: "X-Signature", prefix: "sha256=", encoding: "hex" }`. `signWebhook(body, opts)` returns just the headers. In YAML, add `webhook: { provider, secret, event, stale, invalidSignature }` to a `request` step; its `json`, `form` or `body` is what gets signed.
+
 ### Asynchronous side effects
 
 If the app does work in the background (a job queue, a fire-and-forget webhook), wait for the effect with Vitest's own helpers. slicetest doesn't need its own:
@@ -553,6 +571,7 @@ scenarios:
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |
+| `request` with `webhook` | `{ provider, secret, event, stale, invalidSignature }`: signs the body like that provider's deliveries |
 | `make: <table>` | `rows` (a mapping, or a list for several rows), `count`, `capture` (from `row` / `rows`) — like `db.make()` |
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |

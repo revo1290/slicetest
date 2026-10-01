@@ -7,6 +7,7 @@ import type { ScenarioContext } from "./runtime.js";
 import { scenario } from "./scenario.js";
 import type { HttpResponse } from "./http.js";
 import type { MailFilter } from "./mail.js";
+import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
 import type { MatchOptions, RecordedCall, StubResponse } from "./stub.js";
 import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
 
@@ -163,12 +164,17 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
       query: interpolate(step.query, vars) as Record<string, string> | undefined,
       follow: step.follow,
     };
-    const body =
+    let body =
       step.json !== undefined
         ? interpolate(step.json, vars)
         : step.form !== undefined
           ? ctx.http.form(interpolate(step.form, vars) as Record<string, string>)
           : (interpolate(step.body, vars) as string | undefined);
+    if (step.webhook) {
+      const signed = webhookBody(body);
+      body = signed.body;
+      opts.headers = { "content-type": signed.type, ...signWebhook(signed.body, interpolate(step.webhook, vars) as WebhookOptions), ...opts.headers };
+    }
     const e = step.expect;
     const verify = (res: HttpResponse) => {
       if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as number);

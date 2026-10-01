@@ -191,6 +191,70 @@
                 }
               ]
             },
+            "webhook": {
+              "type": "object",
+              "description": "Sign the body as this provider delivers webhooks",
+              "required": [
+                "provider",
+                "secret"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "provider": {
+                  "oneOf": [
+                    {
+                      "enum": [
+                        "stripe",
+                        "github",
+                        "slack",
+                        "shopify",
+                        "standard"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "header"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "header": {
+                          "type": "string"
+                        },
+                        "algorithm": {
+                          "type": "string"
+                        },
+                        "encoding": {
+                          "enum": [
+                            "hex",
+                            "base64"
+                          ]
+                        },
+                        "prefix": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "secret": {
+                  "type": "string",
+                  "description": "The signing secret the app is configured with"
+                },
+                "event": {
+                  "type": "string",
+                  "description": "Event type, e.g. X-GitHub-Event"
+                },
+                "stale": {
+                  "type": "boolean",
+                  "description": "Signed ten minutes ago"
+                },
+                "invalidSignature": {
+                  "type": "boolean",
+                  "description": "Signed with a different secret"
+                }
+              }
+            },
             "concurrency": {
               "type": "integer",
               "minimum": 1,

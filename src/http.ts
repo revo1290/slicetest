@@ -1,3 +1,5 @@
+import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
+
 export interface HttpResponse {
   method: string;
   url: string;
@@ -65,6 +67,16 @@ export class HttpClient {
   }
   patch(path: string, body?: unknown, opts?: RequestOptions) {
     return this.request("PATCH", path, body, opts);
+  }
+
+  /**
+   * POST `payload` to the app as `provider` would deliver it, signed with `secret`:
+   * `http.webhook("/webhooks/stripe", event, { provider: "stripe", secret: "whsec_test" })`.
+   * `{ invalidSignature: true }` and `{ stale: true }` make deliveries the app must refuse.
+   */
+  webhook(path: string, payload: unknown, opts: WebhookOptions) {
+    const { body, type } = webhookBody(payload);
+    return this.request("POST", path, body, { headers: { "content-type": type, ...signWebhook(body, opts), ...opts.headers } });
   }
 
   /**

@@ -59,6 +59,8 @@ export interface RequestStep {
   follow?: boolean;
   /** Send `Authorization: Bearer` with a token from the `auth` issuer: `true`, or the claims, e.g. { sub: u1, roles: [admin] }. */
   auth?: true | Record<string, unknown>;
+  /** Sign the body as this provider would deliver a webhook: { provider: stripe, secret: whsec_test, event, stale, invalidSignature }. */
+  webhook?: { provider: string | { header: string; algorithm?: string; encoding?: "hex" | "base64"; prefix?: string }; secret: string; event?: string; stale?: boolean; invalidSignature?: boolean };
   /** Send the request this many times at once. `expect` applies to every response; `statuses` counts them. */
   concurrency?: number;
   expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown };
@@ -154,7 +156,7 @@ export interface MailStep {
 
 const KINDS = {
   stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
-  request: ["headers", "query", "json", "form", "body", "follow", "auth", "concurrency", "expect", "capture"],
+  request: ["headers", "query", "json", "form", "body", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
   db: ["where", "orderBy", "expect", "capture", "within"],
@@ -174,6 +176,8 @@ const EXPECT_KEYS: Record<string, string[]> = {
   db: ["rows", "count"],
 };
 const CONDITION_KEYS = ["query", "headers", "json", "body"];
+const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature"];
+const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard"];
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];
 const RESPONSE_KEYS = ["status", "headers", "body"];
@@ -305,6 +309,16 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     case "request":
       call("request", REQUEST);
       if (["json", "form", "body"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / body");
+      if (raw.webhook !== undefined) {
+        const w = raw.webhook as Record<string, unknown> | null;
+        if (!w || typeof w !== "object" || Array.isArray(w)) fail(at("webhook"), "`webhook` must be a mapping such as { provider: stripe, secret: whsec_test }");
+        for (const k of Object.keys(w!)) if (!WEBHOOK_KEYS.includes(k)) fail(at("webhook"), `unknown key "${k}" in webhook (allowed: ${WEBHOOK_KEYS.join(", ")})`);
+        if (typeof w!.secret !== "string" || !w!.secret) fail(at("webhook"), "`webhook.secret` is required: the signing secret the app is configured with");
+        const p = w!.provider;
+        if (!(typeof p === "string" ? WEBHOOK_PROVIDERS.includes(p) : p && typeof p === "object" && typeof (p as { header?: unknown }).header === "string")) {
+          fail(at("webhook"), `\`webhook.provider\` must be one of ${WEBHOOK_PROVIDERS.join(", ")} or { header, prefix, encoding }`);
+        }
+      }
       if (raw.auth !== undefined && raw.auth !== true && !(raw.auth && typeof raw.auth === "object" && !Array.isArray(raw.auth))) fail(at("auth"), "`auth` must be true or the token's claims, e.g. { sub: u1, roles: [admin] }");
       if (raw.concurrency !== undefined && !(Number.isInteger(raw.concurrency) && (raw.concurrency as number) >= 1)) fail(at("concurrency"), "`concurrency` must be a positive whole number");
       if (raw.concurrency !== undefined && raw.capture !== undefined) fail(at("capture"), "`capture` can't be used with `concurrency`: there is more than one response");

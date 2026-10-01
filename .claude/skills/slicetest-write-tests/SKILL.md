@@ -64,6 +64,7 @@ scenarios:
 - For endpoints where two users could collide (bookings, stock, votes, payments), add a race scenario: `http.concurrently(10, ...)` plus `toHaveStatuses` and a database check (YAML: `concurrency:` with `expect.statuses`).
 - When the config has `mail: true`, check the mail the app sends with `await mail.waitFor({ to, subject })` (YAML: `mail:` step) and follow `links[0]` instead of reading tokens from the database.
 - When the config has `auth`, authenticate with `auth.header({ sub, roles })` (YAML: `auth:` on the request) instead of logging in through the UI or reading tokens from the database. Cover rejection with `auth.header({}, { expired: true })` / `{ wrongKey: true }`.
+- Send inbound webhooks with `http.webhook(path, payload, { provider, secret })` using the secret from the app's env, and cover `invalidSignature: true` / `stale: true`. Don't disable the app's signature check.
 - Arrange rows with `db.make(table, { only the columns the scenario is about })` (YAML: `make:`) rather than spelling out every required column; it creates parent rows for required foreign keys.
 - If `openapi` has `minCoverage`, add scenarios for the documented statuses the coverage table marks with ✗.
 
