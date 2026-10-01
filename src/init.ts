@@ -109,6 +109,14 @@ export async function detect(root: string): Promise<Detected> {
     env.DATABASE_URL = sqlite.url;
     notes.push(`db: SQLite (${sqlite.why}), no container needed. The app gets DATABASE_URL=${sqlite.url}; {{db.path}} is the plain file path`);
   }
+  const auth = await authFromEnvExample(root, read, env, notes);
+  const jwtDeps = ["jose", "jsonwebtoken", "passport-jwt", "express-oauth2-jwt-bearer", "express-jwt", "jwks-rsa", "@fastify/jwt", "next-auth"].filter((d) => deps[d]);
+  const jwtPython = /\b(pyjwt|python-jose|authlib|fastapi-azure-auth|djangorestframework-simplejwt)\b/i.exec(python)?.[1];
+  if (!auth && (jwtDeps.length || jwtPython)) {
+    notes.push(
+      `auth: ${jwtDeps[0] ?? jwtPython} is a dependency, so the app may verify JWTs. To test with real tokens, add \`auth: true\` and pass {{auth.issuer}} / {{auth.jwks}} / {{auth.audience}} to the variables the app reads`,
+    );
+  }
   const stubs = await stubsFromEnvExample(root, read, env, notes);
   const mysqlDeps = !!deps.mysql2 || !!deps.mysql || /\b(pymysql|mysqlclient|aiomysql)\b/.test(python) || /\bgem ['"]mysql2['"]/.test(gemfile);
   if (!composeDb.engine && mysqlDeps) {
@@ -125,6 +133,7 @@ export async function detect(root: string): Promise<Detected> {
     ...(migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
     ...(Object.keys(containers).length ? { containers } : {}),
     ...(mail ? { mail: true } : {}),
+    ...(auth ? { auth: true } : {}),
     stubs,
     ...(openapi ? { openapi } : {}),
   };
@@ -151,6 +160,40 @@ async function detectSqlite(root: string, read: (p: string) => Promise<string>, 
   return undefined;
 }
 
+/** Variables that tell the app which token issuer to trust, and what slicetest passes instead. */
+const AUTH_VARS: [RegExp, string][] = [
+  [/JWKS(_URL|_URI|_ENDPOINT)?$/, "{{auth.jwks}}"],
+  [/(ISSUER|ISSUER_URL|ISSUER_BASE_URL|AUTHORITY)$/, "{{auth.issuer}}"],
+  [/^(AUTH0|OKTA|KEYCLOAK|COGNITO|OIDC|OAUTH2?|AUTH|JWT)_?(DOMAIN|URL|BASE_URL)$/, "{{auth.issuer}}"],
+  [/(AUDIENCE|_AUD)$/, "{{auth.audience}}"],
+];
+
+/**
+ * `.env.example` variables naming a token issuer (`OIDC_ISSUER`, `AUTH0_DOMAIN`,
+ * `JWKS_URL`, `JWT_AUDIENCE`) turn on `auth`, with the variables pointed at
+ * slicetest's issuer. Returns whether any was found.
+ */
+async function authFromEnvExample(root: string, read: (p: string) => Promise<string>, env: Record<string, string>, notes: string[]) {
+  const file = [".env.example", ".env.sample", ".env.template", ".env.dist"].find((f) => existsSync(path.join(root, f)));
+  if (!file) return false;
+  const found: string[] = [];
+  for (const line of (await read(file)).split(/\r?\n/)) {
+    const name = /^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=/.exec(line)?.[1];
+    if (!name || name in env) continue;
+    const match = AUTH_VARS.find(([re]) => re.test(name));
+    // AUDIENCE alone doesn't say the app verifies tokens; it comes along with an issuer or JWKS.
+    if (!match) continue;
+    env[name] = match[1];
+    found.push(name);
+  }
+  if (!found.some((n) => env[n] !== "{{auth.audience}}")) {
+    for (const n of found) delete env[n];
+    return false;
+  }
+  notes.push(`auth: ${found.join(", ")} in ${file} point at slicetest's OpenID issuer; scenarios mint tokens with auth.token({ sub, ... }) or \`auth:\` on a YAML request. An issuer the app expects as a bare domain (Auth0) may need the variable reshaped`);
+  return true;
+}
+
 /** Hosts that are never third-party APIs to stub. */
 const LOCAL_HOST = /^(localhost|127\.|0\.0\.0\.0|\[::1\]|host\.docker\.internal|[\w-]+$)/;
 
@@ -165,7 +208,7 @@ async function stubsFromEnvExample(root: string, read: (p: string) => Promise<st
   const stubs: { name: string; upstream: string }[] = [];
   for (const line of (await read(file)).split(/\r?\n/)) {
     const m = /^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*["']?(https?:\/\/[^\s"'#]+)/.exec(line);
-    if (!m || !/(URL|URI|ENDPOINT|HOST|BASE)$/.test(m[1]!) || /DATABASE|REDIS|MONGO|AMQP|SMTP|MAIL|CALLBACK|REDIRECT|FRONTEND|PUBLIC|APP_URL|SITE_URL|WEBHOOK_URL$/.test(m[1]!)) continue;
+    if (!m || m[1]! in env || !/(URL|URI|ENDPOINT|HOST|BASE)$/.test(m[1]!) || /DATABASE|REDIS|MONGO|AMQP|SMTP|MAIL|CALLBACK|REDIRECT|FRONTEND|PUBLIC|APP_URL|SITE_URL|WEBHOOK_URL$/.test(m[1]!)) continue;
     const url = new URL(m[2]!);
     if (LOCAL_HOST.test(url.hostname)) continue;
     const base = url.hostname.split(".").filter((p) => !["api", "www", "com", "io", "net", "org", "co", "dev", "app"].includes(p))[0] ?? url.hostname;

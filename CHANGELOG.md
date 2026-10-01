@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `slicetest gen` reads the spec's security: operations that need a bearer token (`http: bearer`, `oauth2`, `openIdConnect`) get `auth:` on their requests, with the required scopes in the `scope` claim, and their 401 responses become runnable scenarios without a token.
+- `slicetest init` turns on `auth` when `.env.example` names a token issuer (`OIDC_ISSUER`, `AUTH0_DOMAIN`, `JWKS_URL`, `JWT_AUDIENCE`, …), pointing those variables at slicetest's issuer instead of stubbing them, and suggests it when a JWT library is a dependency.
 - `db: { queries: true }`: the app connects through a proxy that reads the Postgres or MySQL wire protocol and records the SQL it runs, whatever its language or driver. `db.queries(fn)` returns the statements run during `fn` (or the whole scenario), with `repeated()` and `shapes()` to catch N+1 queries and `withoutTransactions()` to drop `BEGIN` / `COMMIT`. Failure output lists the app's SQL, most frequent first. YAML: `expect: { queries: n }` on a `request` step.
 - `stub(name).chaos({ failFirst, errorRate, statuses, networkErrorRate, latency, seed })`: inject faults into a stub's answers to test the app's retries, timeouts and fallbacks. Faulted calls don't use up `once()` routes; random faults come from a seed that failure output prints (`SLICETEST_CHAOS_SEED` replays it). `stub.faults()` lists them. YAML: a `chaos` step.
 - `http.webhook(path, payload, { provider, secret })`: deliver a webhook signed the way Stripe, GitHub, Slack, Shopify or Standard Webhooks (Svix, Resend, Clerk, …) sign theirs, or with a custom HMAC header. `invalidSignature` and `stale` make deliveries the app must refuse. `signWebhook()` is exported. YAML: `webhook` on a `request` step.

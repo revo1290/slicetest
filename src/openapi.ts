@@ -26,6 +26,12 @@ export interface OperationSketch {
   responses: string[];
   /** Top-level properties of the first 2xx JSON response. */
   createdFields: string[];
+  /**
+   * The operation requires a bearer token (an `http: bearer`, `oauth2` or
+   * `openIdConnect` security scheme), with the scopes it lists. Undefined when
+   * it needs no token or accepts other credentials only.
+   */
+  bearer?: { scopes: string[] };
 }
 
 export interface Message {
@@ -189,8 +195,25 @@ export class OpenApiSpec {
         json: json ?? undefined,
         responses,
         createdFields: okSchema?.properties ? Object.keys(okSchema.properties) : [],
+        bearer: this.#bearer(op.security ?? this.doc.security),
       };
     });
+  }
+
+  #bearer(security: Record<string, string[]>[] | undefined): OperationSketch["bearer"] {
+    if (!Array.isArray(security) || security.length === 0) return undefined;
+    // An empty requirement makes credentials optional.
+    if (security.some((req) => Object.keys(req ?? {}).length === 0)) return undefined;
+    const schemes = this.doc.components?.securitySchemes ?? {};
+    for (const req of security) {
+      for (const [name, scopes] of Object.entries(req)) {
+        const s = this.#deref(schemes[name]);
+        if (s && ((s.type === "http" && String(s.scheme).toLowerCase() === "bearer") || s.type === "oauth2" || s.type === "openIdConnect")) {
+          return { scopes: Array.isArray(scopes) ? scopes : [] };
+        }
+      }
+    }
+    return undefined;
   }
 
   /** A value that satisfies `schema` (as far as a simple walk can): examples, defaults, enums, then types. */

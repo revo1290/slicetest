@@ -74,7 +74,7 @@ export async function gen(root: string, opts: GenOptions) {
     await writeFile(file, header + stringify({ scenarios }, { lineWidth: 0, aliasDuplicateObjects: false }));
     written.push(rel);
   }
-  return { written, skipped, count };
+  return { written, skipped, count, needsAuth: ops.some((o) => o.bearer) };
 }
 
 function scenarioFor(op: OperationSketch, key: string, all: OperationSketch[]) {
@@ -96,9 +96,11 @@ function scenarioFor(op: OperationSketch, key: string, all: OperationSketch[]) {
   // Two error responses need no arranging: a made-up id is not found, and an empty body is invalid.
   const notFound = status === 404 && Object.keys(op.pathParams).length > 0;
   const invalid = (status === 400 || status === 422) && isFilledObject(op.json);
-  steps.push(requestStep(invalid ? { ...op, json: {} } : op, pathText, { status }));
+  // A protected operation answers 401 to a request without a token, whatever its state.
+  const unauthenticated = status === 401 && !!op.bearer;
+  steps.push(requestStep(invalid ? { ...op, json: {} } : op, pathText, { status }, undefined, unauthenticated));
   const name = `${op.method} ${op.template} → ${key}${op.summary ? ` (${op.summary})` : ""}`;
-  const runnable = success ? !unresolved : notFound || invalid;
+  const runnable = success ? !unresolved : notFound || invalid || unauthenticated;
   return runnable ? { name, steps } : { name: `${name} — TODO: arrange the state that produces this`, skip: true as const, steps };
 }
 
@@ -116,8 +118,10 @@ function creatorFor(op: OperationSketch, param: string, all: OperationSketch[]) 
   return field && status ? { op: post, field, status } : undefined;
 }
 
-function requestStep(op: OperationSketch, pathText: string, expect: { status?: number }, capture?: Record<string, string>): Step {
+function requestStep(op: OperationSketch, pathText: string, expect: { status?: number }, capture?: Record<string, string>, anonymous = false): Step {
   const step: Step = { request: `${op.method} ${pathText}` };
+  // Tokens come from the `auth` issuer; scopes the spec requires go into the `scope` claim.
+  if (op.bearer && !anonymous) step.auth = op.bearer.scopes.length ? { scope: op.bearer.scopes.join(" ") } : true;
   if (Object.keys(op.query).length) step.query = Object.fromEntries(Object.entries(op.query).map(([k, v]) => [k, String(v)]));
   if (op.json !== undefined) step.json = op.json;
   if (expect.status) step.expect = { status: expect.status };

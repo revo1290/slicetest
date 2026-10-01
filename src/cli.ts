@@ -97,16 +97,20 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
   if (positionals[0] === "gen") {
-    const configOpenapi = configPath && existsSync(configPath) ? ((parse(await readFile(configPath, "utf8")) ?? {}) as CliConfig).openapi : undefined;
+    const config = configPath && existsSync(configPath) ? ((parse(await readFile(configPath, "utf8")) ?? {}) as CliConfig) : undefined;
+    const configOpenapi = config?.openapi;
     const spec = values.spec ?? (typeof configOpenapi === "object" ? configOpenapi.spec : configOpenapi);
     if (!spec) throw new Error("slicetest gen: no OpenAPI spec. Pass --spec openapi.yaml, or set `openapi` in the config.");
     const root = values.spec || !configPath ? process.cwd() : path.dirname(configPath);
     const { gen } = await import("./gen.js");
-    const { written, skipped, count } = await gen(root, { spec, out: values.out, uncovered: values.uncovered, force: values.force });
+    const { written, skipped, count, needsAuth } = await gen(root, { spec, out: values.out, uncovered: values.uncovered, force: values.force });
     const lines = [
       count === 0 ? "Every documented response is already covered; nothing to generate." : `${count} scenario(s) for the responses in ${spec}.`,
       ...written.map((f) => `  wrote   ${f}`),
       ...skipped.map((f) => `  skipped ${f} (exists; --force to overwrite)`),
+      ...(needsAuth && count > 0 && !config?.auth
+        ? ["", "The spec requires bearer tokens: requests carry `auth:`. Add `auth: true` to the config and point the app's JWT settings at {{auth.issuer}} / {{auth.jwks}}."]
+        : []),
     ];
     process.stdout.write(`${lines.join("\n")}\n`);
     return;

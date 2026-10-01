@@ -55,7 +55,7 @@ async function scenarios(file: string) {
 
 test("writes one valid scenario file per resource, runnable where the spec says enough", async () => {
   const result = await gen(root, { spec: "openapi.yaml" });
-  expect(result).toEqual({ count: 6, written: [path.join("scenarios", "users.gen.scenario.yaml"), path.join("scenarios", "reports.gen.scenario.yaml")], skipped: [] });
+  expect(result).toEqual({ count: 6, written: [path.join("scenarios", "users.gen.scenario.yaml"), path.join("scenarios", "reports.gen.scenario.yaml")], skipped: [], needsAuth: false });
 
   const users = await scenarios("scenarios/users.gen.scenario.yaml");
   expect(users.map((s) => [s.name, s.skip])).toEqual([
@@ -90,4 +90,45 @@ test("--uncovered leaves out what the last run produced, and existing files are 
 
   expect(await gen(root, { spec: "openapi.yaml", uncovered: true })).toMatchObject({ written: [], skipped: [path.join("scenarios", "reports.gen.scenario.yaml")] });
   expect(await gen(root, { spec: "openapi.yaml", uncovered: true, force: true })).toMatchObject({ written: [path.join("scenarios", "reports.gen.scenario.yaml")] });
+});
+
+test("protected operations get a token from the auth issuer, with the scopes they require, and 401 runs without one", async () => {
+  await writeFile(
+    path.join(root, "secure.yaml"),
+    `
+openapi: 3.0.3
+info: { title: t, version: "1" }
+security: [{ bearer: [] }]
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+    oauth: { type: oauth2, flows: { clientCredentials: { tokenUrl: /token, scopes: { "orders:write": w } } } }
+paths:
+  /health:
+    get:
+      security: []
+      responses: { "200": { description: ok } }
+  /orders:
+    get:
+      responses:
+        "200": { description: ok }
+        "401": { description: no token }
+    post:
+      security: [{ oauth: ["orders:write"] }]
+      responses:
+        "201": { description: created }
+        "403": { description: wrong scope }
+`,
+  );
+  const result = await gen(root, { spec: "secure.yaml" });
+  expect(result.needsAuth).toBe(true);
+  const health = await scenarios("scenarios/health.gen.scenario.yaml");
+  expect(health[0]!.steps).toEqual([{ request: "GET /health", expect: { status: 200 } }]);
+  const orders = await scenarios("scenarios/orders.gen.scenario.yaml");
+  expect(orders.map((s) => [s.name, s.skip, s.steps])).toEqual([
+    ["GET /orders → 200", false, [{ request: "GET /orders", auth: true, expect: { status: 200 } }]],
+    ["GET /orders → 401", false, [{ request: "GET /orders", expect: { status: 401 } }]],
+    ["POST /orders → 201", false, [{ request: "POST /orders", auth: { scope: "orders:write" }, expect: { status: 201 } }]],
+    ["POST /orders → 403 — TODO: arrange the state that produces this", true, [{ request: "POST /orders", auth: { scope: "orders:write" }, expect: { status: 403 } }]],
+  ]);
 });

@@ -168,3 +168,26 @@ test("third-party API URLs in .env.example become stubs, and the variables point
   expect(notes.join("\n")).toContain("SLICETEST_RECORD=stripe");
   expect(() => resolveOptions(config, "/")).not.toThrow();
 });
+
+test("token issuer settings in .env.example turn on auth instead of becoming stubs", async () => {
+  const { config, notes } = await detect(
+    await project({
+      "go.mod": "module x",
+      ".env.example": ["OIDC_ISSUER_URL=https://login.example-idp.com/realms/app", "JWKS_URI=https://login.example-idp.com/certs", "JWT_AUDIENCE=api", "STRIPE_API_BASE=https://api.stripe.com"].join("\n"),
+    }),
+  );
+  expect(config.auth).toBe(true);
+  expect(config.app.env).toMatchObject({ OIDC_ISSUER_URL: "{{auth.issuer}}", JWKS_URI: "{{auth.jwks}}", JWT_AUDIENCE: "{{auth.audience}}" });
+  expect(config.stubs).toEqual([{ name: "stripe", upstream: "https://api.stripe.com" }]);
+  expect(notes.join("\n")).toContain("auth: OIDC_ISSUER_URL, JWKS_URI, JWT_AUDIENCE");
+  expect(() => resolveOptions(config, "/")).not.toThrow();
+});
+
+test("an audience alone doesn't turn on auth; a JWT library only suggests it", async () => {
+  const { config, notes } = await detect(
+    await project({ "package.json": JSON.stringify({ scripts: { start: "node s.js" }, dependencies: { jose: "^5" } }), ".env.example": "API_AUDIENCE=x\n" }),
+  );
+  expect(config.auth).toBeUndefined();
+  expect(config.app.env).not.toHaveProperty("API_AUDIENCE");
+  expect(notes.join("\n")).toContain("auth: jose is a dependency");
+});
