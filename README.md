@@ -52,6 +52,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Readable in CI.** On GitHub Actions, failing YAML steps are annotated in the pull request on the line that failed, and the job summary shows the OpenAPI coverage table.
 - **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
+- **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
@@ -401,6 +402,38 @@ scenario("sign-up sends a confirmation link that works", async ({ http, mail }) 
 
 `mail.messages(filter?)`, `mail.last(filter?)` and `mail.waitFor(filter?, { within })` take `{ to, from, subject, text, html }`: addresses match exactly, other strings as substrings, and RegExps test the value. Each message has `from`, `to` (the envelope, so Cc and Bcc too), `subject`, `text`, `html`, `headers`, `links` and `raw`. The mailbox is emptied before each scenario, what was sent shows up in the failure output and in `trace()`, and `{{mail.url}}` is `smtp://host:port` for libraries that take a URL. No container is involved, so it works the same for apps in any language and on Windows.
 
+### Auth: a real OpenID issuer, tokens with any claims
+
+Apps that verify JWTs are hard to test from the outside: you either disable verification in tests or copy a production token. With `auth: true`, slicetest runs an OpenID Connect issuer for the app, with a discovery document, a JWKS and RS256 keys made for the run, so the app verifies tokens exactly as it does in production. The scenario mints whatever user it needs.
+
+```ts
+slicetest({
+  auth: { audience: "api://orders", claims: { tenant: "acme" } },   // or just `auth: true`
+  app: { command: "...", env: { OIDC_ISSUER: "{{auth.issuer}}", JWKS_URL: "{{auth.jwks}}", OIDC_AUDIENCE: "{{auth.audience}}" } },
+});
+
+scenario("admins can delete orders", async ({ http, auth }) => {
+  const res = await http.delete("/orders/1", { headers: auth.header({ sub: "alice", roles: ["admin"] }) });
+  expect(res).toHaveStatus(204);
+});
+
+scenario("the app rejects tokens it must not trust", async ({ http, auth }) => {
+  for (const opts of [{ expired: true }, { wrongKey: true }, { audience: "api://other" }, { issuer: "https://evil.example" }]) {
+    expect(await http.get("/orders", { headers: auth.header({}, opts) })).toHaveStatus(401);
+  }
+});
+```
+
+`auth.token(claims, opts)` returns the JWT itself. Tokens get `iss`, `aud`, `sub: "user-1"`, `iat`, `nbf`, `exp` (1 hour, or `expiresIn`) and the configured `claims`, all overridable. `auth.rotate()` switches to a new signing key, to check that the app refetches the JWKS. Apps that fetch tokens themselves can use `POST {{auth.issuer}}/token` with the client-credentials grant: `sub` is the client id, and `scope` and `audience` are carried over. No dependencies: keys and signatures come from `node:crypto`.
+
+In YAML, `auth` on a `request` step sends `Authorization: Bearer` with those claims (`auth: true` for the defaults):
+
+```yaml
+- request: GET /me
+  auth: { sub: alice, roles: [admin] }
+  expect: { status: 200 }
+```
+
 ### Asynchronous side effects
 
 If the app does work in the background (a job queue, a fire-and-forget webhook), wait for the effect with Vitest's own helpers. slicetest doesn't need its own:
@@ -462,6 +495,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `db.reuse` | on, unless `CI` is set or `db.url` is given | Keep the container between runs and cache the migrated template. The cache key is the migration files' contents; for `{ command }`, list what it reads in `inputs: ["prisma/migrations"]`, or it migrates every run. Databases left by killed runs are dropped after a day. Remove the container (`docker rm -f` / `podman rm -f`) to start clean. |
 | `containers` | `{}` | Dependencies as containers: `{ name: { image, port, env?, command?, ready?: { log }, reset? } }`. See [Containers](#containers-redis-search-s3-and-other-dependencies). |
 | `mail` | `false` | Start an SMTP server at `{{mail.host}}` / `{{mail.port}}` and collect the app's mail. See [Mail](#mail-catch-what-the-app-sends). |
+| `auth` | `false` | `true` or `{ audience, claims }`: an OpenID Connect issuer at `{{auth.issuer}}` (JWKS at `{{auth.jwks}}`) whose tokens scenarios mint with `auth.token()`. See [Auth](#auth-a-real-openid-issuer-tokens-with-any-claims). |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings? }`: check calls against the provider's spec, answer from it, or [replay recordings](#recording-a-real-service) of the real service. |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
@@ -518,6 +552,7 @@ scenarios:
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed), `when: { query, headers, json, body }`, one of `reply: { status, headers, body }` / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`. |
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
+| `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |
 | `make: <table>` | `rows` (a mapping, or a list for several rows), `count`, `capture` (from `row` / `rows`) — like `db.make()` |
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |

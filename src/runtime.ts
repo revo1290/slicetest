@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { App } from "./app.js";
+import { Issuer } from "./auth.js";
 import type { ResolvedOptions } from "./config.js";
 import { Dependency } from "./containers.js";
 import { Db, formatChanges } from "./db.js";
@@ -29,6 +30,8 @@ export interface ScenarioContext {
   trace: (opts?: MaskOptions) => Promise<Trace>;
   /** Mail the app sent during the scenario. Needs `mail: true` in the config. */
   mail: Mailbox;
+  /** The OpenID Connect issuer the app trusts: `auth.token(claims)`. Needs `auth` in the config. */
+  auth: Issuer;
 }
 
 /** Everything one test file needs: its own database, stub servers and app process. */
@@ -52,6 +55,7 @@ export class Runtime {
     private readonly recordDir?: string,
     readonly containers = new Map<string, Dependency>(),
     readonly mailbox?: Mailbox,
+    readonly issuer?: Issuer,
   ) {
     this.#http = this.#client();
   }
@@ -87,6 +91,7 @@ export class Runtime {
     const services = new Map<string, App>();
     let db: Db | undefined;
     let mailbox: Mailbox | undefined;
+    let issuer: Issuer | undefined;
     try {
       // Loaded first: a broken spec should fail before anything is started.
       const specs = {
@@ -117,6 +122,10 @@ export class Runtime {
         mailbox = await Mailbox.start();
         Object.assign(vars, { "mail.host": mailbox.host, "mail.port": String(mailbox.port), "mail.url": mailbox.url });
       }
+      if (opts.auth) {
+        issuer = await Issuer.start(opts.auth);
+        Object.assign(vars, { "auth.issuer": issuer.url, "auth.jwks": issuer.jwksUrl, "auth.audience": issuer.audience });
+      }
       for (const [name, c] of containers) {
         vars[`container.${name}`] = c.address;
         vars[`container.${name}.host`] = c.host;
@@ -130,19 +139,21 @@ export class Runtime {
         vars[`service.${name}.port`] = String(started.port);
       }
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
       await Promise.all([...stubs.values()].map((s) => s.close()));
       await Promise.allSettled([...containers.values()].map((c) => c.stop()));
       await mailbox?.close();
+      await issuer?.close();
       throw e;
     }
   }
 
   context(): ScenarioContext {
     const mailbox = this.mailbox;
+    const issuer = this.issuer;
     return {
       http: this.http,
       db: this.db,
@@ -171,6 +182,10 @@ export class Runtime {
         if (!mailbox) throw new Error("slicetest: mail is off. Add `mail: true` to the config and point the app's SMTP settings at {{mail.host}} / {{mail.port}}.");
         return mailbox;
       },
+      get auth(): Issuer {
+        if (!issuer) throw new Error("slicetest: auth is off. Add `auth: true` to the config and point the app's JWT settings at {{auth.issuer}} / {{auth.jwks}}.");
+        return issuer;
+      },
     };
   }
 
@@ -196,6 +211,7 @@ export class Runtime {
     for (const stub of this.stubs.values()) stub.reset();
     for (const recorder of this.recorders.values()) recorder.reset();
     this.mailbox?.reset();
+    this.issuer?.reset();
     await Promise.all([...this.containers.values()].map((c) => c.reset()));
     this.http.reset();
     for (const p of this.#processes()) p.beginScenario();
@@ -300,6 +316,7 @@ export class Runtime {
       ...[...this.stubs.values()].map((s) => s.close()),
       ...[...this.containers.values()].map((c) => c.stop()),
       this.mailbox?.close(),
+      this.issuer?.close(),
     ]);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) throw failed.reason;

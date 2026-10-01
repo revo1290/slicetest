@@ -24,6 +24,8 @@ test.each([
   [{ ...valid, containers: { cache: { image: "redis", port: "6379" } } }, "containers.cache.port must be the port"],
   [{ ...valid, containers: { cache: { image: "redis", port: 6379, reset: "redis-cli FLUSHALL" } } }, "containers.cache.reset must be a list of strings"],
   [{ ...valid, containers: { "a.b": { image: "redis", port: 6379 } } }, 'container name "a.b"'],
+  [{ ...valid, auth: { issuer: "x" } }, "unknown key auth.issuer (expected audience, claims)"],
+  [{ ...valid, auth: { claims: ["admin"] } }, "auth.claims must be a mapping"],
   [{ ...valid, db: { engine: "oracle" } }, 'db.engine must be "postgres", "mysql" or "sqlite", got "oracle"'],
 ])("rejects %j", (opts, message) => {
   expect(() => resolveOptions(opts as SlicetestOptions, "/")).toThrow(message);

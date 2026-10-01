@@ -1,3 +1,4 @@
+import type { AuthOptions } from "./auth.js";
 import type { RequestOptions } from "./http.js";
 
 export interface SlicetestOptions {
@@ -41,6 +42,12 @@ export interface SlicetestOptions {
    * scenarios read what arrived with `mail.messages()` / `mail.waitFor()`.
    */
   mail?: boolean;
+  /**
+   * An OpenID Connect issuer for apps that verify JWTs. The app gets
+   * `{{auth.issuer}}`, `{{auth.jwks}}` and `{{auth.audience}}`; scenarios mint
+   * tokens with `auth.token({ sub, roles })`. `true`, or `{ audience, claims }`.
+   */
+  auth?: boolean | AuthOptions;
 }
 
 export interface ContainerOptions {
@@ -149,6 +156,7 @@ export interface ResolvedOptions {
   services: Record<string, ResolvedProcess>;
   containers: Record<string, ContainerOptions>;
   mail: boolean;
+  auth: AuthOptions | false;
   db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">;
   stubs: string[];
   /** Spec files, resolved against the root: the app's, and per stub name. */
@@ -168,6 +176,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     ),
     containers: opts.containers ?? {},
     mail: opts.mail ?? false,
+    auth: opts.auth === true ? {} : (opts.auth ?? false),
     db: resolveDb(opts.db ?? {}),
     stubs: (opts.stubs ?? []).map(stubName),
     openapi: {
@@ -245,6 +254,12 @@ function validate(opts: SlicetestOptions) {
     }
   }
   if (opts.mail !== undefined && typeof opts.mail !== "boolean") fail(`mail must be true or false, got ${JSON.stringify(opts.mail)}`);
+  if (opts.auth !== undefined && typeof opts.auth !== "boolean") {
+    if (!opts.auth || typeof opts.auth !== "object" || Array.isArray(opts.auth)) fail(`auth must be true or { audience, claims }, got ${JSON.stringify(opts.auth)}`);
+    for (const key of Object.keys(opts.auth)) if (key !== "audience" && key !== "claims") fail(`unknown key auth.${key} (expected audience, claims)`);
+    if (opts.auth.audience !== undefined && typeof opts.auth.audience !== "string") fail("auth.audience must be a string");
+    if (opts.auth.claims !== undefined && (!opts.auth.claims || typeof opts.auth.claims !== "object" || Array.isArray(opts.auth.claims))) fail("auth.claims must be a mapping of claim names to values");
+  }
   const engine = opts.db?.engine;
   if (engine !== undefined && engine !== "postgres" && engine !== "mysql" && engine !== "sqlite") fail(`db.engine must be "postgres", "mysql" or "sqlite", got ${JSON.stringify(engine)}`);
   if (engine === "sqlite" && opts.db?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");

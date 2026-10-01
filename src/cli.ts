@@ -47,6 +47,7 @@ Config (paths are relative to the config file):
   services: { name: { command, env, cwd, ready } }
   containers: { name: { image, port, env, command, ready: { log }, reset } }
   mail:     true    SMTP server at {{mail.host}} / {{mail.port}}
+  auth:     true | { audience, claims }   OpenID issuer at {{auth.issuer}} / {{auth.jwks}}
   openapi:  file | { spec, minCoverage }
   http:     { headers, query }
   include:  [globs]  default ["**/*.scenario.{yaml,yml}"]

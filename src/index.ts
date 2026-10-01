@@ -8,6 +8,7 @@ export type { HttpClient, HttpResponse, RequestOptions } from "./http.js";
 export type { App } from "./app.js";
 export type { Dependency } from "./containers.js";
 export type { Mailbox, Mail, MailFilter } from "./mail.js";
+export type { Issuer, TokenOptions, AuthOptions } from "./auth.js";
 export type { SlicetestOptions, ContainerOptions } from "./config.js";
 // Type-only: pulls the matcher declarations (toHaveStatus, toHaveRow, ...) into
 // the public types without running anything. The matchers are registered by the plugin.

@@ -57,6 +57,8 @@ export interface RequestStep {
   form?: Record<string, unknown>;
   body?: string;
   follow?: boolean;
+  /** Send `Authorization: Bearer` with a token from the `auth` issuer: `true`, or the claims, e.g. { sub: u1, roles: [admin] }. */
+  auth?: true | Record<string, unknown>;
   /** Send the request this many times at once. `expect` applies to every response; `statuses` counts them. */
   concurrency?: number;
   expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown };
@@ -152,7 +154,7 @@ export interface MailStep {
 
 const KINDS = {
   stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
-  request: ["headers", "query", "json", "form", "body", "follow", "concurrency", "expect", "capture"],
+  request: ["headers", "query", "json", "form", "body", "follow", "auth", "concurrency", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
   db: ["where", "orderBy", "expect", "capture", "within"],
@@ -303,6 +305,7 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     case "request":
       call("request", REQUEST);
       if (["json", "form", "body"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / body");
+      if (raw.auth !== undefined && raw.auth !== true && !(raw.auth && typeof raw.auth === "object" && !Array.isArray(raw.auth))) fail(at("auth"), "`auth` must be true or the token's claims, e.g. { sub: u1, roles: [admin] }");
       if (raw.concurrency !== undefined && !(Number.isInteger(raw.concurrency) && (raw.concurrency as number) >= 1)) fail(at("concurrency"), "`concurrency` must be a positive whole number");
       if (raw.concurrency !== undefined && raw.capture !== undefined) fail(at("capture"), "`capture` can't be used with `concurrency`: there is more than one response");
       {

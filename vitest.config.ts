@@ -12,6 +12,7 @@ export default defineConfig({
       "test/fixtures/mail/vitest.config.ts",
       "test/fixtures/race/vitest.config.ts",
       "test/fixtures/sqlite/vitest.config.ts",
+      "test/fixtures/auth/vitest.config.ts",
     ],
   },
 });

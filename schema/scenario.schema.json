@@ -180,6 +180,17 @@
             "follow": {
               "type": "boolean"
             },
+            "auth": {
+              "description": "Send Authorization: Bearer with a token from the auth issuer: true, or the token's claims",
+              "oneOf": [
+                {
+                  "const": true
+                },
+                {
+                  "type": "object"
+                }
+              ]
+            },
             "concurrency": {
               "type": "integer",
               "minimum": 1,

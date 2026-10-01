@@ -15,6 +15,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
   - `record.ts`, `record-session.ts`, `record-cli.ts` — `slicetest record`: the proxy and scenario builder, the one-scenario test file the session runs as, and the CLI side. `test/record-dist.mjs` checks the round trip against `dist/`.
   - `ci.ts` — GitHub Actions annotations and job summary (failed YAML steps are collected from workers in a temp dir and printed by `global-setup.ts`).
   - `mail.ts` — the in-process SMTP server and MIME decoding behind `mail: true`.
+  - `auth.ts` — the in-process OpenID Connect issuer (discovery, JWKS, RS256 tokens, client credentials) behind `auth`.
 - `schema/scenario.schema.json` — JSON Schema for `*.scenario.yaml`. Published with the package.
 - `test/` — unit tests; `test/fixtures/` holds small apps used to test failure modes, contracts and services.
 - `examples/` — a Node and a Python app with the same API. The same scenarios run against both.

@@ -157,8 +157,9 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
   if ("request" in step) {
     const [method, rawPath] = splitCall(step.request);
     const path = interpolate(rawPath, vars) as string;
+    const headers = interpolate(step.headers, vars) as Record<string, string> | undefined;
     const opts = {
-      headers: interpolate(step.headers, vars) as Record<string, string> | undefined,
+      headers: step.auth ? { ...ctx.auth.header(step.auth === true ? {} : (interpolate(step.auth, vars) as Record<string, unknown>)), ...headers } : headers,
       query: interpolate(step.query, vars) as Record<string, string> | undefined,
       follow: step.follow,
     };

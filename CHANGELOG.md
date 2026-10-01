@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `auth: true` (or `{ audience, claims }`): an OpenID Connect issuer for apps that verify JWTs, with discovery, a JWKS and RS256 keys made per run, at `{{auth.issuer}}` / `{{auth.jwks}}` / `{{auth.audience}}`. Scenarios mint tokens with `auth.token(claims)` / `auth.header(claims)`, and tokens the app must reject with `{ expired }`, `{ wrongKey }`, `{ audience }` or `{ issuer }`. `auth.rotate()` changes the signing key. `POST /token` answers the client-credentials grant. YAML: `auth` on a `request` step.
 - `db.make(table, overrides)` and `db.makeMany(table, count, overrides)`: insert rows that satisfy the schema while naming only the columns the scenario cares about. Required columns get a value of their type, enums and `CHECK (... IN (...))` columns their first allowed value, and required foreign keys a parent row made the same way. Values are numbered per scenario, so they are unique and stable across runs. Postgres, MySQL and SQLite. YAML: a `make` step with `rows` and `count`.
 
 ## 0.4.0

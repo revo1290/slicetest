@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../../schema/scenario.schema.json
+scenarios:
+  - name: auth on a request sends a bearer token with those claims
+    steps:
+      - request: GET /me
+        auth: { sub: "{{user}}", roles: [viewer] }
+        expect:
+          status: 200
+          json: { sub: bob, roles: [viewer], tenant: acme }
+    each:
+      - { user: bob }
+  - name: auth true uses the default claims, and no auth is a 401
+    steps:
+      - request: GET /me
+        auth: true
+        expect: { json: { sub: user-1 } }
+      - request: GET /me
+        expect: { status: 401 }
