@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse, stringify } from "yaml";
@@ -19,10 +19,29 @@ export interface Detected {
 
 const TODO_COMMAND = "echo 'TODO: the command that starts your app' && exit 1";
 
+/** Files that mark a directory as an app slicetest can start. */
+const APP_MARKERS = ["manage.py", "requirements.txt", "pyproject.toml", "Gemfile", "go.mod", "Cargo.toml", "build.gradle", "build.gradle.kts", "pom.xml"];
+/** Where monorepos usually keep the server, when the root isn't one. */
+const APP_DIRS = ["backend", "server", "api", "app", "service"];
+
+function runnable(dir: string) {
+  if (APP_MARKERS.some((f) => existsSync(path.join(dir, f)))) return true;
+  try {
+    const scripts = (JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8")) as { scripts?: Record<string, string> }).scripts ?? {};
+    return !!(scripts.start || scripts.dev);
+  } catch {
+    return false;
+  }
+}
+
 export async function detect(root: string): Promise<Detected> {
   const notes: string[] = [];
-  const has = (p: string) => existsSync(path.join(root, p));
-  const read = async (p: string) => (has(p) ? readFile(path.join(root, p), "utf8") : "");
+  // The app may live in a subdirectory (backend/, server/, …); everything about the app is read there.
+  const appDir = runnable(root) ? "" : (APP_DIRS.find((d) => runnable(path.join(root, d))) ?? "");
+  if (appDir) notes.push(`app: in ${appDir}/ (app.cwd); commands for it run there`);
+  const appRoot = path.join(root, appDir);
+  const has = (p: string) => existsSync(path.join(appRoot, p));
+  const read = async (p: string) => (has(p) ? readFile(path.join(appRoot, p), "utf8") : "");
   const pkg = has("package.json") ? (JSON.parse(await read("package.json")) as { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }) : undefined;
   const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
   const python = `${await read("requirements.txt")}\n${await read("pyproject.toml")}`.toLowerCase();
@@ -31,6 +50,8 @@ export async function detect(root: string): Promise<Detected> {
   // --- app ---
   let command = TODO_COMMAND;
   let build: string | undefined;
+  let readyPath = "/";
+  let readyTimeout: number | undefined;
   const env: Record<string, string> = { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}" };
   if (pkg?.scripts?.start) {
     command = "npm start";
@@ -55,6 +76,29 @@ export async function detect(root: string): Promise<Detected> {
   } else if (/\brails\b/.test(gemfile)) {
     command = "bin/rails server -p {{app.port}}";
     notes.push("app: Rails");
+  } else if (has("build.gradle") || has("build.gradle.kts") || has("pom.xml")) {
+    const gradle = !has("pom.xml");
+    const buildFile = await read(gradle ? (has("build.gradle.kts") ? "build.gradle.kts" : "build.gradle") : "pom.xml");
+    const wrapper = gradle ? (process.platform === "win32" ? "gradlew.bat" : "./gradlew") : process.platform === "win32" ? "mvnw.cmd" : "./mvnw";
+    const tool = has(gradle ? "gradlew" : "mvnw") ? wrapper : gradle ? "gradle" : "mvn";
+    if (/spring-boot|org\.springframework\.boot/.test(buildFile)) {
+      // bootRun / spring-boot:run compile first, so no separate build; Spring reads these variables (relaxed binding).
+      command = gradle ? `${tool} bootRun -q` : `${tool} -q spring-boot:run`;
+      delete env.PORT;
+      delete env.DATABASE_URL;
+      Object.assign(env, {
+        SERVER_PORT: "{{app.port}}",
+        SPRING_DATASOURCE_URL: "{{db.jdbcUrl}}",
+        SPRING_DATASOURCE_USERNAME: "{{db.user}}",
+        SPRING_DATASOURCE_PASSWORD: "{{db.password}}",
+      });
+      readyTimeout = 120_000;
+      if (/actuator/.test(buildFile)) readyPath = "/actuator/health";
+      notes.push(`app: Spring Boot (${gradle ? "Gradle" : "Maven"}). SERVER_PORT and SPRING_DATASOURCE_* override application.yml; {{db.jdbcUrl}} is the JDBC URL`);
+    } else {
+      command = gradle ? `${tool} run -q` : `${tool} -q exec:java`;
+      notes.push(`app: ${gradle ? "Gradle" : "Maven"} project. Check the command; the app must listen on the port in {{app.port}}`);
+    }
   } else if (has("go.mod")) {
     command = "go run .";
     notes.push("app: Go (go.mod). It must listen on $PORT.");
@@ -68,9 +112,10 @@ export async function detect(root: string): Promise<Detected> {
   // --- migrations ---
   let migrate: MigrateOptions | undefined;
   const migrationsSql = has("migrations") && (await readdir(path.join(root, "migrations"))).some((f) => f.endsWith(".sql"));
-  if (has("atlas.hcl") || has("migrations/atlas.sum")) {
-    migrate = { atlas: { dir: "file://migrations" } };
-    notes.push("db: Atlas migrations in migrations/");
+  const atlas = await findAtlas(root, appDir);
+  if (atlas) {
+    migrate = { atlas: { dir: `file://${atlas}` } };
+    notes.push(`db: Atlas migrations in ${atlas}/`);
   } else if (has("prisma/schema.prisma")) {
     migrate = { command: "npx prisma migrate deploy", inputs: ["prisma/migrations"] };
     notes.push("db: Prisma (prisma migrate deploy)");
@@ -100,8 +145,14 @@ export async function detect(root: string): Promise<Detected> {
     notes.push("db: no migrations found; the database starts empty. Set db.migrate.");
   }
 
+  // Migrations found in the app's directory: their paths are relative to it, and commands run there.
+  if (appDir && migrate && !("atlas" in migrate)) {
+    if ("sql" in migrate) migrate = { sql: path.posix.join(appDir, migrate.sql) };
+    else migrate = { command: `cd ${appDir} && ${migrate.command}`, ...(migrate.inputs ? { inputs: migrate.inputs.map((i) => path.posix.join(appDir, i)) } : {}) };
+  }
+
   // --- docker compose: the database image and other dependencies ---
-  const { db: composeDb, containers, appEnv, mail: composeMail } = await fromCompose(root, notes);
+  const { db: composeDb, containers, appEnv, mail: composeMail } = await fromCompose(root, notes, [...new Set(["", appDir])]);
   Object.assign(env, appEnv);
   let mail = composeMail;
   if (!mail && (deps.nodemailer || /\b(flask-mail|fastapi-mail|django-anymail)\b/.test(python) || (has("manage.py") && /EMAIL_HOST/.test(await read(await djangoSettings(root))) ))) {
@@ -135,7 +186,7 @@ export async function detect(root: string): Promise<Detected> {
   if (openapi) notes.push(`openapi: ${openapi}. Every response will be checked against it.`);
 
   const config: CliConfig = {
-    app: { command, ...(build ? { build } : {}), env, ready: { path: "/" } },
+    app: { ...(appDir ? { cwd: appDir } : {}), command, ...(build ? { build } : {}), env, ready: { path: readyPath }, ...(readyTimeout ? { readyTimeout } : {}) },
     ...(migrate || Object.keys(composeDb).length ? { db: { ...composeDb, ...(migrate ? { migrate } : {}) } } : {}),
     ...(Object.keys(containers).length ? { containers } : {}),
     ...(mail ? { mail: true } : {}),
@@ -257,7 +308,26 @@ export async function init(root: string, { force = false } = {}) {
   return { files: [configFile, scenarioFile].map((f) => path.relative(root, f)), notes };
 }
 
-const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"];
+const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "podman-compose.yaml"];
+
+/**
+ * The Atlas migrations directory, relative to the project root: from an atlas.hcl's
+ * `dir = "file://..."` (in the root, the app's directory or atlas/, db/), else a
+ * migrations/ folder with an atlas.sum.
+ */
+async function findAtlas(root: string, appDir: string) {
+  for (const dir of [...new Set(["", appDir, "atlas", "db", "database"])]) {
+    const hcl = path.join(root, dir, "atlas.hcl");
+    if (!existsSync(hcl)) continue;
+    const found = /\bdir\s*=\s*"file:\/\/([^"]+)"/.exec(await readFile(hcl, "utf8"))?.[1];
+    const rel = path.posix.join(dir.replace(/\\/g, "/"), (found ?? "migrations").replace(/^\.\//, ""));
+    if (existsSync(path.join(root, rel))) return rel;
+  }
+  for (const dir of [...new Set(["migrations", path.posix.join(appDir, "migrations")])]) {
+    if (existsSync(path.join(root, dir, "atlas.sum"))) return dir;
+  }
+  return undefined;
+}
 
 /** Development mail servers; `mail: true` does their job in-process. */
 const MAIL_CATCHERS = /(^|\/)(mailpit|mailhog|maildev|smtp4dev|greenmail[\w-]*|mailcatcher|inbucket)(:|$)/;
@@ -282,12 +352,12 @@ const KNOWN: { match: RegExp; port: number; reset?: string[]; env?: (name: strin
  * Reads docker compose: a postgres / mysql service sets the database engine
  * and image; Redis, Mongo, MinIO and other images become `containers`.
  */
-async function fromCompose(root: string, notes: string[]) {
+async function fromCompose(root: string, notes: string[], dirs: string[] = [""]) {
   const db: DbOptions = {};
   const containers: Record<string, ContainerOptions> = {};
   const appEnv: Record<string, string> = {};
   let mail = false;
-  const file = COMPOSE_FILES.find((f) => existsSync(path.join(root, f)));
+  const file = dirs.flatMap((d) => COMPOSE_FILES.map((f) => path.join(d, f))).find((f) => existsSync(path.join(root, f)));
   if (!file) return { db, containers, appEnv, mail };
   let doc: { services?: Record<string, Record<string, any>> };
   try {

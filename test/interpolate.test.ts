@@ -10,3 +10,18 @@ test("rejects unknown placeholders and lists the available ones", () => {
     "unknown placeholder {{stub.mail}} in app.command. Available: {{app.port}}",
   );
 });
+
+test("the database URL is also given in parts and as a JDBC URL", async () => {
+  const { connectionVars } = await import("../src/runtime.js");
+
+  expect(connectionVars("postgres", "postgres://test:p%40ss@127.0.0.1:5433/slicetest_w1?sslmode=disable")).toEqual({
+    "db.host": "127.0.0.1",
+    "db.port": "5433",
+    "db.name": "slicetest_w1",
+    "db.user": "test",
+    "db.password": "p@ss",
+    "db.jdbcUrl": "jdbc:postgresql://127.0.0.1:5433/slicetest_w1",
+  });
+  expect(connectionVars("mysql", "mysql://root:x@localhost/app")["db.jdbcUrl"]).toBe("jdbc:mysql://localhost:3306/app");
+  expect(connectionVars("sqlite", "sqlite:///tmp/a.db", "/tmp/a.db")).toEqual({ "db.jdbcUrl": "jdbc:sqlite:/tmp/a.db" });
+});

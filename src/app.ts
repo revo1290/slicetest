@@ -79,7 +79,7 @@ export class App {
     const child = spawn(interpolate(opts.command, vars, `${key}.command`), {
       shell: true,
       cwd: path.resolve(root, opts.cwd ?? "."),
-      env: { ...process.env, ...mapValues(env, (v) => interpolate(v, vars, `${key}.env`)) },
+      env: { ...process.env, ...opts.baseEnv, ...mapValues(env, (v) => interpolate(v, vars, `${key}.env`)) },
       stdio: ["ignore", "pipe", "pipe"],
       // POSIX: own process group, so stop() also kills whatever the shell spawned.
       // Windows: detaching would open a console window; taskkill /T walks the tree instead.

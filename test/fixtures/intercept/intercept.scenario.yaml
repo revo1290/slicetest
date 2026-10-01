@@ -1,0 +1,26 @@
+scenarios:
+  - name: a hard-coded HTTPS API is answered by its stub
+    steps:
+      - stub: weather
+        on: GET /v1/now
+        reply: { body: { temp_c: 21.5 } }
+      - request: GET /weather?city=Tokyo
+        expect: { status: 200, json: { city: Tokyo, temperature: 21.5 } }
+      - received: weather
+        call: GET /v1/now
+        when: { query: { city: Tokyo }, headers: { authorization: Bearer weather-key, host: api.weather.test } }
+
+  - name: an OAuth-style login goes through the provider's stubbed page and token endpoint
+    steps:
+      - stub: provider
+        on: GET /authorize
+        reply:
+          status: 302
+          headers: { location: "{{call.query.redirect_uri}}?code=c-1&state={{call.query.state}}" }
+      - stub: provider
+        on: POST /token
+        when: { body: { $contains: code=c-1 } }
+        reply: { body: { access_token: t-42 } }
+      - request: GET /login
+        follow: true
+        expect: { status: 200, json: { token: t-42 } }

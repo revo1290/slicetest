@@ -56,6 +56,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Webhooks signed like the real sender.** Stripe, GitHub, Slack, Shopify and Standard Webhooks signatures, plus forged and replayed deliveries, so signature checks are tested instead of bypassed.
 - **Reproducible chaos.** Stubs can fail the first calls, drop connections or add latency, from a seed the failure output prints, so a resilience test that fails once fails again on demand.
 - **Forms as a browser sends them.** `http.submit()` presses a button on a server-rendered page, hidden fields included, so CSRF tokens and Next.js server actions work without knowing their internals.
+- **Hard-coded APIs, stubbed anyway.** `hosts: [api.github.com]` catches calls to URLs written in the code or built into a framework, over HTTPS, from Node, Python, Go, Ruby or the JVM, with no change to the app. Redirects to those hosts are followed to the stub, so OAuth logins run end to end.
 - **N+1 detection for any stack.** A wire-protocol proxy records the SQL the app runs, so query counts are asserted at the HTTP boundary, whatever the ORM or language.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
@@ -346,6 +347,42 @@ stub("search").chaos({ errorRate: 0.3, networkErrorRate: 0.1, latency: [50, 300]
 
 Faulted calls don't use up `once()` / `times()` routes, so a retry gets the answer you registered. 429 and 503 come with `Retry-After: 1`. Random faults are drawn from a seeded generator: a failing scenario prints `chaos on search: …; 4 of 12 calls faulted. Replay with SLICETEST_CHAOS_SEED=1840211`, and running with that variable gives the same faults. `stub.faults()` lists the calls that faulted. YAML: `- chaos: payments` with `failFirst`, `errorRate`, `statuses`, `networkErrorRate`, `latency` and `seed`.
 
+### Hard-coded hosts: `hosts`
+
+Stubs normally take over by giving the app their URL (`{{stub.github}}`) instead of the real one. When the URL is written in the code (`https://api.github.com`), or built into a framework (Spring Security's GitHub login), give the stub the hosts instead:
+
+```yaml
+stubs:
+  - name: github
+    hosts: [github.com]       # OAuth authorize and token endpoints
+  - name: github-api
+    hosts: [api.github.com]
+```
+
+The app is then started with `HTTPS_PROXY` / `HTTP_PROXY` pointing at slicetest and a certificate authority made for the run in the trust settings each runtime reads: `NODE_USE_ENV_PROXY` and `NODE_EXTRA_CA_CERTS` for Node (22.21+ / 24.5+), `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` for Python, Ruby, Go and curl, and proxy and trust-store system properties in `JAVA_TOOL_OPTIONS` for the JVM (`HttpURLConnection`, `java.net.http.HttpClient`, Spring's `RestClient` and `RestTemplate`). Calls to those hosts reach the stub with their path and `Host` header, over HTTPS or HTTP; calls to other hosts go to the real ones and are listed in the failure output. Nothing changes in the app. Variables you set in `app.env` win over these, and `{{proxy.url}}`, `{{proxy.ca}}`, `{{proxy.bundle}}` and `{{proxy.truststore}}` are there for clients configured some other way.
+
+A redirect to an intercepted host is followed to its stub, as a browser would follow it to the real site. So a whole OAuth login runs in a scenario: the stub plays the provider's consent page and sends the browser back.
+
+```yaml
+setup:
+  - stub: github
+    on: GET /login/oauth/authorize
+    reply: { status: 302, headers: { location: "{{call.query.redirect_uri}}?code=c1&state={{call.query.state}}" } }
+  - stub: github
+    on: POST /login/oauth/access_token
+    reply: { body: { access_token: gho_test, token_type: bearer } }
+  - stub: github-api
+    on: GET /user
+    reply: { body: { id: 1, login: octocat } }
+scenarios:
+  - name: log in with GitHub
+    steps:
+      - request: GET /oauth2/authorization/github
+        follow: true                       # → github.com (stub) → back to the app's callback
+      - request: GET /api/me
+        expect: { json: { login: octocat } }
+```
+
 ### Recording a real service
 
 A stub can also answer from recordings of the real service, the way VCR or Polly do, except that it works for an app in any language because the stub is a server. Give it the real base URL:
@@ -556,7 +593,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 |---|---|---|
 | `app.command` | (required) | Shell command. May use `{{app.port}}` and the other placeholders. |
 | `app.build` | none | Shell command run once per run before the app starts, while the database starts, e.g. `npm run build` for `next start`. Not repeated in watch mode. Services take `build` too. |
-| `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. The rest of `process.env` is inherited. |
+| `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. For apps that don't take one URL: `{{db.jdbcUrl}}` (`jdbc:postgresql://…`), `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}`. The rest of `process.env` is inherited. |
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
 | `app.readyTimeout` | `30000` | |
@@ -573,7 +610,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `mail` | `false` | Start an SMTP server at `{{mail.host}}` / `{{mail.port}}` and collect the app's mail. See [Mail](#mail-catch-what-the-app-sends). |
 | `auth` | `false` | `true` or `{ audience, claims }`: an OpenID Connect issuer at `{{auth.issuer}}` (JWKS at `{{auth.jwks}}`) whose tokens scenarios mint with `auth.token()`. See [Auth](#auth-a-real-openid-issuer-tokens-with-any-claims). |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
-| `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings? }`: check calls against the provider's spec, answer from it, or [replay recordings](#recording-a-real-service) of the real service. |
+| `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings?, hosts? }`: check calls against the provider's spec, answer from it, [replay recordings](#recording-a-real-service) of the real service, or answer for [hard-coded hosts](#hard-coded-hosts-hosts). |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`. Every response must match it; the run ends with a coverage report. |
 | `http` | `{}` | Default `headers` / `query` for every request. |
 
@@ -725,6 +762,25 @@ Checks what a run needs before it starts, instead of failing with a timeout half
 
 1 problem(s) to fix before running.
 ```
+
+## Spring Boot and other JVM apps
+
+`slicetest init` recognizes Spring Boot (Gradle or Maven, also in a `backend/` folder) and writes:
+
+```yaml
+app:
+  cwd: backend
+  command: ./gradlew bootRun -q
+  env:
+    SERVER_PORT: "{{app.port}}"
+    SPRING_DATASOURCE_URL: "{{db.jdbcUrl}}"       # overrides application.yml
+    SPRING_DATASOURCE_USERNAME: "{{db.user}}"
+    SPRING_DATASOURCE_PASSWORD: "{{db.password}}"
+  ready: { path: /actuator/health }
+  readyTimeout: 120000
+```
+
+Atlas, Flyway-free setups with `ddl-auto: validate` work as they are: slicetest migrates, Hibernate validates against the result. For a faster start, build a jar once with `build: ./gradlew bootJar -q` and run `command: java -jar build/libs/app.jar`. Calls to hard-coded hosts (GitHub, Google, …) are caught with [`hosts`](#hard-coded-hosts-hosts).
 
 ## Next.js
 

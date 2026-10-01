@@ -22,6 +22,10 @@ test.each([
   [{ ...valid, stubs: ["slack.hook"] }, 'stub name "slack.hook"'],
   [{ ...valid, stubs: ["a", "a"] }, 'stub "a" is declared twice'],
   [{ ...valid, stubs: [{ name: "mail", autoReply: true }] }, 'stub "mail": autoReply needs an openapi spec'],
+  [{ ...valid, stubs: [{ name: "gh", hosts: "api.github.com" }] }, 'stub "gh": hosts must be a list'],
+  [{ ...valid, stubs: [{ name: "gh", hosts: ["https://api.github.com"] }] }, 'hosts takes host names only (no scheme, port or path), got "https://api.github.com"'],
+  [{ ...valid, stubs: [{ name: "gh", hosts: ["localhost"] }] }, "localhost can't be intercepted; point the app at {{stub.gh}} instead"],
+  [{ ...valid, stubs: [{ name: "a", hosts: ["x.test"] }, { name: "b", hosts: ["X.test"] }] }, 'host X.test is intercepted by both stub "a" and stub "b"'],
   [{ ...valid, containers: { cache: { port: 6379 } } }, "containers.cache.image is required"],
   [{ ...valid, containers: { cache: { image: "redis", port: "6379" } } }, "containers.cache.port must be the port"],
   [{ ...valid, containers: { cache: { image: "redis", port: 6379, reset: "redis-cli FLUSHALL" } } }, "containers.cache.reset must be a list of strings"],
@@ -72,4 +76,11 @@ test("picks the engine from db.engine or the URL, and only uses SLICETEST_DATABA
     if (saved === undefined) delete process.env.SLICETEST_DATABASE_URL;
     else process.env.SLICETEST_DATABASE_URL = saved;
   }
+});
+
+test("intercepted hosts are mapped to their stub, in lower case", () => {
+  expect(resolveOptions({ ...valid, stubs: ["slack", { name: "github", hosts: ["api.github.com", "GitHub.com"] }] }, "/").intercept).toEqual({
+    "api.github.com": "github",
+    "github.com": "github",
+  });
 });

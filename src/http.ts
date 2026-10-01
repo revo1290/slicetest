@@ -22,6 +22,8 @@ export interface RequestOptions {
 
 /** Per-scenario state shared by a client and every client derived from it with `with()`. */
 class Session {
+  /** Stub base URLs of intercepted hosts, which redirects may lead to (an OAuth provider's login page). */
+  external = new Map<string, string>();
   cookies = new Map<string, string>();
   history: HttpResponse[] = [];
   listeners: ((res: HttpResponse) => void)[] = [];
@@ -141,7 +143,8 @@ export class HttpClient {
       const location = res.headers.get("location");
       if (!location) break;
       const next = new URL(location, url);
-      if (next.origin !== url.origin) break;
+      // Like a browser: on to the app, or to a host a stub stands in for; anywhere else is returned.
+      if (next.origin !== new URL(this.baseUrl).origin && !this.#session.external.has(next.hostname.toLowerCase())) break;
       // 307/308 repeat the request as it was; the others turn it into a GET without a body, like browsers do.
       if (res.status !== 307 && res.status !== 308 && method !== "HEAD") {
         method = "GET";
@@ -155,7 +158,10 @@ export class HttpClient {
 
   async #send(method: string, url: URL, body: unknown, opts: RequestOptions): Promise<HttpResponse> {
     const headers = new Headers(opts.headers);
-    if (this.#session.cookies.size > 0 && !headers.has("cookie")) {
+    const stub = url.origin === new URL(this.baseUrl).origin ? undefined : this.#session.external.get(url.hostname.toLowerCase());
+    // The app's cookies stay with the app; the stub is reached at its own address.
+    const target = stub ? new URL(url.pathname + url.search, stub) : url;
+    if (!stub && this.#session.cookies.size > 0 && !headers.has("cookie")) {
       headers.set("cookie", [...this.#session.cookies].map(([k, v]) => `${k}=${v}`).join("; "));
     }
     let payload: BodyInit | undefined;
@@ -176,13 +182,13 @@ export class HttpClient {
     const started = performance.now();
     let res: Response;
     try {
-      res = await fetch(url, { method, headers, body: payload, redirect: "manual" });
+      res = await fetch(target, { method, headers, body: payload, redirect: "manual" });
     } catch (e) {
       const cause = (e as { cause?: { code?: string } }).cause?.code;
       this.#record({ method, url: url.pathname + url.search, status: 0, headers: new Headers(), text: `${e}${cause ? ` (${cause})` : ""}`, json: undefined, durationMs: Math.round(performance.now() - started) });
       throw e;
     }
-    for (const cookie of res.headers.getSetCookie()) this.#storeCookie(cookie);
+    if (!stub) for (const cookie of res.headers.getSetCookie()) this.#storeCookie(cookie);
     const text = await res.text();
     let json: unknown;
     try {
@@ -190,7 +196,7 @@ export class HttpClient {
     } catch {}
     const out: HttpResponse = {
       method,
-      url: url.pathname + url.search,
+      url: stub ? url.href : url.pathname + url.search,
       status: res.status,
       headers: res.headers,
       text,
@@ -198,7 +204,8 @@ export class HttpClient {
       durationMs: Math.round(performance.now() - started),
     };
     this.#record(out);
-    for (const listener of this.#session.listeners) listener(out);
+    // Listeners (contract checks, coverage) are about the app's responses only.
+    if (!stub) for (const listener of this.#session.listeners) listener(out);
     return out;
   }
 
@@ -210,6 +217,11 @@ export class HttpClient {
   #record(res: HttpResponse) {
     this.#session.history.push(res);
     if (this.#session.history.length > HISTORY) this.#session.history.shift();
+  }
+
+  /** Let redirects to `host` continue to the stub at `stubUrl`, as they would to the real host in a browser. */
+  intercept(host: string, stubUrl: string) {
+    this.#session.external.set(host.toLowerCase(), stubUrl);
   }
 
   /** Cookies the app has set during this scenario. Mutations are sent with later requests. */

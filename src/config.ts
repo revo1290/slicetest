@@ -77,6 +77,12 @@ export interface StubOptions {
   upstream?: string;
   /** Recordings file, relative to the root. Default `recordings/<name>.yaml`. */
   recordings?: string;
+  /**
+   * Hosts the app calls directly, e.g. `["api.github.com"]`: their HTTP and HTTPS
+   * traffic is answered by this stub, for apps whose URLs can't be set from the
+   * environment. The app is started with proxy variables and a test CA it trusts.
+   */
+  hosts?: string[];
 }
 
 export interface ServiceOptions extends Omit<AppOptions, "ready"> {
@@ -87,7 +93,11 @@ export interface ServiceOptions extends Omit<AppOptions, "ready"> {
 type ResolvedReady = { path: string } | { log: string; flags: string };
 
 /** A process to start, with `ready` made JSON-serializable. The app always has `ready`; services may not. */
-export type ResolvedProcess = Omit<AppOptions, "ready"> & { ready?: ResolvedReady };
+export type ResolvedProcess = Omit<AppOptions, "ready"> & {
+  ready?: ResolvedReady;
+  /** Set by slicetest (proxy variables for intercepted hosts); `env` overrides it. */
+  baseEnv?: Record<string, string>;
+};
 
 export interface AppOptions {
   /** Command that starts the app, run through the shell. */
@@ -164,7 +174,7 @@ export type MigrateOptions =
 /** Normalized shape passed from the plugin to globalSetup and workers. Must stay JSON-serializable. */
 export interface ResolvedOptions {
   root: string;
-  app: Omit<AppOptions, "ready"> & { ready: ResolvedReady };
+  app: ResolvedProcess & { ready: ResolvedReady };
   services: Record<string, ResolvedProcess>;
   containers: Record<string, ContainerOptions>;
   mail: boolean;
@@ -175,6 +185,8 @@ export interface ResolvedOptions {
   openapi: { app?: string; minCoverage?: number; stubs: Record<string, string>; autoReply: string[] };
   /** Stubs backed by recordings of a real service; `record` when SLICETEST_RECORD selects them. */
   recordings: Record<string, { file: string; upstream: string; record: boolean }>;
+  /** Intercepted host (lower case) → the stub that answers it. */
+  intercept: Record<string, string>;
   http?: RequestOptions;
 }
 
@@ -201,6 +213,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
       autoReply: (opts.stubs ?? []).flatMap((s) => (typeof s === "object" && s.autoReply ? [s.name] : [])),
     },
     recordings: resolveRecordings(opts.stubs ?? []),
+    intercept: Object.fromEntries((opts.stubs ?? []).flatMap((s) => (typeof s === "object" ? (s.hosts ?? []).map((h) => [h.toLowerCase(), s.name]) : []))),
     http: opts.http,
   };
 }
@@ -302,6 +315,24 @@ function validate(opts: SlicetestOptions) {
     if (typeof s === "object" && s.autoReply && !s.openapi) fail(`stub "${s.name}": autoReply needs an openapi spec to answer from`);
     if (typeof s === "object" && s.upstream !== undefined && !/^https?:\/\/[^/]/.test(s.upstream)) fail(`stub "${s.name}": upstream must be an http(s) URL, got ${JSON.stringify(s.upstream)}`);
     if (typeof s === "object" && s.recordings !== undefined && !s.upstream) fail(`stub "${s.name}": recordings needs an upstream to record from`);
+    if (typeof s === "object" && s.hosts !== undefined) {
+      if (!Array.isArray(s.hosts) || s.hosts.length === 0) fail(`stub "${s.name}": hosts must be a list of host names, e.g. ["api.github.com"]`);
+      for (const h of s.hosts) {
+        if (typeof h !== "string" || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(h)) {
+          fail(`stub "${s.name}": hosts takes host names only (no scheme, port or path), got ${JSON.stringify(h)}`);
+        }
+        if (["localhost", "127.0.0.1"].includes(h.toLowerCase())) fail(`stub "${s.name}": ${h} can't be intercepted; point the app at {{stub.${s.name}}} instead`);
+      }
+    }
+  }
+  const seen = new Map<string, string>();
+  for (const s of opts.stubs ?? []) {
+    if (typeof s !== "object") continue;
+    for (const h of s.hosts ?? []) {
+      const other = seen.get(h.toLowerCase());
+      if (other) fail(`host ${h} is intercepted by both stub "${other}" and stub "${s.name}"`);
+      seen.set(h.toLowerCase(), s.name);
+    }
   }
   const stubs = (opts.stubs ?? []).map(stubName);
   for (const name of stubs) {

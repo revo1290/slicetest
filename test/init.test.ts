@@ -196,3 +196,42 @@ test("an audience alone doesn't turn on auth; a JWT library only suggests it", a
   expect(config.app.env).not.toHaveProperty("API_AUDIENCE");
   expect(notes.join("\n")).toContain("auth: jose is a dependency");
 });
+
+test("a Spring Boot app in backend/ with Atlas migrations named in atlas/atlas.hcl and a podman-compose.yml", async () => {
+  const root = await project({
+    "frontend/package.json": JSON.stringify({ scripts: { dev: "next dev", build: "next build", start: "next start" } }),
+    "backend/build.gradle": "plugins { id 'org.springframework.boot' version '3.4.0' }\ndependencies { implementation 'org.springframework.boot:spring-boot-starter-actuator' }",
+    "backend/gradlew": "",
+    "atlas/atlas.hcl": 'env "local" {\n  migration {\n    dir = "file://migrations"\n  }\n}\n',
+    "atlas/migrations/1_init.sql": "",
+    "podman-compose.yml": "services:\n  db:\n    image: docker.io/library/postgres:16\n",
+  });
+
+  const { config, notes } = await detect(root);
+
+  expect(config).toMatchObject({
+    app: {
+      cwd: "backend",
+      command: process.platform === "win32" ? "gradlew.bat bootRun -q" : "./gradlew bootRun -q",
+      env: { SERVER_PORT: "{{app.port}}", SPRING_DATASOURCE_URL: "{{db.jdbcUrl}}", SPRING_DATASOURCE_USERNAME: "{{db.user}}", SPRING_DATASOURCE_PASSWORD: "{{db.password}}" },
+      ready: { path: "/actuator/health" },
+      readyTimeout: 120000,
+    },
+    db: { image: "docker.io/library/postgres:16", migrate: { atlas: { dir: "file://atlas/migrations" } } },
+  });
+  expect(config.app.env).not.toHaveProperty("DATABASE_URL");
+  expect(notes).toContain("app: in backend/ (app.cwd); commands for it run there");
+});
+
+test("migrations of an app in a subdirectory are found and run there", async () => {
+  const root = await project({
+    "package.json": JSON.stringify({ scripts: { prepare: "lefthook install" } }),
+    "server/package.json": JSON.stringify({ scripts: { start: "node ." }, devDependencies: { prisma: "6" } }),
+    "server/prisma/schema.prisma": "",
+  });
+
+  expect((await detect(root)).config).toMatchObject({
+    app: { cwd: "server", command: "npm start" },
+    db: { migrate: { command: "cd server && npx prisma migrate deploy", inputs: ["server/prisma/migrations"] } },
+  });
+});

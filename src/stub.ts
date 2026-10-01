@@ -115,6 +115,15 @@ export class Stub {
     });
   }
 
+  /** Serve a connection that arrived elsewhere, e.g. TLS the intercepting proxy terminated. */
+  attach(socket: import("node:net").Socket) {
+    this.#server.emit("connection", socket);
+  }
+
+  get port() {
+    return Number(new URL(this.url).port);
+  }
+
   static async start(name: string) {
     const stub = new Stub(name);
     await new Promise<void>((resolve) => stub.#server.listen(0, "127.0.0.1", resolve));

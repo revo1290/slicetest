@@ -8,6 +8,7 @@ import { Dependency } from "./containers.js";
 import { Db, formatChanges } from "./db.js";
 import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
+import { Interceptor } from "./intercept.js";
 import { Mailbox } from "./mail.js";
 import { OpenApiSpec } from "./openapi.js";
 import { QueryLog } from "./query-log.js";
@@ -58,12 +59,14 @@ export class Runtime {
     readonly mailbox?: Mailbox,
     readonly issuer?: Issuer,
     readonly queryLog?: QueryLog,
+    readonly interceptor?: Interceptor,
   ) {
     this.#http = this.#client();
   }
 
   #client() {
     const http = new HttpClient(this.app.url, this.opts.http);
+    for (const [host, name] of Object.entries(this.opts.intercept)) http.intercept(host, this.stubs.get(name)!.url);
     const spec = this.specs.app;
     if (spec) {
       http.onResponse((res) => {
@@ -95,6 +98,7 @@ export class Runtime {
     let mailbox: Mailbox | undefined;
     let issuer: Issuer | undefined;
     let queryLog: QueryLog | undefined;
+    let interceptor: Interceptor | undefined;
     try {
       // Loaded first: a broken spec should fail before anything is started.
       const specs = {
@@ -127,6 +131,7 @@ export class Runtime {
         db.attachQueryLog(queryLog);
       }
       if (engine.name === "sqlite") vars["db.path"] = (await import("./drivers/sqlite.js")).sqlitePath(url);
+      Object.assign(vars, connectionVars(engine.name, vars["db.url"]!, vars["db.path"]));
       if (opts.mail) {
         mailbox = await Mailbox.start();
         Object.assign(vars, { "mail.host": mailbox.host, "mail.port": String(mailbox.port), "mail.url": mailbox.url });
@@ -141,6 +146,17 @@ export class Runtime {
         vars[`container.${name}.port`] = String(c.port);
       }
       for (const [name, stub] of stubs) vars[`stub.${name}`] = stub.url;
+      if (Object.keys(opts.intercept).length > 0) {
+        const routes = new Map(Object.entries(opts.intercept).map(([host, name]) => {
+          const stub = stubs.get(name)!;
+          return [host, { attach: (s: import("node:net").Socket) => stub.attach(s), port: stub.port }];
+        }));
+        interceptor = await Interceptor.start(routes);
+        Object.assign(vars, { "proxy.url": interceptor.url, "proxy.ca": interceptor.files.ca, "proxy.bundle": interceptor.files.bundle, "proxy.truststore": interceptor.files.trustStore });
+        // Every process gets the proxy settings; a key in its own `env` still wins.
+        const baseEnv = interceptor.env();
+        opts = { ...opts, app: { ...opts.app, baseEnv }, services: Object.fromEntries(Object.entries(opts.services).map(([n, s]) => [n, { ...s, baseEnv }])) };
+      }
       for (const [name, service] of Object.entries(opts.services)) {
         const started = await App.start(service, opts.root, vars, `service.${name}`);
         services.set(name, started);
@@ -148,7 +164,7 @@ export class Runtime {
         vars[`service.${name}.port`] = String(started.port);
       }
       const app = await App.start(opts.app, opts.root, vars);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog);
+      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog, interceptor);
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
@@ -157,6 +173,7 @@ export class Runtime {
       await mailbox?.close();
       await issuer?.close();
       await queryLog?.close();
+      await interceptor?.close();
       throw e;
     }
   }
@@ -223,6 +240,7 @@ export class Runtime {
     this.mailbox?.reset();
     this.issuer?.reset();
     this.queryLog?.reset();
+    this.interceptor?.passedThrough.clear();
     await Promise.all([...this.containers.values()].map((c) => c.reset()));
     this.http.reset();
     for (const p of this.#processes()) p.beginScenario();
@@ -304,6 +322,9 @@ export class Runtime {
       sections.push(`database changes during this scenario: unavailable (${(e as Error).message})`);
     }
     if (this.mailbox) sections.push(this.mailbox.describe());
+    if (this.interceptor?.passedThrough.size) {
+      sections.push(`outbound calls to hosts no stub intercepts (sent to the real host; add them to a stub's \`hosts\` to answer them):\n${[...this.interceptor.passedThrough].map((h) => `  ${h}`).join("\n")}`);
+    }
     if (this.queryLog) {
       const q = this.queryLog.queries();
       const top = q.shapes().slice(0, 5).map((s) => `  ${s.count > 1 ? `×${s.count} ` : ""}${s.sql.length > 160 ? `${s.sql.slice(0, 157)}...` : s.sql}`);
@@ -336,6 +357,7 @@ export class Runtime {
       this.mailbox?.close(),
       this.issuer?.close(),
       this.queryLog?.close(),
+      this.interceptor?.close(),
     ]);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) throw failed.reason;
@@ -375,4 +397,23 @@ function parseJson(text: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The parts of the database URL, for apps that don't take one URL: JDBC (Spring's
+ * `spring.datasource.url` plus username / password), or separate host / port / name settings.
+ */
+export function connectionVars(engine: string, url: string, sqlitePath?: string): Record<string, string> {
+  if (engine === "sqlite") return { "db.jdbcUrl": `jdbc:sqlite:${sqlitePath}` };
+  const u = new URL(url);
+  const port = u.port || (engine === "mysql" ? "3306" : "5432");
+  const name = decodeURIComponent(u.pathname.replace(/^\//, ""));
+  return {
+    "db.host": u.hostname,
+    "db.port": port,
+    "db.name": name,
+    "db.user": decodeURIComponent(u.username),
+    "db.password": decodeURIComponent(u.password),
+    "db.jdbcUrl": `jdbc:${engine === "mysql" ? "mysql" : "postgresql"}://${u.hostname}:${port}/${encodeURIComponent(name)}`,
+  };
 }
