@@ -58,6 +58,21 @@ scenarios:
             options: { a: ごはん, b: パン }
             votes: { a: 2, b: 1 }
 
+  - name: Slack が一時的に 503 を返すと投票は作られない（YAML）
+    steps:
+      - stub: slack
+        on: POST /hook
+        reply: { status: 200, body: ok }
+      - chaos: slack
+        failFirst: 1
+        statuses: [503]
+      - request: POST /polls
+        json: { title: 春か秋か, a: 春, b: 秋 }
+        expect: { status: 502 }
+      - request: POST /polls
+        json: { title: 春か秋か, a: 春, b: 秋 }
+        expect: { status: 201 }
+
   - name: make は必須列を埋め、CHECK の許す値で票を作る（YAML）
     steps:
       - make: polls

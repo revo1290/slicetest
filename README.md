@@ -54,6 +54,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
 - **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
 - **Webhooks signed like the real sender.** Stripe, GitHub, Slack, Shopify and Standard Webhooks signatures, plus forged and replayed deliveries, so signature checks are tested instead of bypassed.
+- **Reproducible chaos.** Stubs can fail the first calls, drop connections or add latency, from a seed the failure output prints, so a resilience test that fails once fails again on demand.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
 - **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
 
@@ -289,6 +290,21 @@ slicetest: OpenAPI coverage (openapi.yaml): 8/9 documented responses (89%)
 To fail the run below a threshold, use `openapi: { spec: "openapi.yaml", minCoverage: 100 }`. Filtered runs (`-t`, a single file) count too, so you may want `minCoverage: process.env.CI ? 100 : undefined`.
 
 The example apps in `examples/` run every scenario against `examples/openapi.yaml` with `minCoverage: 100`, and their Slack calls against `examples/slack.openapi.yaml`.
+
+#### Chaos: faults the app must survive
+
+`chaos()` makes a stub misbehave for the rest of the scenario, to test retries, timeouts and fallbacks against the app's real HTTP client:
+
+```ts
+stub("payments").on("POST", "/charges").once().reply(201, { id: "ch_1" });
+stub("payments").chaos({ failFirst: 2, statuses: [503] });   // 503, 503, then the real answer
+await http.post("/orders", { ... });
+expect(stub("payments")).toHaveReceivedTimes(3, "POST", "/charges");
+
+stub("search").chaos({ errorRate: 0.3, networkErrorRate: 0.1, latency: [50, 300] });
+```
+
+Faulted calls don't use up `once()` / `times()` routes, so a retry gets the answer you registered. 429 and 503 come with `Retry-After: 1`. Random faults are drawn from a seeded generator: a failing scenario prints `chaos on search: …; 4 of 12 calls faulted. Replay with SLICETEST_CHAOS_SEED=1840211`, and running with that variable gives the same faults. `stub.faults()` lists the calls that faulted. YAML: `- chaos: payments` with `failFirst`, `errorRate`, `statuses`, `networkErrorRate`, `latency` and `seed`.
 
 ### Recording a real service
 
@@ -572,6 +588,7 @@ scenarios:
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |
 | `request` with `webhook` | `{ provider, secret, event, stale, invalidSignature }`: signs the body like that provider's deliveries |
+| `chaos: <stub>` | `failFirst`, `errorRate`, `statuses`, `networkErrorRate`, `latency`, `seed` — like `stub(name).chaos()` |
 | `make: <table>` | `rows` (a mapping, or a list for several rows), `count`, `capture` (from `row` / `rows`) — like `db.make()` |
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |

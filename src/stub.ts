@@ -18,6 +18,28 @@ export interface RecordedCall {
   response?: { status: number; headers: Record<string, string>; body: string };
   /** Answered by the fallback (e.g. an example from the provider's OpenAPI spec), not a registered route. */
   fallback?: boolean;
+  /** The fault `chaos()` injected instead of the normal answer: `503`, `reset`. */
+  fault?: string;
+}
+
+/**
+ * Faults injected into a stub's answers, to test the app's retries, timeouts and
+ * fallbacks. Random faults come from a seeded generator, so a failing run can be
+ * replayed with the seed printed in the failure output.
+ */
+export interface ChaosOptions {
+  /** Fail the first `n` calls, then answer normally: the shape of a retry test. */
+  failFirst?: number;
+  /** Share of calls (0–1) answered with one of `statuses`. */
+  errorRate?: number;
+  /** Error statuses to pick from. Default [500, 502, 503]; 429 and 503 come with `Retry-After: 1`. */
+  statuses?: number[];
+  /** Share of calls (0–1) whose connection is dropped without an answer. */
+  networkErrorRate?: number;
+  /** Extra delay for every call, in ms: a fixed value or a [min, max] range. */
+  latency?: number | [number, number];
+  /** Seed for the random choices. Default: `SLICETEST_CHAOS_SEED`, else random. */
+  seed?: number;
 }
 
 export interface StubResponse {
@@ -83,6 +105,7 @@ export class Stub {
   #fallback?: (call: RecordedCall) => StubResponse | undefined | Promise<StubResponse | undefined>;
   /** Appended to the 501 answer for a call nothing could answer. */
   #hint?: string;
+  #chaos?: { opts: ChaosOptions; seed: number; random: () => number; calls: number };
   url = "";
 
   private constructor(readonly name: string) {
@@ -135,6 +158,72 @@ export class Stub {
     return builder;
   }
 
+  /**
+   * Inject faults into this stub's answers for the rest of the scenario:
+   * `stub("payments").chaos({ failFirst: 2 })` to test a retry,
+   * `chaos({ errorRate: 0.3, latency: [50, 200] })` to test resilience.
+   * Calls that fault don't use up `once()` / `times()` routes.
+   */
+  chaos(opts: ChaosOptions) {
+    for (const key of ["errorRate", "networkErrorRate"] as const) {
+      const v = opts[key];
+      if (v !== undefined && !(v >= 0 && v <= 1)) throw new Error(`slicetest: chaos ${key} must be between 0 and 1, got ${v}`);
+    }
+    if (opts.statuses && (opts.statuses.length === 0 || opts.statuses.some((s) => !Number.isInteger(s) || s < 400 || s > 599))) {
+      throw new Error(`slicetest: chaos statuses must be 4xx/5xx codes, got ${JSON.stringify(opts.statuses)}`);
+    }
+    const envSeed = Number(process.env.SLICETEST_CHAOS_SEED);
+    const seed = opts.seed ?? (Number.isInteger(envSeed) ? envSeed : Math.floor(Math.random() * 2 ** 31));
+    this.#chaos = { opts, seed, random: mulberry32(seed), calls: 0 };
+    return this;
+  }
+
+  /** Calls `chaos()` answered with a fault. */
+  faults() {
+    return this.#calls.filter((c) => c.fault !== undefined);
+  }
+
+  /** The active `chaos()` settings and what they did, for failure output; undefined when off. */
+  describeChaos() {
+    const c = this.#chaos;
+    if (!c) return undefined;
+    const settings = Object.entries(c.opts)
+      .filter(([k]) => k !== "seed")
+      .map(([k, v]) => `${k} ${JSON.stringify(v)}`)
+      .join(", ");
+    return `chaos on ${this.name}: ${settings}; ${this.faults().length} of ${c.calls} calls faulted. Replay with SLICETEST_CHAOS_SEED=${c.seed}`;
+  }
+
+  /** Delay and fault for the next call, consuming the random sequence in a fixed order. */
+  async #injectFault(): Promise<{ status: number } | "reset" | undefined> {
+    const c = this.#chaos;
+    if (!c) return undefined;
+    const { opts, random } = c;
+    const n = ++c.calls;
+    const lat = opts.latency;
+    const ms = lat === undefined ? 0 : Array.isArray(lat) ? lat[0] + Math.floor(random() * (lat[1] - lat[0] + 1)) : lat;
+    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+    const statuses = opts.statuses ?? [500, 502, 503];
+    const pick = () => statuses[Math.floor(random() * statuses.length)]!;
+    if (opts.failFirst !== undefined && n <= opts.failFirst) return { status: pick() };
+    const roll = random();
+    if (roll < (opts.networkErrorRate ?? 0)) return "reset";
+    if (roll < (opts.networkErrorRate ?? 0) + (opts.errorRate ?? 0)) return { status: pick() };
+    return undefined;
+  }
+
+  #fail(call: RecordedCall, req: http.IncomingMessage, res: http.ServerResponse, fault: { status: number } | "reset") {
+    call.matched = true;
+    if (fault === "reset") {
+      call.fault = "reset";
+      req.socket.destroy();
+      return;
+    }
+    call.fault = String(fault.status);
+    const retry = fault.status === 429 || fault.status === 503 ? { "retry-after": "1" } : undefined;
+    this.#send(call, res, { status: fault.status, headers: retry, body: { error: "slicetest chaos", status: fault.status } });
+  }
+
   /** Calls received so far, optionally filtered by method, path and conditions (same syntax as `on()`). */
   calls(method?: string, path?: string | RegExp, match: MatchOptions = {}): RecordedCall[] {
     const compiled = path === undefined ? undefined : compilePath(path);
@@ -162,6 +251,7 @@ export class Stub {
   reset() {
     this.#routes = [];
     this.#calls = [];
+    this.#chaos = undefined;
   }
 
   /**
@@ -206,6 +296,11 @@ export class Stub {
       call.params = params;
       route = r;
       break;
+    }
+    // Faults only replace answers the stub would give: an unknown route still fails as unmatched.
+    if (route || this.#fallback) {
+      const fault = await this.#injectFault();
+      if (fault) return this.#fail(call, req, res, fault);
     }
     if (!route) {
       let out: StubResponse | undefined;
@@ -329,4 +424,16 @@ function parseJson(body: string) {
   } catch {
     return undefined;
   }
+}
+
+/** A small seeded PRNG: the same seed gives the same faults on every run. */
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }

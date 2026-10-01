@@ -281,6 +281,8 @@ export class Runtime {
     }
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) sections.push(`stub calls with no matching route:\n${unmatched.join("\n")}`);
+    const chaos = [...this.stubs.values()].map((s) => s.describeChaos()).filter((c) => c !== undefined);
+    if (chaos.length > 0) sections.push(chaos.join("\n"));
     const contract = this.#contractViolations();
     if (contract.length > 0) sections.push(`OpenAPI mismatches:\n${contract.map((c) => `  ${c}`).join("\n")}`);
     if (this.http.history.length > 0) sections.push(`requests to the app:\n${formatHistory(this.http.history)}`);

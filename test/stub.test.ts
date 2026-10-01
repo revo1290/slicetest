@@ -124,3 +124,50 @@ test("stub matchers report the calls that were received", async () => {
     /to have received POST \/hook with[\s\S]*Calls received:\n {2}POST \/hook {2}\{"text":"hi"\}/,
   );
 });
+
+test("chaos failFirst fails the first calls without using up a once() route", async () => {
+  stub.on("POST", "/charge").once().reply(201, { id: "ch_1" });
+  stub.chaos({ failFirst: 2, statuses: [503] });
+
+  const statuses = [];
+  for (let i = 0; i < 3; i++) statuses.push((await fetch(`${stub.url}/charge`, { method: "POST" })).status);
+
+  expect(statuses).toEqual([503, 503, 201]);
+  expect(stub.faults().map((c) => c.fault)).toEqual(["503", "503"]);
+  expect(stub.calls("POST", "/charge")[0]!.response?.headers["retry-after"]).toBe("1");
+});
+
+test("chaos with a seed injects the same faults on every run, and reports the seed", async () => {
+  const run = async () => {
+    stub.reset();
+    stub.on("GET", "/x").reply(200);
+    stub.chaos({ errorRate: 0.5, seed: 42 });
+    const out = [];
+    for (let i = 0; i < 12; i++) out.push((await fetch(`${stub.url}/x`)).status);
+    return out;
+  };
+  const first = await run();
+  expect(await run()).toEqual(first);
+  expect(first).toContain(200);
+  expect(first.some((s) => s >= 500)).toBe(true);
+  expect(stub.describeChaos()).toMatch(/chaos on svc: errorRate 0\.5; \d+ of 12 calls faulted\. Replay with SLICETEST_CHAOS_SEED=42/);
+});
+
+test("chaos networkErrorRate drops connections; unknown routes still fail as unmatched", async () => {
+  stub.on("GET", "/x").reply(200);
+  stub.chaos({ networkErrorRate: 1 });
+  await expect(fetch(`${stub.url}/x`)).rejects.toThrow();
+  expect((await fetch(`${stub.url}/nope`)).status).toBe(501);
+  expect(stub.unmatched()).toHaveLength(1);
+  expect(() => stub.chaos({ errorRate: 2 })).toThrow("between 0 and 1");
+});
+
+test("chaos latency delays every call, and reset() turns chaos off", async () => {
+  stub.on("GET", "/x").reply(200);
+  stub.chaos({ latency: 80 });
+  const started = performance.now();
+  await fetch(`${stub.url}/x`);
+  expect(performance.now() - started).toBeGreaterThanOrEqual(75);
+  stub.reset();
+  expect(stub.describeChaos()).toBeUndefined();
+});

@@ -26,7 +26,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | InsertStep | MakeStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
+export type Step = (StubStep | RequestStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
   line: number;
   name?: string;
 };
@@ -80,6 +80,17 @@ export interface MakeStep {
   /** Make this many rows, each with `rows` (a mapping). */
   count?: number;
   capture?: Record<string, string>;
+}
+
+/** Faults injected into a stub's answers for the rest of the scenario, like `stub(name).chaos()`. */
+export interface ChaosStep {
+  chaos: string;
+  failFirst?: number;
+  errorRate?: number;
+  statuses?: number[];
+  networkErrorRate?: number;
+  latency?: number | [number, number];
+  seed?: number;
 }
 
 export interface SqlStep {
@@ -167,6 +178,7 @@ const KINDS = {
   snapshot: ["mask"],
   mail: ["times", "within", "capture"],
   make: ["rows", "count", "capture"],
+  chaos: ["failFirst", "errorRate", "statuses", "networkErrorRate", "latency", "seed"],
 } as const;
 type Kind = keyof typeof KINDS;
 
@@ -334,6 +346,19 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       break;
     case "insert":
       if (!raw.rows || typeof raw.rows !== "object") fail(at("rows"), "an insert step needs `rows` (a mapping or a list of mappings)");
+      break;
+    case "chaos":
+      for (const k of ["errorRate", "networkErrorRate"]) {
+        if (raw[k] !== undefined && !(typeof raw[k] === "number" && raw[k] >= 0 && raw[k] <= 1)) fail(at(k), `\`${k}\` must be a number between 0 and 1`);
+      }
+      for (const k of ["failFirst", "seed"]) if (raw[k] !== undefined && !Number.isInteger(raw[k])) fail(at(k), `\`${k}\` must be a whole number`);
+      if (raw.statuses !== undefined && !(Array.isArray(raw.statuses) && raw.statuses.length > 0 && raw.statuses.every((s) => Number.isInteger(s) && s >= 400 && s <= 599))) {
+        fail(at("statuses"), "`statuses` must be a list of 4xx/5xx codes, e.g. [503]");
+      }
+      {
+        const l = raw.latency;
+        if (l !== undefined && !(typeof l === "number" || (Array.isArray(l) && l.length === 2 && l.every((x) => typeof x === "number")))) fail(at("latency"), "`latency` must be milliseconds or [min, max]");
+      }
       break;
     case "make":
       if (raw.rows !== undefined && (!raw.rows || typeof raw.rows !== "object")) fail(at("rows"), "`rows` must be a mapping or a list of mappings");

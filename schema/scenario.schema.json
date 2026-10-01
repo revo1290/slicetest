@@ -369,6 +369,70 @@
         {
           "type": "object",
           "required": [
+            "chaos"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "chaos": {
+              "type": "string",
+              "description": "Stub to inject faults into, for the rest of the scenario"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            },
+            "failFirst": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Fail the first n calls, then answer normally"
+            },
+            "errorRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Share of calls answered with an error status"
+            },
+            "statuses": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer",
+                "minimum": 400,
+                "maximum": 599
+              },
+              "description": "Error statuses to pick from (default 500, 502, 503)"
+            },
+            "networkErrorRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Share of calls whose connection is dropped"
+            },
+            "latency": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              ],
+              "description": "Extra delay in ms, or [min, max]"
+            },
+            "seed": {
+              "type": "integer",
+              "description": "Seed for the random faults"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "sql"
           ],
           "additionalProperties": false,

@@ -54,6 +54,7 @@ function describeStep(step: Step) {
   if ("received" in step) return `received ${step.received}${step.call ? ` ${step.call}` : ""}`;
   if ("insert" in step) return `insert ${step.insert}`;
   if ("make" in step) return `make ${step.make}`;
+  if ("chaos" in step) return `chaos ${step.chaos}`;
   if ("db" in step) return `db ${step.db}`;
   if ("changes" in step) return "changes";
   if ("checkpoint" in step) return "checkpoint";
@@ -201,6 +202,12 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
   if ("insert" in step) {
     const rows = await ctx.db.insert(step.insert, interpolate(step.rows, vars) as Record<string, unknown>[]);
     capture(step.capture, { rows, row: rows[0] }, vars);
+    return;
+  }
+
+  if ("chaos" in step) {
+    const { chaos, name: _, ...opts } = step as typeof step & { name?: string };
+    ctx.stub(chaos).chaos(opts);
     return;
   }
 
