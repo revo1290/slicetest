@@ -8,7 +8,9 @@ import { scenario } from "./scenario.js";
 import type { HttpResponse } from "./http.js";
 import type { MailFilter } from "./mail.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
+import path from "node:path";
 import { graphqlErrors } from "./graphql.js";
+import { schemaProblems } from "./schema.js";
 import { sse, type MatchOptions, type RecordedCall, type RouteBuilder, type ServerSentEvent, type StubResponse } from "./stub.js";
 import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
 
@@ -39,7 +41,7 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
     try {
       // A log step waits by itself; `within` is its timeout.
       // Log and mail steps wait by themselves; `within` is their timeout.
-      await retry("within" in step && !("log" in step) && !("mail" in step) ? step.within : undefined, () => runStep(step, ctx, vars));
+      await retry("within" in step && !("log" in step) && !("mail" in step) ? step.within : undefined, () => runStep(step, ctx, vars, doc.path ? path.dirname(doc.path) : undefined));
     } catch (e) {
       const label = step.name ?? describeStep(step);
       const where = `${doc.file}:${step.line} (${sc.name}, ${[...trail, `step ${i + 1}: ${label}`].join(" → ")})`;
@@ -92,7 +94,7 @@ async function retry(within: number | undefined, fn: () => Promise<void>) {
   }
 }
 
-async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
+async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: string) {
   if ("use" in step) throw new Error("slicetest: use steps are expanded by runSteps");
   if ("checkpoint" in step) {
     await ctx.db.checkpoint();
@@ -191,7 +193,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
       headers: interpolate(step.headers, vars) as Record<string, string> | undefined,
       follow: step.follow,
     });
-    verifyResponse(res, step.expect, vars);
+    verifyResponse(res, step.expect, vars, base);
     capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers) }, vars);
     return;
   }
@@ -224,7 +226,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
       // GraphQL servers answer errors with 200, so a status check alone would pass them.
       const expectsErrors = !!e?.json && typeof e.json === "object" && "errors" in (e.json as object);
       if (gql && !expectsErrors && Array.isArray(res.json?.errors) && res.json.errors.length) expect(res).toHaveGraphQLData();
-      verifyResponse(res, e, vars);
+      verifyResponse(res, e, vars, base);
     };
     if (step.concurrency !== undefined) {
       // Each request gets its own body: a URLSearchParams body can only be read once.
@@ -433,7 +435,7 @@ function interpolateTitle(name: string, row: Record<string, unknown>, index: num
   });
 }
 
-function verifyResponse(res: HttpResponse, e: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown } | undefined, vars: Vars) {
+function verifyResponse(res: HttpResponse, e: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
   if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as number);
   if (e?.headers !== undefined) {
     const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
@@ -441,4 +443,8 @@ function verifyResponse(res: HttpResponse, e: { status?: number; headers?: Recor
   }
   if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
   if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
+  if (e?.schema !== undefined) {
+    const problems = schemaProblems(e.schema, res.json, base);
+    if (problems.length) throw new Error(`${res.method} ${res.url}: the response JSON doesn't match ${typeof e.schema === "string" ? e.schema : "the schema"}:\n${problems.map((p) => `  ${p}`).join("\n")}`);
+  }
 }

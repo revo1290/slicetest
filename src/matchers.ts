@@ -2,6 +2,7 @@ import { expect } from "vitest";
 import { Db, type Where } from "./db.js";
 import type { HttpResponse } from "./http.js";
 import { describeGraphQL } from "./graphql.js";
+import { schemaProblems } from "./schema.js";
 import { Stub, subset, type MatchOptions, type RecordedCall } from "./stub.js";
 
 interface SlicetestMatchers<R = unknown> {
@@ -13,6 +14,11 @@ interface SlicetestMatchers<R = unknown> {
   toHaveReceivedGraphQL(operation: string | RegExp, variables?: unknown): R;
   /** A GraphQL response without `errors`, whose `data` contains `expected` (if given). The failure message shows the errors. */
   toHaveGraphQLData(expected?: unknown): R;
+  /**
+   * The value (a response's JSON, for a response) matches a JSON Schema: an object, or a file
+   * relative to the working directory with an optional pointer, `openapi.yaml#/components/schemas/Poll`.
+   */
+  toMatchSchema(schema: object | string): R;
   /** The response has this status; the failure message shows the response body. */
   toHaveStatus(status: number): R;
   /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`. */
@@ -117,6 +123,20 @@ expect.extend({
       },
       actual: body?.data,
       expected,
+    };
+  },
+
+  toMatchSchema(received: unknown, schema: object | string) {
+    const isResponse = !!received && typeof received === "object" && "status" in received && (received as HttpResponse).headers instanceof Headers;
+    const value = isResponse ? (received as HttpResponse).json : received;
+    const problems = schemaProblems(schema, value);
+    const what = isResponse ? `${(received as HttpResponse).method} ${(received as HttpResponse).url}'s JSON` : "the value";
+    return {
+      pass: problems.length === 0,
+      message: () =>
+        problems.length
+          ? `expected ${what} to match ${typeof schema === "string" ? schema : "the schema"}:\n${problems.map((p) => `  ${p}`).join("\n")}\nValue:\n  ${JSON.stringify(value)?.slice(0, 1000)}`
+          : `expected ${what} not to match ${typeof schema === "string" ? schema : "the schema"}`,
     };
   },
 

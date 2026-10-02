@@ -507,6 +507,17 @@
                   "type": "integer",
                   "minimum": 0,
                   "description": "At most this many SQL statements for this request, not counting BEGIN/COMMIT (needs db.queries)"
+                },
+                "schema": {
+                  "description": "A JSON Schema the response JSON must match: inline, or a file relative to this one with an optional pointer, e.g. ../openapi.yaml#/components/schemas/Poll",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -643,7 +654,18 @@
                 "json": {
                   "description": "Subset of the response JSON"
                 },
-                "text": {}
+                "text": {},
+                "schema": {
+                  "description": "A JSON Schema the response JSON must match: inline, or a file relative to this one with an optional pointer, e.g. ../openapi.yaml#/components/schemas/Poll",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object"
+                    }
+                  ]
+                }
               }
             },
             "capture": {

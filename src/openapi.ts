@@ -387,7 +387,7 @@ function escape(s: string) {
 }
 
 /** OpenAPI 3.0's `nullable: true` → JSON Schema's `type: [T, "null"]`. */
-function nullableToType(node: any): any {
+export function nullableToType(node: any): any {
   if (Array.isArray(node)) return node.map(nullableToType);
   if (!node || typeof node !== "object") return node;
   for (const [k, v] of Object.entries(node)) node[k] = nullableToType(v);

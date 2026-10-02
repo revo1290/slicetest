@@ -84,7 +84,8 @@ export interface RequestStep {
   /** Send the request this many times at once. `expect` applies to every response; `statuses` counts them. */
   concurrency?: number;
   /** `queries`: at most this many SQL statements (not counting BEGIN/COMMIT), with `db.queries` on. */
-  expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number };
+  /** `schema`: a JSON Schema for the response JSON, inline or `file#/pointer` relative to the scenario file. */
+  expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number; schema?: string | object };
   capture?: Record<string, string>;
 }
 
@@ -100,7 +101,7 @@ export interface SubmitStep {
   fields?: Record<string, string | number | boolean | (string | number)[]>;
   headers?: Record<string, string>;
   follow?: boolean;
-  expect?: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown };
+  expect?: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object };
   capture?: Record<string, string>;
 }
 
@@ -224,8 +225,8 @@ const KINDS = {
 type Kind = keyof typeof KINDS;
 
 const EXPECT_KEYS: Record<string, string[]> = {
-  request: ["status", "statuses", "headers", "json", "text", "queries"],
-  submit: ["status", "headers", "json", "text"],
+  request: ["status", "statuses", "headers", "json", "text", "queries", "schema"],
+  submit: ["status", "headers", "json", "text", "schema"],
   sql: ["rows", "count"],
   db: ["rows", "count"],
 };
@@ -400,6 +401,12 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     for (const [k, v] of Object.entries(raw.capture as object)) if (typeof v !== "string") fail(at("capture"), `capture "${k}" must be a path such as json.id`);
   }
   if (kind in EXPECT_KEYS) keysOf("expect", EXPECT_KEYS[kind]!);
+  {
+    const schema = (raw.expect as Record<string, unknown> | undefined)?.schema;
+    if (schema !== undefined && !((typeof schema === "string" && schema) || (schema && typeof schema === "object" && !Array.isArray(schema)))) {
+      fail(at("expect"), "`expect.schema` is a JSON Schema, or a file such as openapi.yaml#/components/schemas/Poll");
+    }
+  }
   keysOf("when", CONDITION_KEYS);
   if (raw.graphql !== undefined && kind !== "request" && (typeof raw.graphql !== "string" || !raw.graphql)) fail(at("graphql"), "`graphql` is the operation's name, e.g. `graphql: GetUser`");
   if ((raw.when as Record<string, unknown> | undefined)?.variables !== undefined && raw.graphql === undefined) fail(at("when"), "`when.variables` needs `graphql: <operation>`");

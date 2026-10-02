@@ -61,7 +61,7 @@ scenarios:
   - name: 投票の集計は1本のSQLで済む（YAML）
     steps:
       - request: GET /polls/1
-        expect: { status: 200, queries: 1 }
+        expect: { status: 200, queries: 1, schema: ../openapi.yaml#/components/schemas/Poll }
 
   - name: Slack が一時的に 503 を返すと投票は作られない（YAML）
     steps:

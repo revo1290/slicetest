@@ -488,9 +488,10 @@ expect(stub("github")).toHaveReceivedGraphQL("CreateIssue", { title: "Bug" });
 expect(await http.graphql(QUERY)).toHaveGraphQLData({ poll: { title: "x" } }); // no errors, data as a subset
 await expect(db).toHaveRow("polls", { title: "x" });             // at least one row
 await expect(db).toHaveRow("votes", { poll_id: 1 }, 3);          // exactly three
+expect(res).toMatchSchema("openapi.yaml#/components/schemas/Poll"); // a response's JSON, or any value; inline schemas too
 ```
 
-Failure messages list the calls the stub actually received, or the first rows of the table.
+Failure messages list the calls the stub actually received, or the first rows of the table. `toMatchSchema` takes a JSON Schema object or a file with an optional pointer (relative to the working directory; JSON or YAML, OpenAPI 3.0 `nullable` understood, `$ref`s resolved within the file), and lists every mismatch by its JSON path: no OpenAPI setup is needed to check one response's shape.
 
 ### Services: workers and other processes
 
@@ -767,7 +768,7 @@ scenarios:
 |---|---|
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, body, variables }`, one of `reply: { status, headers, body }` (`{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.variables.id}}`. |
 | `submit: <button>` | `form`, `fields`, `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
-| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body` / `graphql: { query, variables, operationName }`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
+| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body` / `graphql: { query, variables, operationName }`, `expect.schema` (a JSON Schema, or `../openapi.yaml#/components/schemas/Poll` relative to the file), `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |
 | `request` with `webhook` | `{ provider, secret, event, stale, invalidSignature }`: signs the body like that provider's deliveries |

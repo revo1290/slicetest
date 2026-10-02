@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `toMatchSchema(schema)` and YAML `expect.schema`: check a response's JSON (or any value) against a JSON Schema, inline or from a file with a pointer such as `openapi.yaml#/components/schemas/Poll` (OpenAPI 3.0 `nullable` and in-file `$ref`s handled). Mismatches are listed by JSON path.
 - API usage report: for each stub with an `openapi` spec, the run ends with the provider operations the app called across all scenarios ("used 3 of 587 operations of stripe"), flagging those the spec marks `deprecated`. On GitHub Actions the list goes to the job summary and deprecated ones become a warning annotation.
 - `strictStubs: true` fails a scenario that registered a stub route the app never called (the test may pass without reaching the code it set up for), except routes marked `.optional()` / YAML `optional: true`. The failure output lists routes that were never called in any case.
 - `slicetest init` for Elixir (Phoenix in `MIX_ENV=prod`, where `config/runtime.exs` reads `PORT` and `DATABASE_URL`, with Ecto migrations and a fixed test `SECRET_KEY_BASE`; other Mix apps), Deno (`deno task start`, or `deno run` on `main.ts` / `server.ts`), and package.json scripts run with Bun, pnpm or Yarn when their lockfile is there.
