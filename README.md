@@ -681,13 +681,13 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `app.command` | (required) | Shell command. May use `{{app.port}}` and the other placeholders. |
 | `app.build` | none | Shell command run once per run before the app starts, while the database starts, e.g. `npm run build` for `next start`. It gets `app.env`'s literal values (Next.js inlines `NEXT_PUBLIC_*` at build time), not those with placeholders. Not repeated in watch mode. Services take `build` too. |
 | `db` | Postgres in a container | Database options (below), or `false` for an app without a database: nothing is started, `{{db.*}}` aren't set and `db.*` in scenarios explains that it's off. `slicetest init` writes `false` when it finds no migrations, no database service and no database library. |
-| `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. For apps that don't take one URL: `{{db.jdbcUrl}}` (`jdbc:postgresql://…`), `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}`. The rest of `process.env` is inherited. |
+| `app.env` | `{ PORT, DATABASE_URL }` | Values may use `{{app.port}}`, `{{db.url}}`, `{{stub.<name>}}`. For apps that don't take one URL: `{{db.jdbcUrl}}` (`jdbc:postgresql://…`), `{{db.adoNet}}` (an ADO.NET connection string, `Host=…;Port=…;Database=…;Username=…;Password=…`, for .NET's `ConnectionStrings__Default`), `{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`, `{{db.password}}`. The rest of `process.env` is inherited. |
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
 | `app.readyTimeout` | `30000` | |
 | `app.scope` | `"file"` | `"worker"`: start the app (and stubs, services) once per Vitest worker and keep it for all of that worker's test files, for apps that start slowly. Sets Vitest's `isolate: false`. |
 | `db.engine` | `postgres`, or `mysql` for a `mysql://` URL | `postgres`, `mysql` (see [MySQL](#mysql)) or `sqlite` (see [SQLite](#sqlite)). |
-| `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs? }` (gets `DATABASE_URL`). |
+| `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs?, env? }`. The command gets `DATABASE_URL`, and both it and `env` may use the `{{db.*}}` placeholders, for tools that read other variables: `{ command: "php artisan migrate --force", env: { DB_HOST: "{{db.host}}", DB_DATABASE: "{{db.name}}" } }`, `{ command: "dotnet ef database update --connection \"{{db.adoNet}}\"" }`. |
 | `db.seed` | none | SQL file re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |
 | `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |

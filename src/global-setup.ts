@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import type { TestProject } from "vitest/node";
 import type { ResolvedOptions } from "./config.js";
 import { annotation, appendSummary, failureAnnotations, failureSummary, onGitHub, repoPath, yamlFailures } from "./ci.js";
+import { interpolate } from "./app.js";
+import { connectionVars } from "./connection.js";
 import { configureContainerRuntime } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import type { Admin, Engine } from "./drivers/index.js";
@@ -261,8 +263,12 @@ async function applyMigrations(opts: ResolvedOptions, engine: Engine, url: strin
     }
     return "";
   }
-  // Through the platform shell (sh or cmd.exe), like app.command.
-  return run(m.command, [], opts.root, { DATABASE_URL: url }, true);
+  // Through the platform shell (sh or cmd.exe), like app.command, with the same {{db.*}} placeholders.
+  const vars: Record<string, string> = { "db.url": url };
+  if (engine.name === "sqlite") vars["db.path"] = (await import("./drivers/sqlite.js")).sqlitePath(url);
+  Object.assign(vars, connectionVars(engine.name, url, vars["db.path"]));
+  const env = Object.fromEntries(Object.entries(m.env ?? {}).map(([k, v]) => [k, interpolate(v, vars, `db.migrate.env.${k}`)]));
+  return run(interpolate(m.command, vars, "db.migrate.command"), [], opts.root, { DATABASE_URL: url, ...env }, true);
 }
 
 /**

@@ -195,6 +195,12 @@ export type MigrateOptions =
        * without `inputs`, the command runs on every run.
        */
       inputs?: string[];
+      /**
+       * Extra environment for the command, for tools that don't read `DATABASE_URL`
+       * (Laravel's `DB_HOST`, EF Core's connection string): `{ DB_HOST: "{{db.host}}" }`.
+       * The command itself may use the same `{{db.*}}` placeholders.
+       */
+      env?: Record<string, string>;
     };
 
 /** Normalized shape passed from the plugin to globalSetup and workers. Must stay JSON-serializable. */
@@ -343,6 +349,11 @@ function validate(opts: SlicetestOptions) {
   if (migrate) {
     const keys = Object.keys(migrate).filter((k) => ["atlas", "sql", "command"].includes(k));
     if (keys.length !== 1) fail(`db.migrate takes exactly one of atlas / sql / command, got ${keys.join(", ") || "none"}`);
+    const menv = (migrate as { env?: unknown }).env;
+    if (menv !== undefined) {
+      if (!("command" in migrate)) fail("db.migrate.env is for a migration `command`; atlas and sql get the database URL themselves");
+      if (!menv || typeof menv !== "object" || Array.isArray(menv) || Object.values(menv).some((v) => typeof v !== "string")) fail('db.migrate.env maps variable names to strings, e.g. { DB_HOST: "{{db.host}}" }');
+    }
   }
   const oas = opts.openapi;
   if (oas !== undefined) {

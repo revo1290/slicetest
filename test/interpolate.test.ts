@@ -21,7 +21,9 @@ test("the database URL is also given in parts and as a JDBC URL", async () => {
     "db.user": "test",
     "db.password": "p@ss",
     "db.jdbcUrl": "jdbc:postgresql://127.0.0.1:5433/slicetest_w1",
+    "db.adoNet": "Host=127.0.0.1;Port=5433;Database=slicetest_w1;Username=test;Password=p@ss",
   });
+  expect(connectionVars("mysql", "mysql://root:a%3Bb@localhost/app")["db.adoNet"]).toBe('Server=localhost;Port=3306;Database=app;User ID=root;Password="a;b"');
   expect(connectionVars("mysql", "mysql://root:x@localhost/app")["db.jdbcUrl"]).toBe("jdbc:mysql://localhost:3306/app");
-  expect(connectionVars("sqlite", "sqlite:///tmp/a.db", "/tmp/a.db")).toEqual({ "db.jdbcUrl": "jdbc:sqlite:/tmp/a.db" });
+  expect(connectionVars("sqlite", "sqlite:///tmp/a.db", "/tmp/a.db")).toEqual({ "db.jdbcUrl": "jdbc:sqlite:/tmp/a.db", "db.adoNet": "Data Source=/tmp/a.db" });
 });

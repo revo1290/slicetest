@@ -6,6 +6,7 @@ import { App } from "./app.js";
 import { Issuer } from "./auth.js";
 import type { ResolvedOptions } from "./config.js";
 import { Dependency } from "./containers.js";
+import { connectionVars } from "./connection.js";
 import { Db, formatChanges, noDatabase } from "./db.js";
 import { diagramPage, failureDiagram, sequenceDiagram } from "./diagram.js";
 import { appendSummary } from "./ci.js";
@@ -465,25 +466,6 @@ function parseJson(text: string): unknown {
   }
 }
 
-/**
- * The parts of the database URL, for apps that don't take one URL: JDBC (Spring's
- * `spring.datasource.url` plus username / password), or separate host / port / name settings.
- */
-export function connectionVars(engine: string, url: string, sqlitePath?: string): Record<string, string> {
-  if (engine === "sqlite") return { "db.jdbcUrl": `jdbc:sqlite:${sqlitePath}` };
-  const u = new URL(url);
-  const port = u.port || (engine === "mysql" ? "3306" : "5432");
-  const name = decodeURIComponent(u.pathname.replace(/^\//, ""));
-  return {
-    "db.host": u.hostname,
-    "db.port": port,
-    "db.name": name,
-    "db.user": decodeURIComponent(u.username),
-    "db.password": decodeURIComponent(u.password),
-    "db.jdbcUrl": `jdbc:${engine === "mysql" ? "mysql" : "postgresql"}://${u.hostname}:${port}/${encodeURIComponent(name)}`,
-  };
-}
-
 /** The app's own spec, served at `route` (springdoc's /v3/api-docs, FastAPI's /openapi.json, …). */
 async function fetchAppSpec(appUrl: string, route: string, coverageDir?: string) {
   let text: string;
@@ -508,3 +490,5 @@ export function blockedHint(hosts: string[]) {
   if (registries.length === 0) return message;
   return `${message}\n${registries.join(", ")} ${registries.length > 1 ? "are package registries" : "is a package registry"}: the command that starts the app (gradle bootRun, mvn spring-boot:run, go run, …) is downloading dependencies, through slicetest's proxy. Download them in \`app.build\` (./gradlew bootJar, mvn package), or start a built artifact (java -jar).`;
 }
+
+export { connectionVars };

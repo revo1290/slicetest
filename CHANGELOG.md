@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `db.migrate.env`, and `{{db.*}}` placeholders in `db.migrate.command`, for migration tools that don't read `DATABASE_URL` (Laravel's `DB_*`, EF Core's `--connection`, Flyway's `-url`). `{{db.adoNet}}`: the database as an ADO.NET connection string (Npgsql, MySqlConnector, `Data Source=` for SQLite), for .NET apps.
 - YAML `define:` and `use:` steps: named step lists with `params`, run with `use: signed up` + `with: { email: ... }`, whose captures are visible afterwards. Unknown definitions, missing or extra params and recursion are reported with their line up front; failures inside name the path (`step 1: use signed up → step 2: POST /login`).
 - `npx slicetest import session.har`: turn a HAR file (browser network panel, Charles, mitmproxy, Proxyman, Postman) into recordings for the stubs whose `upstream` it has requests for, or for `--stub <name> --upstream <url>`. Same format and filtering as `SLICETEST_RECORD`; preflights, aborted requests and binary responses are skipped, duplicates aren't added, and hosts that weren't imported are listed.
 - A stub call no route answered is reported with the closest route and the first thing that kept it from matching: method, path (trailing slash, letter case, a base-URL prefix the app added or lacks), query, header, body, the JSON field and value at its path (`json.items.0.sku: expected "a", got "b"`), GraphQL operation or variables, or a `once()` / `times()` route already used up. `stub.explain(call)` returns the same text.

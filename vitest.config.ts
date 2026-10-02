@@ -19,6 +19,7 @@ export default defineConfig({
       "test/fixtures/no-db/vitest.config.ts",
       "test/fixtures/neon/vitest.config.ts",
       "test/fixtures/graphql/vitest.config.ts",
+      "test/fixtures/migrate-env/vitest.config.ts",
     ],
   },
 });
