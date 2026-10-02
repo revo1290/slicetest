@@ -32,7 +32,10 @@ const KNOWN_APIS: { packages: string[]; stub: string; hosts: string[]; env: Reco
 ];
 
 /** Files that mark a directory as an app slicetest can start. */
-const APP_MARKERS = ["manage.py", "requirements.txt", "pyproject.toml", "Gemfile", "go.mod", "Cargo.toml", "build.gradle", "build.gradle.kts", "pom.xml", "composer.json"];
+const APP_MARKERS = ["manage.py", "requirements.txt", "pyproject.toml", "Gemfile", "go.mod", "Cargo.toml", "build.gradle", "build.gradle.kts", "pom.xml", "composer.json", "mix.exs", "deno.json", "deno.jsonc"];
+
+/** A fixed Phoenix SECRET_KEY_BASE for tests (it must be at least 64 bytes). */
+const PHOENIX_SECRET = "slicetest-secret-key-base-for-tests-only-".padEnd(64, "0");
 
 /** A fixed Laravel APP_KEY for tests (32 bytes), so encrypted cookies and sessions work without `key:generate`. */
 const LARAVEL_KEY = `base64:${Buffer.from("slicetest-app-key-for-tests-only").toString("base64")}`;
@@ -100,6 +103,15 @@ export async function detect(root: string): Promise<Detected> {
   const php = { ...composer?.require, ...composer?.["require-dev"] };
   const laravel = !!php["laravel/framework"] && has("artisan");
   const symfony = !laravel && !!php["symfony/framework-bundle"] && has("bin/console");
+  const mix = await read("mix.exs");
+  const phoenix = /:phoenix\b/.test(mix);
+  const denoConfig = has("deno.json") ? "deno.json" : has("deno.jsonc") ? "deno.jsonc" : undefined;
+  let denoTasks: Record<string, unknown> = {};
+  try {
+    denoTasks = denoConfig ? ((JSON.parse((await read(denoConfig)).replace(/^\s*\/\/.*$/gm, "")) as { tasks?: Record<string, unknown> }).tasks ?? {}) : {};
+  } catch {}
+  // The package manager the lockfile belongs to runs the scripts (Bun scripts may call `bun` itself).
+  const pm = has("bun.lock") || has("bun.lockb") ? "bun" : has("pnpm-lock.yaml") ? "pnpm" : has("yarn.lock") ? "yarn" : "npm";
   const dotnet = !pkg?.scripts?.start && !pkg?.scripts?.dev ? await findWebProject(appRoot) : undefined;
   const nuget = new Set([...(dotnet?.text.matchAll(/<PackageReference\s+Include="([^"]+)"/g) ?? [])].map((m) => m[1]!.toLowerCase()));
   let dotnetConnection: string | undefined;
@@ -114,16 +126,31 @@ export async function detect(root: string): Promise<Detected> {
   let readyTimeout: number | undefined;
   const env: Record<string, string> = { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}" };
   if (pkg?.scripts?.start) {
-    command = "npm start";
-    notes.push("app: `npm start` (package.json start script). It must listen on $PORT.");
+    command = pm === "npm" ? "npm start" : `${pm} run start`;
+    notes.push(`app: \`${command}\` (package.json start script${pm === "npm" ? "" : `, ${pm} from its lockfile`}). It must listen on $PORT.`);
     if (pkg.scripts.build) {
       // Otherwise `next start` and the like serve whatever was built last, and scenarios pass against stale code.
-      build = "npm run build";
-      notes.push("app: `npm run build` once per run, before starting (package.json build script).");
+      build = `${pm} run build`;
+      notes.push(`app: \`${build}\` once per run, before starting (package.json build script).`);
     }
   } else if (pkg?.scripts?.dev) {
-    command = "npm run dev";
-    notes.push("app: `npm run dev` (no start script). A production start command is usually faster to boot.");
+    command = `${pm} run dev`;
+    notes.push(`app: \`${command}\` (no start script). A production start command is usually faster to boot.`);
+  } else if (denoConfig) {
+    const task = ["start", "serve", "dev"].find((t) => t in denoTasks);
+    const main = ["main.ts", "server.ts", "src/main.ts", "mod.ts"].find(has);
+    command = task ? `deno task ${task}` : `deno run --allow-net --allow-env --allow-read ${main ?? "main.ts"}`;
+    notes.push(`app: Deno (${denoConfig}), \`${command}\`. It must listen on Deno.env.get("PORT").`);
+  } else if (phoenix) {
+    // Phoenix reads PORT and DATABASE_URL in config/runtime.exs for prod only; dev.exs hard-codes port 4000.
+    command = "mix phx.server";
+    build = "mix compile";
+    Object.assign(env, { MIX_ENV: "prod", PHX_SERVER: "true", PHX_HOST: "127.0.0.1", SECRET_KEY_BASE: PHOENIX_SECRET });
+    readyTimeout = 60_000;
+    notes.push("app: Phoenix in MIX_ENV=prod, where config/runtime.exs reads PORT and DATABASE_URL (dev.exs hard-codes them). SECRET_KEY_BASE is a fixed test key. Run `MIX_ENV=prod mix deps.get` once first");
+  } else if (mix) {
+    command = "mix run --no-halt";
+    notes.push("app: Elixir (mix.exs). It must listen on $PORT.");
   } else if (has("manage.py")) {
     command = "python manage.py runserver 127.0.0.1:{{app.port}} --noreload";
     notes.push("app: Django (manage.py)");
@@ -220,6 +247,9 @@ export async function detect(root: string): Promise<Detected> {
   if (atlas) {
     migrate = { atlas: { dir: `file://${atlas}` } };
     notes.push(`db: Atlas migrations in ${atlas}/`);
+  } else if (phoenix && has("priv/repo/migrations")) {
+    migrate = { command: "mix ecto.migrate", inputs: ["priv/repo/migrations"], env: { MIX_ENV: "prod", SECRET_KEY_BASE: PHOENIX_SECRET } };
+    notes.push("db: Ecto migrations (mix ecto.migrate, in MIX_ENV=prod like the app)");
   } else if (dotnet && nuget.has("microsoft.entityframeworkcore.design") && has(path.posix.join(path.posix.dirname(dotnet.file), "Migrations"))) {
     const migrations = path.posix.join(path.posix.dirname(dotnet.file), "Migrations");
     migrate = { command: `dotnet ef database update --project ${dotnet.file}`, inputs: [migrations] };
@@ -317,7 +347,7 @@ export async function detect(root: string): Promise<Detected> {
     notes.push("auth: Clerk. Sessions are tokens from slicetest's issuer (auth: true); the clerk stub serves its keys at /v1/jwks and users at /v1/users/:id. See the README's Clerk section");
   }
   notes.push("network: URLs written in the code (https://api.example.com) can be stubbed with `hosts`. Add `offline: true` and the first run names every host the app calls");
-  const mysqlDeps = !!deps.mysql2 || !!deps.mysql || /\b(pymysql|mysqlclient|aiomysql)\b/.test(python) || /\bgem ['"]mysql2['"]/.test(gemfile);
+  const mysqlDeps = !!deps.mysql2 || !!deps.mysql || /\b(pymysql|mysqlclient|aiomysql)\b/.test(python) || /\bgem ['"]mysql2['"]/.test(gemfile) || /:myxql\b/.test(mix);
   if (!composeDb.engine && mysqlDeps) {
     composeDb.engine = "mysql";
     notes.push("db: MySQL (a MySQL driver is a dependency). Install mysql2 and @testcontainers/mysql next to slicetest.");
@@ -375,8 +405,9 @@ export async function detect(root: string): Promise<Detected> {
     /\b(psycopg|sqlalchemy|asyncpg|pymysql|mysqlclient|django|peewee|tortoise|sqlmodel)\b/.test(python) ||
     /\b(rails|activerecord|sequel|pg|mysql2|sqlite3)\b/.test(gemfile) ||
     Object.keys(php).some((d) => /^(laravel\/framework|illuminate\/database|doctrine\/(orm|dbal)|doctrine\/doctrine-bundle)$/.test(d)) ||
-    [...nuget].some((n) => /^(microsoft\.entityframeworkcore|npgsql|dapper|mysqlconnector|pomelo\.|microsoft\.data\.sqlite)/.test(n));
-  const knownStack = !!pkg || jvmBuild !== undefined || python.trim().length > 0 || gemfile.length > 0 || !!composer || !!dotnet;
+    [...nuget].some((n) => /^(microsoft\.entityframeworkcore|npgsql|dapper|mysqlconnector|pomelo\.|microsoft\.data\.sqlite)/.test(n)) ||
+    /:(ecto_sql|postgrex|myxql|ecto_sqlite3)\b/.test(mix);
+  const knownStack = !!pkg || jvmBuild !== undefined || python.trim().length > 0 || gemfile.length > 0 || !!composer || !!dotnet || !!mix;
   const noDb = knownStack && !dbLibrary && !migrate && !composeDb.engine && !composeDb.image && !has("manage.py");
   if (noDb) {
     // Whatever was meant to reach the database (DATABASE_URL, SPRING_DATASOURCE_*, ConnectionStrings__*).

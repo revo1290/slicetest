@@ -410,3 +410,25 @@ test("ASP.NET Core on SQLite or MySQL, and without a database", async () => {
   expect(none.config.db).toBe(false);
   expect(JSON.stringify(none.config.app.env)).not.toContain("{{db.");
 });
+
+test.each([
+  ["Bun", { "package.json": JSON.stringify({ scripts: { start: "bun src/index.ts", build: "bun build" } }), "bun.lock": "" }, { command: "bun run start", build: "bun run build" }],
+  ["pnpm", { "package.json": JSON.stringify({ scripts: { dev: "tsx watch src" } }), "pnpm-lock.yaml": "" }, { command: "pnpm run dev" }],
+  ["Yarn", { "package.json": JSON.stringify({ scripts: { start: "node ." } }), "yarn.lock": "" }, { command: "yarn run start" }],
+  ["Deno with a task", { "deno.jsonc": '{\n  // tasks\n  "tasks": { "start": "deno run -A main.ts" }\n}' }, { command: "deno task start" }],
+  ["Deno without tasks", { "deno.json": "{}", "server.ts": "" }, { command: "deno run --allow-net --allow-env --allow-read server.ts" }],
+])("starts a %s app with its own runner", async (_, files, app) => {
+  expect((await detect(await project(files))).config.app).toMatchObject(app);
+});
+
+test("Phoenix runs in prod, where runtime.exs reads PORT and DATABASE_URL, and migrates with Ecto", async () => {
+  const { config } = await detect(
+    await project({ "mix.exs": "defp deps do\n  [{:phoenix, \"~> 1.8\"}, {:ecto_sql, \"~> 3.12\"}, {:postgrex, \">= 0.0.0\"}]\nend", "priv/repo/migrations/20260101_create_users.exs": "" }),
+  );
+  expect(config).toMatchObject({
+    app: { command: "mix phx.server", build: "mix compile", env: { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}", MIX_ENV: "prod", PHX_SERVER: "true" } },
+    db: { migrate: { command: "mix ecto.migrate", inputs: ["priv/repo/migrations"], env: { MIX_ENV: "prod" } } },
+  });
+  expect(config.app.env!.SECRET_KEY_BASE!.length).toBeGreaterThanOrEqual(64);
+  expect(() => resolveOptions(config as never, "/")).not.toThrow();
+});
