@@ -32,7 +32,10 @@ const KNOWN_APIS: { packages: string[]; stub: string; hosts: string[]; env: Reco
 ];
 
 /** Files that mark a directory as an app slicetest can start. */
-const APP_MARKERS = ["manage.py", "requirements.txt", "pyproject.toml", "Gemfile", "go.mod", "Cargo.toml", "build.gradle", "build.gradle.kts", "pom.xml"];
+const APP_MARKERS = ["manage.py", "requirements.txt", "pyproject.toml", "Gemfile", "go.mod", "Cargo.toml", "build.gradle", "build.gradle.kts", "pom.xml", "composer.json"];
+
+/** A fixed Laravel APP_KEY for tests (32 bytes), so encrypted cookies and sessions work without `key:generate`. */
+const LARAVEL_KEY = `base64:${Buffer.from("slicetest-app-key-for-tests-only").toString("base64")}`;
 /** Build files of a Gradle or Maven multi-project build (two levels down), for dependencies declared in a subproject. */
 async function subprojectBuildFiles(dir: string, gradle: boolean) {
   const names = gradle ? ["build.gradle", "build.gradle.kts"] : ["pom.xml"];
@@ -75,6 +78,10 @@ export async function detect(root: string): Promise<Detected> {
   const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
   const python = `${await read("requirements.txt")}\n${await read("pyproject.toml")}`.toLowerCase();
   const gemfile = await read("Gemfile");
+  const composer = has("composer.json") ? (JSON.parse(await read("composer.json")) as { require?: Record<string, string>; "require-dev"?: Record<string, string> }) : undefined;
+  const php = { ...composer?.require, ...composer?.["require-dev"] };
+  const laravel = !!php["laravel/framework"] && has("artisan");
+  const symfony = !laravel && !!php["symfony/framework-bundle"] && has("bin/console");
 
   // --- app ---
   let command = TODO_COMMAND;
@@ -108,6 +115,23 @@ export async function detect(root: string): Promise<Detected> {
   } else if (/\brails\b/.test(gemfile)) {
     command = "bin/rails server -p {{app.port}}";
     notes.push("app: Rails");
+  } else if (laravel) {
+    // `artisan serve` is PHP's built-in server; Laravel reads DB_* (set below, once the engine is known).
+    command = "php artisan serve --host=127.0.0.1 --port={{app.port}} --no-reload";
+    delete env.PORT;
+    delete env.DATABASE_URL;
+    Object.assign(env, { APP_ENV: "local", APP_KEY: LARAVEL_KEY, APP_DEBUG: "true", LOG_CHANNEL: "stderr" });
+    if (/health:\s*['"]\/up['"]/.test(await read("bootstrap/app.php"))) readyPath = "/up";
+    notes.push("app: Laravel (php artisan serve). DB_* variables point Laravel at the test database; APP_KEY is a fixed test key; logs go to stderr so failures show them");
+  } else if (symfony) {
+    command = "php -S 127.0.0.1:{{app.port}} -t public";
+    delete env.PORT;
+    Object.assign(env, { APP_ENV: "dev", APP_DEBUG: "1" });
+    notes.push("app: Symfony, served by PHP's built-in server from public/. Doctrine reads DATABASE_URL");
+  } else if (composer && has("public/index.php")) {
+    command = "php -S 127.0.0.1:{{app.port}} -t public";
+    delete env.PORT;
+    notes.push("app: PHP (composer.json), served by PHP's built-in server from public/");
   } else if (has("build.gradle") || has("build.gradle.kts") || has("pom.xml")) {
     const gradle = !has("pom.xml");
     const buildFile = await read(gradle ? (has("build.gradle.kts") ? "build.gradle.kts" : "build.gradle") : "pom.xml");
@@ -157,6 +181,12 @@ export async function detect(root: string): Promise<Detected> {
   if (atlas) {
     migrate = { atlas: { dir: `file://${atlas}` } };
     notes.push(`db: Atlas migrations in ${atlas}/`);
+  } else if (laravel) {
+    migrate = { command: "php artisan migrate --force", inputs: ["database/migrations"] };
+    notes.push("db: Laravel migrations (php artisan migrate), given the same DB_* variables as the app");
+  } else if (symfony && php["doctrine/doctrine-migrations-bundle"]) {
+    migrate = { command: "php bin/console doctrine:migrations:migrate --no-interaction", inputs: ["migrations"] };
+    notes.push("db: Doctrine migrations (doctrine:migrations:migrate)");
   } else if (has("prisma/schema.prisma")) {
     migrate = { command: "npx prisma migrate deploy", inputs: ["prisma/migrations"] };
     notes.push("db: Prisma (prisma migrate deploy)");
@@ -197,7 +227,7 @@ export async function detect(root: string): Promise<Detected> {
   // Migrations found in the app's directory: their paths are relative to it, and commands run there.
   if (appDir && migrate && !("atlas" in migrate)) {
     if ("sql" in migrate) migrate = { sql: path.posix.join(appDir, migrate.sql) };
-    else migrate = { command: `cd ${appDir} && ${migrate.command}`, ...(migrate.inputs ? { inputs: migrate.inputs.map((i) => path.posix.join(appDir, i)) } : {}) };
+    else migrate = { ...migrate, command: `cd ${appDir} && ${migrate.command}`, ...(migrate.inputs ? { inputs: migrate.inputs.map((i) => path.posix.join(appDir, i)) } : {}) };
   }
 
   // --- docker compose: the database image and other dependencies ---
@@ -249,6 +279,30 @@ export async function detect(root: string): Promise<Detected> {
     composeDb.engine = "mysql";
     notes.push("db: MySQL (a MySQL driver is a dependency). Install mysql2 and @testcontainers/mysql next to slicetest.");
   }
+  if (laravel) {
+    // Laravel names its connection in .env (DB_CONNECTION=sqlite is the default of new projects).
+    const connection = /^\s*DB_CONNECTION\s*=\s*["']?(\w+)/m.exec(exampleText)?.[1];
+    if (!composeDb.engine && connection === "sqlite") {
+      composeDb.engine = "sqlite";
+      notes.push("db: SQLite (DB_CONNECTION=sqlite in .env.example), no container needed");
+    } else if (!composeDb.engine && (connection === "mysql" || connection === "mariadb")) {
+      composeDb.engine = "mysql";
+      notes.push(`db: MySQL (DB_CONNECTION=${connection} in .env.example). Install mysql2 and @testcontainers/mysql next to slicetest.`);
+    }
+    const dbEnv: Record<string, string> =
+      composeDb.engine === "sqlite"
+        ? { DB_CONNECTION: "sqlite", DB_DATABASE: "{{db.path}}" }
+        : { DB_CONNECTION: composeDb.engine === "mysql" ? "mysql" : "pgsql", DB_HOST: "{{db.host}}", DB_PORT: "{{db.port}}", DB_DATABASE: "{{db.name}}", DB_USERNAME: "{{db.user}}", DB_PASSWORD: "{{db.password}}" };
+    if (env.DATABASE_URL?.startsWith("{{")) delete env.DATABASE_URL;
+    Object.assign(env, dbEnv);
+    if (migrate && "command" in migrate) migrate = { ...migrate, env: dbEnv };
+    if (mail) {
+      delete env.SMTP_HOST;
+      delete env.SMTP_PORT;
+      Object.assign(env, { MAIL_MAILER: "smtp", MAIL_HOST: "{{mail.host}}", MAIL_PORT: "{{mail.port}}" });
+      notes.push("mail: Laravel's MAIL_MAILER=smtp, MAIL_HOST and MAIL_PORT point at slicetest's SMTP server");
+    }
+  }
 
   // --- OpenAPI ---
   const openapi = ["openapi.yaml", "openapi.yml", "openapi.json", "docs/openapi.yaml", "docs/openapi.yml", "docs/openapi.json"].find(has);
@@ -262,8 +316,9 @@ export async function detect(root: string): Promise<Detected> {
     Object.keys(deps).some((d) => /^(pg|postgres|mysql2?|@prisma\/client|prisma|drizzle-orm|knex|typeorm|sequelize|kysely|better-sqlite3|sqlite3|@neondatabase\/serverless|@vercel\/postgres|@libsql\/client|mongoose|mongodb)$/.test(d)) ||
     /data-jpa|data-jdbc|spring-jdbc|r2dbc|postgresql|mysql|flyway|liquibase|hibernate/.test(jvmBuild ?? "") ||
     /\b(psycopg|sqlalchemy|asyncpg|pymysql|mysqlclient|django|peewee|tortoise|sqlmodel)\b/.test(python) ||
-    /\b(rails|activerecord|sequel|pg|mysql2|sqlite3)\b/.test(gemfile);
-  const knownStack = !!pkg || jvmBuild !== undefined || python.trim().length > 0 || gemfile.length > 0;
+    /\b(rails|activerecord|sequel|pg|mysql2|sqlite3)\b/.test(gemfile) ||
+    Object.keys(php).some((d) => /^(laravel\/framework|illuminate\/database|doctrine\/(orm|dbal)|doctrine\/doctrine-bundle)$/.test(d));
+  const knownStack = !!pkg || jvmBuild !== undefined || python.trim().length > 0 || gemfile.length > 0 || !!composer;
   const noDb = knownStack && !dbLibrary && !migrate && !composeDb.engine && !composeDb.image && !has("manage.py");
   if (noDb) {
     for (const k of ["DATABASE_URL", "SPRING_DATASOURCE_URL", "SPRING_DATASOURCE_USERNAME", "SPRING_DATASOURCE_PASSWORD"]) delete env[k];
@@ -459,7 +514,8 @@ async function fromCompose(root: string, notes: string[], dirs: string[] = [""])
   }
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
     const image = typeof svc?.image === "string" ? svc.image : undefined;
-    if (!image) {
+    // A service built from source (with or without an image name for the result, like Laravel Sail's) is usually the app.
+    if (!image || svc?.build) {
       if (svc?.build) notes.push(`${file}: service "${name}" is built from source; if it's the app, app.command replaces it`);
       continue;
     }

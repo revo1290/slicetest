@@ -320,3 +320,56 @@ test("a Next.js SaaS: Drizzle SQL migrations from drizzle.config's out, Neon, Cl
   expect(config.app.env).not.toHaveProperty("STRIPE_WEBHOOK_SECRET"); // not in .env.example
   expect(notes).toContain("db: Drizzle, migrations expected in db/migrations/ (drizzle.config's out), which doesn't exist yet: run `npx drizzle-kit generate` and commit them");
 });
+
+test("Laravel (Sail): artisan serve, DB_* for the app and its migrations, MAIL_*, and the app's own compose service skipped", async () => {
+  const root = await project({
+    "composer.json": JSON.stringify({ require: { php: "^8.2", "laravel/framework": "^12.0" } }),
+    artisan: "",
+    "bootstrap/app.php": "->withRouting(web: __DIR__.'/../routes/web.php', health: '/up')",
+    "database/migrations/0001_01_01_000000_create_users_table.php": "",
+    ".env.example": "APP_NAME=Laravel\nDB_CONNECTION=pgsql\nAPP_URL=http://localhost\n",
+    "compose.yaml": [
+      "services:",
+      "  laravel.test:",
+      "    build: { context: ./vendor/laravel/sail/runtimes/8.4 }",
+      "    image: sail-8.4/app",
+      "    ports: ['${APP_PORT:-80}:80']",
+      "  pgsql:",
+      "    image: 'postgres:17'",
+      "  mailpit:",
+      "    image: 'axllent/mailpit:latest'",
+    ].join("\n"),
+  });
+
+  const { config, notes } = await detect(root);
+
+  const db = { DB_CONNECTION: "pgsql", DB_HOST: "{{db.host}}", DB_PORT: "{{db.port}}", DB_DATABASE: "{{db.name}}", DB_USERNAME: "{{db.user}}", DB_PASSWORD: "{{db.password}}" };
+  expect(config).toMatchObject({
+    app: { command: "php artisan serve --host=127.0.0.1 --port={{app.port}} --no-reload", env: { ...db, MAIL_MAILER: "smtp", MAIL_HOST: "{{mail.host}}", APP_KEY: expect.stringMatching(/^base64:/) }, ready: { path: "/up" } },
+    db: { image: "postgres:17", migrate: { command: "php artisan migrate --force", inputs: ["database/migrations"], env: db } },
+    mail: true,
+  });
+  expect(Buffer.from((config.app.env!.APP_KEY as string).slice(7), "base64")).toHaveLength(32);
+  expect(config.app.env).not.toHaveProperty("DATABASE_URL");
+  expect(config.app.env).not.toHaveProperty("SMTP_HOST");
+  expect(config).not.toHaveProperty("containers");
+  expect(notes.join("\n")).toContain('service "laravel.test" is built from source');
+  // The written config is valid.
+  expect(() => resolveOptions(config as never)).not.toThrow();
+});
+
+test("a new Laravel project on SQLite, and Symfony with Doctrine migrations", async () => {
+  const laravel = await detect(
+    await project({ "composer.json": JSON.stringify({ require: { "laravel/framework": "^12.0" } }), artisan: "", ".env.example": "DB_CONNECTION=sqlite\n# DB_HOST=127.0.0.1\n", "database/migrations/1.php": "" }),
+  );
+  expect(laravel.config.db).toMatchObject({ engine: "sqlite", migrate: { env: { DB_CONNECTION: "sqlite", DB_DATABASE: "{{db.path}}" } } });
+  expect(laravel.config.app.env).toMatchObject({ DB_CONNECTION: "sqlite", DB_DATABASE: "{{db.path}}" });
+
+  const symfony = await detect(
+    await project({ "composer.json": JSON.stringify({ require: { "symfony/framework-bundle": "7.*", "doctrine/doctrine-migrations-bundle": "^3", "doctrine/orm": "^3" } }), "bin/console": "", "public/index.php": "" }),
+  );
+  expect(symfony.config).toMatchObject({
+    app: { command: "php -S 127.0.0.1:{{app.port}} -t public", env: { DATABASE_URL: "{{db.url}}" } },
+    db: { migrate: { command: "php bin/console doctrine:migrations:migrate --no-interaction", inputs: ["migrations"] } },
+  });
+});
