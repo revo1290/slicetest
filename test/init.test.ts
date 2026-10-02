@@ -355,7 +355,7 @@ test("Laravel (Sail): artisan serve, DB_* for the app and its migrations, MAIL_*
   expect(config).not.toHaveProperty("containers");
   expect(notes.join("\n")).toContain('service "laravel.test" is built from source');
   // The written config is valid.
-  expect(() => resolveOptions(config as never)).not.toThrow();
+  expect(() => resolveOptions(config as never, "/")).not.toThrow();
 });
 
 test("a new Laravel project on SQLite, and Symfony with Doctrine migrations", async () => {
@@ -372,4 +372,41 @@ test("a new Laravel project on SQLite, and Symfony with Doctrine migrations", as
     app: { command: "php -S 127.0.0.1:{{app.port}} -t public", env: { DATABASE_URL: "{{db.url}}" } },
     db: { migrate: { command: "php bin/console doctrine:migrations:migrate --no-interaction", inputs: ["migrations"] } },
   });
+});
+
+test("ASP.NET Core with EF Core: build once, run with ASPNETCORE_URLS, the connection string for the app and dotnet ef", async () => {
+  const csproj = (sdk: string, packages: string[]) =>
+    `<Project Sdk="${sdk}"><ItemGroup>${packages.map((p) => `<PackageReference Include="${p}" Version="9.0.0" />`).join("")}</ItemGroup></Project>`;
+  const root = await project({
+    "Shop.sln": "",
+    "src/Shop.Api/Shop.Api.csproj": csproj("Microsoft.NET.Sdk.Web", ["Npgsql.EntityFrameworkCore.PostgreSQL", "Microsoft.EntityFrameworkCore.Design"]),
+    "src/Shop.Api/appsettings.json": '﻿{ "ConnectionStrings": { "Shop": "Host=localhost;Database=shop" } }',
+    "src/Shop.Api/Program.cs": 'app.MapHealthChecks("/healthz");',
+    "src/Shop.Api/Migrations/20260101_Init.cs": "",
+    "tests/Shop.Api.Tests/Shop.Api.Tests.csproj": csproj("Microsoft.NET.Sdk", ["xunit"]),
+  });
+
+  const { config } = await detect(root);
+
+  const conn = { ConnectionStrings__Shop: "{{db.adoNet}}" };
+  expect(config).toMatchObject({
+    app: {
+      build: "dotnet build src/Shop.Api/Shop.Api.csproj -v q",
+      command: "dotnet run --project src/Shop.Api/Shop.Api.csproj --no-build --no-launch-profile",
+      env: { ASPNETCORE_URLS: "http://127.0.0.1:{{app.port}}", ...conn },
+      ready: { path: "/healthz" },
+    },
+    db: { migrate: { command: "dotnet ef database update --project src/Shop.Api/Shop.Api.csproj", inputs: ["src/Shop.Api/Migrations"], env: conn } },
+  });
+  expect(config.app.env).not.toHaveProperty("DATABASE_URL");
+  expect(config.app.env).not.toHaveProperty("PORT");
+});
+
+test("ASP.NET Core on SQLite or MySQL, and without a database", async () => {
+  const web = (packages: string[]) => ({ "Api.csproj": `<Project Sdk="Microsoft.NET.Sdk.Web">${packages.map((p) => `<PackageReference Include="${p}" />`).join("")}</Project>` });
+  expect((await detect(await project(web(["Microsoft.EntityFrameworkCore.Sqlite"])))).config).toMatchObject({ db: { engine: "sqlite" }, app: { env: { ConnectionStrings__DefaultConnection: "{{db.adoNet}}" } } });
+  expect((await detect(await project(web(["Pomelo.EntityFrameworkCore.MySql"])))).config.db).toMatchObject({ engine: "mysql" });
+  const none = await detect(await project(web([])));
+  expect(none.config.db).toBe(false);
+  expect(JSON.stringify(none.config.app.env)).not.toContain("{{db.");
 });

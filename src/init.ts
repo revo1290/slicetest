@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse, stringify } from "yaml";
@@ -53,11 +53,29 @@ async function subprojectBuildFiles(dir: string, gradle: boolean) {
   return texts;
 }
 
+/** The ASP.NET Core project (Sdk="Microsoft.NET.Sdk.Web") in `dir` or two levels below it (src/Api/Api.csproj). */
+async function findWebProject(dir: string) {
+  const found: { file: string; text: string }[] = [];
+  const walk = async (d: string, depth: number) => {
+    for (const entry of await readdir(path.join(dir, d), { withFileTypes: true }).catch(() => [])) {
+      const rel = d ? `${d}/${entry.name}` : entry.name;
+      if (entry.isFile() && entry.name.endsWith(".csproj")) found.push({ file: rel, text: await readFile(path.join(dir, rel), "utf8") });
+      else if (entry.isDirectory() && depth < 2 && !entry.name.startsWith(".") && !["bin", "obj", "node_modules", "tests", "test"].includes(entry.name)) await walk(rel, depth + 1);
+    }
+  };
+  await walk("", 0);
+  // Test projects reference the web project too; the web SDK is what marks the app.
+  return found.find((p) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(p.text) && !/\.Tests?\.csproj$/.test(p.file));
+}
+
 /** Where monorepos usually keep the server, when the root isn't one. */
 const APP_DIRS = ["backend", "server", "api", "app", "service"];
 
 function runnable(dir: string) {
   if (APP_MARKERS.some((f) => existsSync(path.join(dir, f)))) return true;
+  try {
+    if (readdirSync(dir).some((f) => f.endsWith(".csproj") || f.endsWith(".sln") || f.endsWith(".slnx"))) return true;
+  } catch {}
   try {
     const scripts = (JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8")) as { scripts?: Record<string, string> }).scripts ?? {};
     return !!(scripts.start || scripts.dev);
@@ -82,6 +100,9 @@ export async function detect(root: string): Promise<Detected> {
   const php = { ...composer?.require, ...composer?.["require-dev"] };
   const laravel = !!php["laravel/framework"] && has("artisan");
   const symfony = !laravel && !!php["symfony/framework-bundle"] && has("bin/console");
+  const dotnet = !pkg?.scripts?.start && !pkg?.scripts?.dev ? await findWebProject(appRoot) : undefined;
+  const nuget = new Set([...(dotnet?.text.matchAll(/<PackageReference\s+Include="([^"]+)"/g) ?? [])].map((m) => m[1]!.toLowerCase()));
+  let dotnetConnection: string | undefined;
 
   // --- app ---
   let command = TODO_COMMAND;
@@ -115,6 +136,24 @@ export async function detect(root: string): Promise<Detected> {
   } else if (/\brails\b/.test(gemfile)) {
     command = "bin/rails server -p {{app.port}}";
     notes.push("app: Rails");
+  } else if (dotnet) {
+    // Built once, then run without building, so workers don't compile at the same time; launch profiles would override the URL.
+    build = `dotnet build ${dotnet.file} -v q`;
+    command = `dotnet run --project ${dotnet.file} --no-build --no-launch-profile`;
+    delete env.PORT;
+    delete env.DATABASE_URL;
+    const dir = path.posix.dirname(dotnet.file);
+    let settings: { ConnectionStrings?: Record<string, unknown> } = {};
+    try {
+      settings = JSON.parse((await read(path.posix.join(dir, "appsettings.json"))).replace(/^\uFEFF/, "") || "{}");
+    } catch {}
+    dotnetConnection = Object.keys(settings.ConnectionStrings ?? {})[0] ?? "DefaultConnection";
+    Object.assign(env, { ASPNETCORE_URLS: "http://127.0.0.1:{{app.port}}", ASPNETCORE_ENVIRONMENT: "Development" });
+    readyTimeout = 60_000;
+    const program = await read(path.posix.join(dir, "Program.cs"));
+    const health = /MapHealthChecks\(\s*"([^"]+)"/.exec(program)?.[1];
+    if (health) readyPath = health;
+    notes.push(`app: ASP.NET Core (${dotnet.file}), built once with \`dotnet build\` and started with \`dotnet run --no-build\` at ASPNETCORE_URLS`);
   } else if (laravel) {
     // `artisan serve` is PHP's built-in server; Laravel reads DB_* (set below, once the engine is known).
     command = "php artisan serve --host=127.0.0.1 --port={{app.port}} --no-reload";
@@ -181,6 +220,10 @@ export async function detect(root: string): Promise<Detected> {
   if (atlas) {
     migrate = { atlas: { dir: `file://${atlas}` } };
     notes.push(`db: Atlas migrations in ${atlas}/`);
+  } else if (dotnet && nuget.has("microsoft.entityframeworkcore.design") && has(path.posix.join(path.posix.dirname(dotnet.file), "Migrations"))) {
+    const migrations = path.posix.join(path.posix.dirname(dotnet.file), "Migrations");
+    migrate = { command: `dotnet ef database update --project ${dotnet.file}`, inputs: [migrations] };
+    notes.push(`db: EF Core migrations in ${migrations}/ (dotnet ef database update; install it with \`dotnet tool install --global dotnet-ef\`)`);
   } else if (laravel) {
     migrate = { command: "php artisan migrate --force", inputs: ["database/migrations"] };
     notes.push("db: Laravel migrations (php artisan migrate), given the same DB_* variables as the app");
@@ -279,6 +322,20 @@ export async function detect(root: string): Promise<Detected> {
     composeDb.engine = "mysql";
     notes.push("db: MySQL (a MySQL driver is a dependency). Install mysql2 and @testcontainers/mysql next to slicetest.");
   }
+  if (dotnet) {
+    if (!composeDb.engine && [...nuget].some((n) => /^(pomelo\.entityframeworkcore\.mysql|mysqlconnector|mysql\.data|mysql\.entityframeworkcore)$/.test(n))) {
+      composeDb.engine = "mysql";
+      notes.push("db: MySQL (a MySQL provider is a NuGet dependency). Install mysql2 and @testcontainers/mysql next to slicetest.");
+    } else if (!composeDb.engine && nuget.has("microsoft.entityframeworkcore.sqlite") && ![...nuget].some((n) => n.startsWith("npgsql"))) {
+      composeDb.engine = "sqlite";
+      notes.push("db: SQLite (Microsoft.EntityFrameworkCore.Sqlite), no container needed");
+    }
+    // ASP.NET reads ConnectionStrings:<name> from ConnectionStrings__<name>; `dotnet ef` builds the same host, so it reads it too.
+    const dbEnv = { [`ConnectionStrings__${dotnetConnection}`]: "{{db.adoNet}}" };
+    Object.assign(env, dbEnv);
+    if (migrate && "command" in migrate) migrate = { ...migrate, env: dbEnv };
+    notes.push(`db: ConnectionStrings__${dotnetConnection} is the test database as an ADO.NET connection string ({{db.adoNet}})`);
+  }
   if (laravel) {
     // Laravel names its connection in .env (DB_CONNECTION=sqlite is the default of new projects).
     const connection = /^\s*DB_CONNECTION\s*=\s*["']?(\w+)/m.exec(exampleText)?.[1];
@@ -317,11 +374,14 @@ export async function detect(root: string): Promise<Detected> {
     /data-jpa|data-jdbc|spring-jdbc|r2dbc|postgresql|mysql|flyway|liquibase|hibernate/.test(jvmBuild ?? "") ||
     /\b(psycopg|sqlalchemy|asyncpg|pymysql|mysqlclient|django|peewee|tortoise|sqlmodel)\b/.test(python) ||
     /\b(rails|activerecord|sequel|pg|mysql2|sqlite3)\b/.test(gemfile) ||
-    Object.keys(php).some((d) => /^(laravel\/framework|illuminate\/database|doctrine\/(orm|dbal)|doctrine\/doctrine-bundle)$/.test(d));
-  const knownStack = !!pkg || jvmBuild !== undefined || python.trim().length > 0 || gemfile.length > 0 || !!composer;
+    Object.keys(php).some((d) => /^(laravel\/framework|illuminate\/database|doctrine\/(orm|dbal)|doctrine\/doctrine-bundle)$/.test(d)) ||
+    [...nuget].some((n) => /^(microsoft\.entityframeworkcore|npgsql|dapper|mysqlconnector|pomelo\.|microsoft\.data\.sqlite)/.test(n));
+  const knownStack = !!pkg || jvmBuild !== undefined || python.trim().length > 0 || gemfile.length > 0 || !!composer || !!dotnet;
   const noDb = knownStack && !dbLibrary && !migrate && !composeDb.engine && !composeDb.image && !has("manage.py");
   if (noDb) {
-    for (const k of ["DATABASE_URL", "SPRING_DATASOURCE_URL", "SPRING_DATASOURCE_USERNAME", "SPRING_DATASOURCE_PASSWORD"]) delete env[k];
+    // Whatever was meant to reach the database (DATABASE_URL, SPRING_DATASOURCE_*, ConnectionStrings__*).
+    for (const [k, v] of Object.entries(env)) if (v.includes("{{db.")) delete env[k];
+    for (let i = notes.findIndex((n) => n.startsWith("db: ConnectionStrings__")); i >= 0; i = notes.findIndex((n) => n.startsWith("db: ConnectionStrings__"))) notes.splice(i, 1);
     const i = notes.indexOf("db: no migrations found; the database starts empty. Set db.migrate.");
     if (i >= 0) notes.splice(i, 1);
     notes.push("db: none (no migrations, no database in compose, no database library), so `db: false`: no container is started");
