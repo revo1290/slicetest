@@ -69,6 +69,10 @@ scenarios:
 - With `db: { queries: true }`, guard list endpoints against N+1 with `expect((await db.queries(() => http.get(path))).repeated()).toEqual([])` (YAML: `expect: { queries: n }`).
 - Arrange rows with `db.make(table, { only the columns the scenario is about })` (YAML: `make:`) rather than spelling out every required column; it creates parent rows for required foreign keys.
 - If `openapi` has `minCoverage`, add scenarios for the documented statuses the coverage table marks with ✗.
+- For GraphQL APIs, stub by operation with `stub(name).graphql("Op", { variables }).data({...})` (YAML: `graphql: Op` on stub / received steps), and call the app's endpoint with `http.graphql(query, variables)` checked by `toHaveGraphQLData()`, since GraphQL errors come back with status 200.
+- In YAML, move steps several scenarios repeat (signing up, logging in) into a top-level `define:` with `params`, and call them with `use:` + `with:`.
+- To check a response's shape without pinning its values, use `toMatchSchema("openapi.yaml#/components/schemas/X")` (YAML: `expect.schema`).
+- When a stub call goes unanswered, the failure output names the closest route and the first difference (path, header, `json.field`); fix whichever side is wrong rather than loosening the route.
 
 ## Running
 
@@ -78,4 +82,4 @@ npx slicetest polls -t voting    # filter by file and scenario name
 npx vitest run                   # TypeScript scenarios via the Vitest plugin
 ```
 
-When a scenario fails, read the `--- slicetest ---` block: it lists the requests, unmatched stub calls, database changes and the app's output during that scenario. Fix the cause in the app or the scenario; don't loosen assertions to make it pass.
+When a scenario fails, read the `--- slicetest ---` block: it lists the requests, unmatched stub calls (with the closest route), stub routes never called, database changes and the app's output during that scenario. `await diagram()` gives the same story as a Mermaid sequence diagram. Fix the cause in the app or the scenario; don't loosen assertions to make it pass.
