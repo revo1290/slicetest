@@ -320,7 +320,10 @@ export class Runtime {
       if (calls.length === 0) return [];
       const routes = s.describeRoutes();
       return [
-        ...calls.map((c) => `  ${s.name}: ${c.method} ${c.path}${c.query.size ? `?${c.query}` : ""}`),
+        ...calls.flatMap((c) => {
+          const why = s.explain(c);
+          return [`  ${s.name}: ${c.method} ${c.path}${c.query.size ? `?${c.query}` : ""}`, ...(why ? [`    ${why}`] : [])];
+        }),
         `    registered on ${s.name}: ${routes.length ? routes.join(", ") : "(none)"}`,
         ...(this.recorders.has(s.name) ? [`    ${this.recorders.get(s.name)!.hint()}`] : []),
       ];

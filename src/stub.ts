@@ -321,6 +321,39 @@ export class Stub {
     });
   }
 
+  /**
+   * Why `call` wasn't answered, measured against the registered route it came closest to:
+   * `closest route POST /v1/charges: json.amount: expected 100, got "100"`. Undefined without routes.
+   */
+  explain(call: RecordedCall): string | undefined {
+    let best: { route: Route; reasons: string[]; score: number } | undefined;
+    for (const route of this.#routes) {
+      const reasons: string[] = [];
+      let score = 0;
+      if (route.method !== "*" && route.method !== call.method) {
+        reasons.push(`method is ${call.method}, the route takes ${route.method}`);
+        score += 1;
+      }
+      if (!matchPath(route.path, route.pattern, call.path, route.paramNames)) {
+        reasons.push(pathHint(route.path, call.path));
+        score += 2 + (typeof route.path === "string" ? Math.min(distance(route.path, call.path) / 4, 3) : 1);
+      }
+      const why = conditionMismatch(route.match, call);
+      if (why) {
+        reasons.push(why);
+        score += 1;
+      }
+      if (reasons.length === 0 && route.remaining <= 0) {
+        reasons.push(`the route already answered its ${route.hits} call(s) (once() / times())`);
+        score += 0.5;
+      }
+      if (!best || score < best.score) best = { route, reasons, score };
+    }
+    if (!best) return undefined;
+    const label = best.route.label ?? `${best.route.method} ${best.route.path}`;
+    return `closest route ${label}: ${best.reasons.join("; ") || "matches now (registered after the call arrived?)"}`;
+  }
+
   reset() {
     this.#routes = [];
     this.#calls = [];
@@ -474,6 +507,96 @@ function matchConditions(match: MatchOptions, call: RecordedCall) {
     if (variables !== undefined && !subset(variables, g.variables)) return false;
   }
   return true;
+}
+
+/** The first condition of `match` that `call` fails, described; undefined when it meets them all. */
+function conditionMismatch(match: MatchOptions, call: RecordedCall): string | undefined {
+  for (const [k, m] of Object.entries(match.query ?? {})) {
+    const v = call.query.get(k) ?? undefined;
+    if (!test(m, v)) return `query ${k}: expected ${show(m)}, got ${v === undefined ? "nothing" : JSON.stringify(v)}`;
+  }
+  for (const [k, m] of Object.entries(match.headers ?? {})) {
+    const raw = call.headers[k.toLowerCase()];
+    const v = Array.isArray(raw) ? raw.join(", ") : raw;
+    if (!test(m, v)) return `header ${k.toLowerCase()}: expected ${show(m)}, got ${v === undefined ? "nothing" : JSON.stringify(v)}`;
+  }
+  if (match.body !== undefined && !test(match.body, call.body)) return `body: expected ${show(match.body)}, got ${JSON.stringify(call.body.slice(0, 100))}`;
+  if (match.json !== undefined) {
+    if (call.json === undefined) return `json: expected a JSON body, got ${call.body ? JSON.stringify(call.body.slice(0, 100)) : "an empty body"}`;
+    const diff = difference(match.json, call.json, "json");
+    if (diff) return diff;
+  }
+  if (match.graphql) {
+    const g = call.graphql;
+    if (!g) return "graphql: the call isn't a GraphQL request";
+    const { operation, variables } = match.graphql;
+    if (operation !== undefined && !(operation instanceof RegExp ? g.operation !== undefined && operation.test(g.operation) : g.operation === operation)) {
+      return `graphql operation: expected ${show(operation)}, got ${g.operation ?? "an anonymous operation"}`;
+    }
+    if (variables !== undefined) {
+      const diff = difference(variables, g.variables, "variables");
+      if (diff) return diff;
+    }
+  }
+  return undefined;
+}
+
+/** Where `actual` first stops containing `expected` (the rules of `subset`), as `json.items.0.sku: expected "a", got "b"`. */
+function difference(expected: unknown, actual: unknown, at: string): string | undefined {
+  if (subset(expected, actual)) return undefined;
+  if (Array.isArray(expected) && Array.isArray(actual)) {
+    if (expected.length !== actual.length) return `${at}: expected ${expected.length} item(s), got ${actual.length}`;
+    for (const [i, e] of expected.entries()) {
+      const d = difference(e, actual[i], `${at}.${i}`);
+      if (d) return d;
+    }
+  }
+  if (expected && typeof expected === "object" && !Array.isArray(expected) && !isAsymmetric(expected) && !(expected instanceof RegExp) && actual && typeof actual === "object" && !Array.isArray(actual)) {
+    for (const [k, v] of Object.entries(expected)) {
+      if (!(k in actual)) return `${at}.${k}: expected ${show(v)}, got nothing`;
+      const d = difference(v, (actual as Record<string, unknown>)[k], `${at}.${k}`);
+      if (d) return d;
+    }
+  }
+  return `${at}: expected ${show(expected)}, got ${short(actual)}`;
+}
+
+function show(m: unknown): string {
+  if (isAsymmetric(m)) return (m as { toAsymmetricMatcher?: () => string }).toAsymmetricMatcher?.() ?? String(m);
+  if (m instanceof RegExp) return String(m);
+  if (typeof m === "function") return "a value the given function accepts";
+  return short(m);
+}
+
+function short(v: unknown) {
+  const s = v === undefined ? "nothing" : JSON.stringify(v);
+  return s.length > 80 ? `${s.slice(0, 79)}…` : s;
+}
+
+/** What is off about the path: a trailing slash, letter case, a prefix, or just a different path. */
+function pathHint(expected: string | RegExp, actual: string) {
+  if (typeof expected !== "string") return `path ${actual} doesn't match ${expected}`;
+  const trim = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+  if (trim(expected) === trim(actual)) return `path is ${actual}, the route is ${expected} (trailing slash)`;
+  if (expected.toLowerCase() === actual.toLowerCase()) return `path is ${actual}, the route is ${expected} (letter case)`;
+  if (actual.endsWith(expected)) return `path is ${actual}, the route is ${expected}: is the base URL's path (${actual.slice(0, -expected.length)}) in the env value?`;
+  if (expected.endsWith(actual)) return `path is ${actual}, the route is ${expected}: the base URL the app was given may lack ${expected.slice(0, -actual.length)}`;
+  return `path is ${actual}, the route is ${expected}`;
+}
+
+/** Levenshtein distance, to find the route whose path is nearest. */
+function distance(a: string, b: string) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j]!;
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length]!;
 }
 
 function test(m: Matcher, value: string | undefined): boolean {

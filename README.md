@@ -144,7 +144,8 @@ slicetest prints what happened during that scenario, next to Vitest's own error:
 --- slicetest ---
 stub calls with no matching route:
   mail: POST /send
-    registered on mail: POST /other
+    closest route POST /send: json.to: expected "a@example.com", got "b@example.com"
+    registered on mail: POST /send + json conditions
 
 requests to the app:
   POST /signup → 500 (14ms)  {"error":"internal"}
@@ -160,7 +161,7 @@ TypeError: Cannot read properties of undefined (reading 'email')
 -----------------
 ```
 
-Only this scenario's app output is shown, not the whole log. The database section is a diff against the state right after the reset and seed, so you see what the app actually wrote. Requests that never got a response (for example because the app crashed) appear as `failed`.
+For a call no route answered, slicetest names the route it came closest to and the first thing that differed: the method, a path that is off by a trailing slash, letter case or a base-URL prefix (`/api/v1/charges` against `/v1/charges`), a missing header, or the JSON field and value (`json.items.0.sku: expected "a", got "b"`), the GraphQL operation or variables, or a `once()` route that was already used. Only this scenario's app output is shown, not the whole log. The database section is a diff against the state right after the reset and seed, so you see what the app actually wrote. Requests that never got a response (for example because the app crashed) appear as `failed`.
 
 ## API
 
@@ -286,7 +287,7 @@ stub("pay").on("POST", "/charge").networkError();             // drop the connec
 stub("slack").calls("POST", "/hook");                         // recorded calls: method, path, params, query, headers, body, json
 ```
 
-Later routes win. `path` may also be a RegExp, and `method` may be `*`. Unanswered calls get a `501` and fail the scenario.
+Later routes win. `path` may also be a RegExp, and `method` may be `*`. Unanswered calls get a `501` and fail the scenario, with the closest route and why it didn't match (`stub.explain(call)`).
 
 ### OpenAPI contracts — for your app and for the services you stub
 

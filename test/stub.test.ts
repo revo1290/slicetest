@@ -180,3 +180,33 @@ test("sse() replies with a Server-Sent Events stream: event lines, JSON data, mu
   expect(res.headers.get("content-type")).toBe("text/event-stream");
   expect(await res.text()).toBe('event: message_start\ndata: {"type":"message_start"}\n\nid: 7\ndata: line 1\ndata: line 2\n\nevent: ping\ndata: {}\n\n');
 });
+
+test("explain() names the closest route and what kept it from answering", async () => {
+  stub.on("GET", "/v1/customers/:id").reply(200);
+  stub.on("POST", "/v1/charges", { json: { amount: 100, items: [{ sku: "a" }] }, headers: { authorization: /^Bearer / } }).reply(201);
+  const post = (path: string, body: unknown, headers: Record<string, string> = { authorization: "Bearer x" }) =>
+    fetch(`${stub.url}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+
+  await post("/v1/charges", { amount: "100", items: [{ sku: "a" }] });
+  await post("/v1/charges", { amount: 100, items: [{ sku: "b" }] });
+  await post("/v1/charges", { amount: 100, items: [{ sku: "a" }] }, {});
+  await post("/v1/charges/", { amount: 100, items: [{ sku: "a" }] });
+  await post("/api/v1/charges", { amount: 100, items: [{ sku: "a" }] });
+  await fetch(`${stub.url}/v1/charges`);
+
+  expect(stub.unmatched().map((c) => stub.explain(c))).toEqual([
+    'closest route POST /v1/charges: json.amount: expected 100, got "100"',
+    'closest route POST /v1/charges: json.items.0.sku: expected "a", got "b"',
+    "closest route POST /v1/charges: header authorization: expected /^Bearer /, got nothing",
+    "closest route POST /v1/charges: path is /v1/charges/, the route is /v1/charges (trailing slash)",
+    "closest route POST /v1/charges: path is /api/v1/charges, the route is /v1/charges: is the base URL's path (/api) in the env value?",
+    "closest route POST /v1/charges: method is GET, the route takes POST; header authorization: expected /^Bearer /, got nothing",
+  ]);
+});
+
+test("explain() says when a once() route was used up", async () => {
+  stub.on("GET", "/token").once().reply(200);
+  await fetch(`${stub.url}/token`);
+  await fetch(`${stub.url}/token`);
+  expect(stub.explain(stub.unmatched()[0]!)).toBe("closest route GET /token: the route already answered its 1 call(s) (once() / times())");
+});
