@@ -163,6 +163,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
     }
     if (step.times !== undefined) route = route.times(step.times);
     if (step.delay !== undefined) route = route.delay(step.delay);
+    if (step.optional) route = route.optional();
     // Replies are interpolated when a call arrives, so they can echo it: {{call.params.id}}, {{call.json.name}}, {{call.variables.id}}.
     const answer = (template: unknown) => (call: RecordedCall) => {
       const { sse: events, data, errors, ...response } = interpolate(template, { ...vars, call: callVars(call) }) as StubResponse & { sse?: ServerSentEvent[]; data?: unknown; errors?: (string | { message: string })[] };

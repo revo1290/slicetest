@@ -57,6 +57,8 @@ Config (paths are relative to the config file):
   auth:     true | { audience, claims }   OpenID issuer at {{auth.issuer}} / {{auth.jwks}}
   openapi:  file | { spec, minCoverage }
   http:     { headers, query }
+  offline:  true    refuse calls to hosts no stub answers
+  strictStubs: true fail scenarios with stub routes the app never called
   include:  [globs]  default ["**/*.scenario.{yaml,yml}"]
 `;
 

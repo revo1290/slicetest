@@ -335,6 +335,10 @@
             "graphql": {
               "type": "string",
               "description": "A GraphQL operation (its operationName, or the name in the document), instead of METHOD /path. Matches POST and GET GraphQL requests to any path"
+            },
+            "optional": {
+              "type": "boolean",
+              "description": "The app may not call this route: strictStubs doesn't report it as unused"
             }
           },
           "oneOf": [

@@ -1,0 +1,14 @@
+scenarios:
+  - name: "FAILS: yaml route never called"
+    steps:
+      - stub: pay
+        on: POST /refunds
+        reply: { status: 201 }
+      - request: GET /order?amount=0
+  - name: yaml optional route
+    steps:
+      - stub: pay
+        on: POST /refunds
+        optional: true
+        reply: { status: 201 }
+      - request: GET /order?amount=0

@@ -50,6 +50,11 @@ export interface SlicetestOptions {
    */
   offline?: boolean;
   /**
+   * Fail a scenario that registered a stub route the app never called: the test may not be
+   * exercising what it set up. Routes marked `.optional()` (YAML `optional: true`) are exempt.
+   */
+  strictStubs?: boolean;
+  /**
    * Most Vitest workers to run test files in (Vitest's `maxWorkers`). Each worker has
    * its own app and database; with `app.scope: "worker"`, fewer workers means fewer app
    * starts, which is what makes a slow-starting app fast to test.
@@ -211,6 +216,7 @@ export interface ResolvedOptions {
   containers: Record<string, ContainerOptions>;
   mail: boolean;
   offline: boolean;
+  strictStubs: boolean;
   workers?: number;
   auth: AuthOptions | false;
   db: Required<Pick<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse">> & Omit<DbOptions, "engine" | "image" | "schemas" | "keep" | "reuse"> & {
@@ -242,6 +248,7 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     containers: opts.containers ?? {},
     mail: opts.mail ?? false,
     offline: opts.offline ?? false,
+    strictStubs: opts.strictStubs ?? false,
     workers: opts.workers,
     auth: opts.auth === true ? {} : (opts.auth ?? false),
     db: opts.db === false ? { ...resolveDb({}), none: true } : resolveDb(opts.db ?? {}),
@@ -330,6 +337,7 @@ function validate(opts: SlicetestOptions) {
   }
   if (opts.workers !== undefined && !(Number.isInteger(opts.workers) && opts.workers >= 1)) fail(`workers must be a positive whole number, got ${JSON.stringify(opts.workers)}`);
   if (opts.offline !== undefined && typeof opts.offline !== "boolean") fail(`offline must be true or false, got ${JSON.stringify(opts.offline)}`);
+  if (opts.strictStubs !== undefined && typeof opts.strictStubs !== "boolean") fail(`strictStubs must be true or false, got ${JSON.stringify(opts.strictStubs)}`);
   if (opts.mail !== undefined && typeof opts.mail !== "boolean") fail(`mail must be true or false, got ${JSON.stringify(opts.mail)}`);
   if (opts.auth !== undefined && typeof opts.auth !== "boolean") {
     if (!opts.auth || typeof opts.auth !== "object" || Array.isArray(opts.auth)) fail(`auth must be true or { audience, claims }, got ${JSON.stringify(opts.auth)}`);

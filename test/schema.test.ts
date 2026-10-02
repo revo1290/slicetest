@@ -47,6 +47,7 @@ setup:
     reply: { status: 201, headers: { x-id: "1" }, body: { id: "{{call.params.id}}" } }
     times: 2
     delay: 10
+    optional: true
     name: charge
 scenarios:
   - name: all steps {{n}}

@@ -104,6 +104,8 @@ interface Route {
   hits: number;
   /** Shown instead of `method path` in diagnostics. */
   label?: string;
+  /** Not reported when never called. */
+  optional?: boolean;
 }
 
 /** Builder returned by `stub.on()`. Finish it with `reply()` or `networkError()`. */
@@ -113,6 +115,8 @@ export interface RouteBuilder {
   once(): RouteBuilder;
   /** Wait before answering, e.g. to exercise the app's timeouts. */
   delay(ms: number): RouteBuilder;
+  /** The app may or may not call this route: it isn't reported as unused (`strictStubs`). */
+  optional(): RouteBuilder;
   reply(status: number, body?: unknown, headers?: Record<string, string>): Stub;
   reply(response: Responder): Stub;
   /** Answer each matching call with the next response in the list; the last one repeats. */
@@ -126,6 +130,7 @@ export interface GraphQLRouteBuilder extends RouteBuilder {
   times(n: number): GraphQLRouteBuilder;
   once(): GraphQLRouteBuilder;
   delay(ms: number): GraphQLRouteBuilder;
+  optional(): GraphQLRouteBuilder;
   /** Answer `{ data }` (a function receives the call, with `call.graphql.variables`). */
   data(data: (call: RecordedCall) => unknown): Stub;
   data(data: unknown): Stub;
@@ -191,6 +196,7 @@ export class Stub {
       times: (n) => (builder.times(n), gql),
       once: () => (builder.once(), gql),
       delay: (ms) => (builder.delay(ms), gql),
+      optional: () => (builder.optional(), gql),
       data: (data: unknown) => builder.reply(async (call) => ({ status: 200, body: { data: typeof data === "function" ? await data(call) : data } })),
       errors: (errors, data) => builder.reply({ status: 200, body: { errors: graphqlErrors(errors), ...(data === undefined ? {} : { data }) } }),
     };
@@ -218,6 +224,7 @@ export class Stub {
       times: (n) => ((route.remaining = n), builder),
       once: () => builder.times(1),
       delay: (ms) => ((route.delayMs = ms), builder),
+      optional: () => ((route.optional = true), builder),
       reply: (statusOrResponse: number | Responder, body?: unknown, headers?: Record<string, string>) =>
         add(typeof statusOrResponse === "number" ? { status: statusOrResponse, body, headers } : statusOrResponse),
       replySequence: (responses) => {
@@ -309,6 +316,11 @@ export class Stub {
 
   unmatched() {
     return this.#calls.filter((c) => !c.matched);
+  }
+
+  /** Routes registered in this scenario that no call reached, except `optional()` ones. */
+  unusedRoutes() {
+    return this.#routes.filter((r) => r.hits === 0 && !r.optional).map((r) => r.label ?? `${r.method} ${r.path}`).reverse();
   }
 
   /** Human-readable list of registered routes, for diagnostics. */

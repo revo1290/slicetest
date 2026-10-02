@@ -285,6 +285,17 @@ export class Runtime {
     if (contract.length > 0) {
       throw new Error(`slicetest: traffic doesn't match the OpenAPI spec:\n${contract.map((c) => `  ${c}`).join("\n")}`);
     }
+    const unused = this.#unusedRoutes();
+    if (this.opts.strictStubs && unused.length > 0) {
+      throw new Error(
+        `slicetest: stub routes the app never called (strictStubs):\n${unused.join("\n")}\n` +
+          "Remove them, check that the scenario reaches the code that calls them, or mark them .optional() (YAML: optional: true).",
+      );
+    }
+  }
+
+  #unusedRoutes() {
+    return [...this.stubs.values()].flatMap((s) => s.unusedRoutes().map((r) => `  ${s.name}: ${r}`));
   }
 
   /** The app's responses against its spec, and its calls to stubs (and the stubs' replies) against theirs. */
@@ -369,6 +380,8 @@ export class Runtime {
     }
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) sections.push(`stub calls with no matching route:\n${unmatched.join("\n")}`);
+    const unused = this.#unusedRoutes();
+    if (unused.length > 0) sections.push(`stub routes the app never called:\n${unused.join("\n")}`);
     const chaos = [...this.stubs.values()].map((s) => s.describeChaos()).filter((c) => c !== undefined);
     if (chaos.length > 0) sections.push(chaos.join("\n"));
     const contract = this.#contractViolations();

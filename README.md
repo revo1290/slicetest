@@ -284,6 +284,7 @@ stub("pay").on("GET", "/status").replySequence([{ status: 503 }, { status: 200 }
 stub("pay").on("POST", "/charge").delay(5_000).reply(200);    // exercise the app's timeouts
 stub("pay").on("POST", "/charge").networkError();             // drop the connection
 
+stub("slack").on("POST", "/hook").optional().reply(200);      // may go uncalled, even with strictStubs
 stub("slack").calls("POST", "/hook");                         // recorded calls: method, path, params, query, headers, body, json
 ```
 
@@ -701,6 +702,7 @@ Scenarios in one file share an app and a database, so they always run one at a t
 | `auth` | `false` | `true` or `{ audience, claims }`: an OpenID Connect issuer at `{{auth.issuer}}` (JWKS at `{{auth.jwks}}`) whose tokens scenarios mint with `auth.token()`. See [Auth](#auth-a-real-openid-issuer-tokens-with-any-claims). |
 | `services` | `{}` | Other processes: `{ name: { command, env?, cwd?, ready?, readyTimeout? } }`. Without `ready` a service is not waited for. |
 | `offline` | `false` | Refuse the app's HTTP(S) calls to hosts no stub intercepts, and fail the scenario naming them. |
+| `strictStubs` | `false` | Fail a scenario that registered a stub route the app never called, so a test can't pass without reaching the code it set up for. Exempt a route with `.optional()` (YAML `optional: true`). Unused routes are listed in the failure output either way. |
 | `workers` | Vitest's default | Most Vitest workers (`maxWorkers`). Each has its own app and database. |
 | `stubs` | `[]` | Names of stubbed services, or `{ name, openapi?, autoReply?, upstream?, recordings?, hosts? }`: check calls against the provider's spec, answer from it, [replay recordings](#recording-a-real-service) of the real service, or answer for [hard-coded hosts](#hard-coded-hosts-hosts). |
 | `openapi` | none | The app's OpenAPI 3 spec, or `{ spec, minCoverage }`, or `{ fromApp: "/v3/api-docs" }` for a spec the running app serves (springdoc, FastAPI's `/openapi.json`, NestJS). Every response must match it; the run ends with a coverage report. |

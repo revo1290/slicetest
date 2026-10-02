@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `strictStubs: true` fails a scenario that registered a stub route the app never called (the test may pass without reaching the code it set up for), except routes marked `.optional()` / YAML `optional: true`. The failure output lists routes that were never called in any case.
 - `slicetest init` for Elixir (Phoenix in `MIX_ENV=prod`, where `config/runtime.exs` reads `PORT` and `DATABASE_URL`, with Ecto migrations and a fixed test `SECRET_KEY_BASE`; other Mix apps), Deno (`deno task start`, or `deno run` on `main.ts` / `server.ts`), and package.json scripts run with Bun, pnpm or Yarn when their lockfile is there.
 - `slicetest init` for ASP.NET Core: the web project (also under `src/`, test projects ignored) is built once and run with `dotnet run --no-build --no-launch-profile` at `ASPNETCORE_URLS`; `ConnectionStrings__<name from appsettings.json>` is `{{db.adoNet}}` for the app and for EF Core's `dotnet ef database update`; the engine from the NuGet provider (Npgsql, Pomelo / MySqlConnector, SQLite); `MapHealthChecks` as the ready path; `db: false` without a data library.
 - `slicetest init` for PHP: Laravel (`php artisan serve`, `DB_*` for the app and for `php artisan migrate`, the engine from `DB_CONNECTION` in `.env.example` including SQLite, a fixed test `APP_KEY`, the `/up` health route, `MAIL_*` when there's a mail catcher), Symfony (PHP's built-in server, Doctrine migrations) and other Composer apps with `public/index.php`. Compose services built from source (Laravel Sail's `laravel.test`) are no longer taken for dependencies.

@@ -54,6 +54,8 @@ export interface StubStep {
   networkError?: boolean;
   times?: number;
   delay?: number;
+  /** The app may not call this route; `strictStubs` doesn't report it. */
+  optional?: boolean;
 }
 
 export interface Conditions {
@@ -203,7 +205,7 @@ export interface MailStep {
 }
 
 const KINDS = {
-  stub: ["on", "graphql", "when", "reply", "sequence", "networkError", "times", "delay"],
+  stub: ["on", "graphql", "when", "reply", "sequence", "networkError", "times", "delay", "optional"],
   request: ["headers", "query", "json", "form", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
   submit: ["form", "fields", "headers", "follow", "expect", "capture"],
   insert: ["rows", "capture"],
@@ -428,6 +430,7 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       if (raw.sequence !== undefined && (!Array.isArray(raw.sequence) || raw.sequence.length === 0)) fail(at("sequence"), "`sequence` must be a non-empty list of responses");
       number("times");
       number("delay");
+      if (raw.optional !== undefined && typeof raw.optional !== "boolean") fail(at("optional"), "`optional` must be true or false");
       break;
     }
     case "request":
