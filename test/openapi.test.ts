@@ -122,3 +122,24 @@ test("exampleResponse: spec examples first, then values built from the schema", 
     expect(s.checkResponse(method, path, { status: r.status, contentType: r.headers?.["content-type"], body: r.body })).toEqual([]);
   }
 });
+
+test("formatUsage lists the provider operations the app called and flags deprecated ones", async () => {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { OpenApiSpec, formatUsage } = await import("../src/openapi.js");
+  const dir = await mkdtemp(path.join(os.tmpdir(), "slicetest-usage-"));
+  const file = path.join(dir, "pay.yaml");
+  await writeFile(
+    file,
+    "openapi: 3.1.0\ninfo: { title: pay, version: '1' }\npaths:\n  /v1/charges:\n    post: { deprecated: true, responses: { '200': { description: ok } } }\n  /v1/payment_intents:\n    post: { responses: { '200': { description: ok } } }\n  /v1/customers/{id}:\n    get: { responses: { '200': { description: ok } } }\n",
+  );
+  const spec = await OpenApiSpec.load(file, "pay.yaml");
+  expect(spec.operationOf("GET", "/v1/customers/cus_1")).toEqual({ key: "GET /v1/customers/{id}", deprecated: false });
+
+  const report = formatUsage("pay", spec, new Set(["POST /v1/charges", "GET /v1/customers/{id}"]));
+
+  expect(report.text).toBe("slicetest: the app used 2 of 3 operations of pay (pay.yaml), 1 deprecated\n  POST /v1/charges        ⚠ deprecated\n  GET /v1/customers/{id}");
+  expect(report.markdown).toContain("- `POST /v1/charges` ⚠️ deprecated");
+  expect(report.deprecated).toEqual(["POST /v1/charges"]);
+});

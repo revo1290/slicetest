@@ -13,7 +13,7 @@ import { configureContainerRuntime } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import type { Admin, Engine } from "./drivers/index.js";
 import { coverageCacheFile } from "./gen.js";
-import { appSpecFile, formatCoverage, OpenApiSpec } from "./openapi.js";
+import { appSpecFile, formatCoverage, formatUsage, OpenApiSpec } from "./openapi.js";
 import { mergeRecordings, type Recording } from "./recording.js";
 import "./provided.js";
 
@@ -35,13 +35,16 @@ export default async function setup(project: TestProject) {
   const recordDir = recording ? await mkdtemp(path.join(os.tmpdir(), "slicetest-recordings-")) : undefined;
   // On GitHub Actions, failed YAML steps are collected here and turned into annotations at the end.
   const ciDir = onGitHub() ? await mkdtemp(path.join(os.tmpdir(), "slicetest-ci-")) : undefined;
-  project.provide("slicetestDb", { adminUrl: database?.adminUrl ?? "", template: database?.template ?? "", prefix: database?.prefix ?? "", coverageDir, recordDir, ciDir });
+  // Operations the app called on providers whose spec a stub has, reported at the end.
+  const usageDir = Object.keys(opts.openapi.stubs).length ? await mkdtemp(path.join(os.tmpdir(), "slicetest-usage-")) : undefined;
+  project.provide("slicetestDb", { adminUrl: database?.adminUrl ?? "", template: database?.template ?? "", prefix: database?.prefix ?? "", coverageDir, recordDir, ciDir, usageDir });
 
   return async () => {
     try {
       await database?.teardown();
     } finally {
       if (coverageDir) await reportCoverage(opts, coverageDir);
+      if (usageDir) await reportUsage(opts, usageDir);
       if (recordDir) await saveRecordings(opts, recordDir);
       if (ciDir) await reportToGitHub(ciDir);
     }
@@ -125,6 +128,33 @@ async function reportCoverage(opts: ResolvedOptions, dir: string) {
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(appSpecFile(dir), { force: true });
+  }
+}
+
+async function reportUsage(opts: ResolvedOptions, dir: string) {
+  try {
+    const used = new Map<string, Set<string>>();
+    for (const file of await readdir(dir)) {
+      for (const [name, keys] of Object.entries(JSON.parse(await readFile(path.join(dir, file), "utf8")) as Record<string, string[]>)) {
+        const set = used.get(name) ?? new Set<string>();
+        for (const k of keys) set.add(k);
+        used.set(name, set);
+      }
+    }
+    for (const [name, file] of Object.entries(opts.openapi.stubs)) {
+      const keys = used.get(name);
+      if (!keys) continue;
+      const report = formatUsage(name, await OpenApiSpec.load(path.resolve(opts.root, file), file), keys);
+      console.log(`\n${report.text}\n`);
+      await appendSummary(report.markdown);
+      if (onGitHub() && report.deprecated.length) {
+        console.log(annotation("warning", `The app calls operations ${file} marks deprecated: ${report.deprecated.join(", ")}`, { file: repoPath(path.resolve(opts.root, file)), title: `slicetest: deprecated ${name} API` }));
+      }
+    }
+  } catch (e) {
+    console.error(`slicetest: couldn't report API usage: ${(e as Error).message}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 

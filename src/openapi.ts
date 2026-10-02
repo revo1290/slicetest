@@ -118,6 +118,17 @@ export class OpenApiSpec {
     return key && `${method.toUpperCase()} ${found.template} ${key}`;
   }
 
+  /** The documented operation `method path` falls under, as `METHOD /template`, and whether the spec deprecates it. */
+  operationOf(method: string, path: string) {
+    const found = this.find(method, path);
+    return found && { key: `${method.toUpperCase()} ${found.template}`, deprecated: found.op.deprecated === true };
+  }
+
+  /** Every documented operation as `METHOD /template`, with its `deprecated` flag. */
+  operationKeys() {
+    return this.#documentOrder.map(({ template, method, op }) => ({ key: `${method.toUpperCase()} ${template}`, deprecated: op.deprecated === true }));
+  }
+
   /** Every documented response as `METHOD /template key`, in document order. */
   responseKeys() {
     return this.#documentOrder.flatMap(({ template, method, op }) =>
@@ -390,6 +401,29 @@ function nullableToType(node: any): any {
     }
   }
   return node;
+}
+
+/**
+ * Which of a provider's operations the app called during the run: its dependency
+ * surface on that API, with the operations the provider has deprecated flagged.
+ */
+export function formatUsage(name: string, spec: OpenApiSpec, used: Set<string>) {
+  const ops = spec.operationKeys().filter((o) => used.has(o.key));
+  const deprecated = ops.filter((o) => o.deprecated);
+  const width = Math.max(0, ...ops.map((o) => o.key.length));
+  const text = [
+    `slicetest: the app used ${ops.length} of ${spec.operationKeys().length} operations of ${name} (${spec.file})${deprecated.length ? `, ${deprecated.length} deprecated` : ""}`,
+    ...ops.map((o) => `  ${o.key.padEnd(width)}${o.deprecated ? "  ⚠ deprecated" : ""}`),
+  ].join("\n");
+  const markdown = [
+    `### slicetest: ${name} API usage`,
+    "",
+    `The app called ${ops.length} of ${spec.operationKeys().length} operations in \`${spec.file}\`${deprecated.length ? `, **${deprecated.length} deprecated**` : ""}.`,
+    "",
+    ...ops.map((o) => `- \`${o.key}\`${o.deprecated ? " ⚠️ deprecated" : ""}`),
+    "",
+  ].join("\n");
+  return { text, markdown, deprecated: deprecated.map((o) => o.key) };
 }
 
 /** Where a spec fetched from the app (`openapi.fromApp`) is kept for the coverage report. */

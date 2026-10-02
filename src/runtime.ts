@@ -50,6 +50,8 @@ export class Runtime {
   #contract: string[] = [];
   /** Documented responses seen in this file, for the run's coverage report. */
   #covered = new Set<string>();
+  /** Operations of stubbed providers (with an `openapi` spec) the app called, per stub, for the usage report. */
+  #used = new Map<string, Set<string>>();
 
   private constructor(
     public app: App,
@@ -95,7 +97,7 @@ export class Runtime {
     return this.#http;
   }
 
-  static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string; recordDir?: string }) {
+  static async start(opts: ResolvedOptions, shared: { adminUrl: string; template: string; prefix: string; coverageDir?: string; recordDir?: string; usageDir?: string }) {
     const engine = opts.db.none ? undefined : await engineFor(opts);
     const url = engine ? await ensureWorkerDatabase(engine, shared.adminUrl, shared.template, shared.prefix) : "";
     const stubs = new Map<string, Stub>();
@@ -186,7 +188,9 @@ export class Runtime {
       }
       const app = await App.start(opts.app, opts.root, vars);
       if (opts.openapi.fromApp) specs.app = await fetchAppSpec(app.url, opts.openapi.fromApp, shared.coverageDir);
-      return new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog, interceptor, neon);
+      const runtime = new Runtime(app, services, db, stubs, opts, vars, specs, shared.coverageDir, recorders, shared.recordDir, containers, mailbox, issuer, queryLog, interceptor, neon);
+      runtime.#usageDir = shared.usageDir;
+      return runtime;
     } catch (e) {
       await Promise.all([...services.values()].map((s) => s.stop()));
       await db?.close();
@@ -246,7 +250,22 @@ export class Runtime {
     return [this.app, ...this.services.values()];
   }
 
+  #usageDir?: string;
+
+  /** Note which provider operations the stubs were called for, before their calls are cleared. */
+  #collectUsage() {
+    for (const [name, spec] of this.specs.stubs) {
+      const used = this.#used.get(name) ?? new Set<string>();
+      for (const call of this.stubs.get(name)!.calls()) {
+        const op = spec.operationOf(call.method, call.path);
+        if (op) used.add(op.key);
+      }
+      if (used.size) this.#used.set(name, used);
+    }
+  }
+
   async beforeScenario() {
+    this.#collectUsage();
     // A crash already failed the scenario that caused it; give the next one a fresh process.
     for (const [name, service] of this.services) {
       if (!service.exited) continue;
@@ -413,6 +432,12 @@ export class Runtime {
 
   /** Hand the coverage and recordings gathered so far to the run (merged when it ends). */
   async flush() {
+    this.#collectUsage();
+    if (this.#usageDir && this.#used.size > 0) {
+      const data = Object.fromEntries([...this.#used].map(([k, v]) => [k, [...v]]));
+      await writeFile(path.join(this.#usageDir, `${process.pid}-${randomUUID()}.json`), JSON.stringify(data)).catch(() => {});
+      this.#used.clear();
+    }
     if (this.coverageDir && this.#covered.size > 0) {
       await writeFile(path.join(this.coverageDir, `${process.pid}-${randomUUID()}.json`), JSON.stringify([...this.#covered])).catch(() => {});
       this.#covered.clear();

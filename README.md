@@ -44,7 +44,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 
 - **One scenario, three boundaries.** Assert on the HTTP response, the rows in the real database and the calls to third-party APIs in the same test, in any language the app is written in.
 - **`db.changes()`**: a diff of every row the scenario inserted, updated or deleted. `toEqual` on it catches writes you didn't expect.
-- **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test.
+- **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test. The run also lists which of the provider's operations the app depends on, flagging deprecated ones.
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, or import a HAR file saved from the browser, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
@@ -311,6 +311,15 @@ slicetest: traffic doesn't match the OpenAPI spec:
   app: GET /users/{id} → 200: /id must be integer
   app → mail: POST /mail/send request: body must have required property 'subject'
   stub mail reply (the real service wouldn't answer this way): POST /mail/send responded 200, which specs/mail.yaml doesn't document (documented: 202)
+```
+
+At the end of the run, each stub with a spec reports which of the provider's operations the app called across all scenarios: its footprint on that API, for planning an upgrade or a switch of provider. Operations the provider marks `deprecated` are flagged, and on GitHub Actions they become a warning annotation and the list goes to the job summary:
+
+```
+slicetest: the app used 3 of 587 operations of stripe (specs/stripe.yaml), 1 deprecated
+  POST /v1/charges           ⚠ deprecated
+  POST /v1/payment_intents
+  GET /v1/customers/{customer}
 ```
 
 #### `autoReply`: stubs generated from the provider's spec
