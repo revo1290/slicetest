@@ -150,10 +150,10 @@ export async function readRecordings(file: string): Promise<Recording[]> {
 }
 
 /** Append new recordings to `file`, skipping exact duplicates, keeping the order they were made in. */
-export async function mergeRecordings(file: string, upstream: string, added: Recording[]) {
+export async function mergeRecordings(file: string, upstream: string, added: Recording[], source = `Recorded by slicetest from ${upstream}`) {
   const entries = await readRecordings(file);
   for (const e of added) if (!entries.some((x) => isDeepStrictEqual(x, e))) entries.push(e);
   await mkdir(path.dirname(file), { recursive: true });
-  const header = `# Recorded by slicetest from ${upstream}. Review before committing: request bodies are stored as sent.\n`;
+  const header = `# ${source}. Review before committing: request bodies are stored as sent.\n`;
   await writeFile(file, header + YAML.stringify(entries, { lineWidth: 0 }));
 }

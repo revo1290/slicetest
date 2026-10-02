@@ -17,6 +17,7 @@ const HELP = `Usage: slicetest [filters...] [options]
        slicetest gen [--spec <file>] [--out <dir>] [--uncovered] [--force]
        slicetest doctor [--config <file>]
        slicetest record [--out <file>] [--port <n>]
+       slicetest import <file.har> [--stub <name>] [--upstream <url>]
 
 Runs *.scenario.yaml files against your app, as configured in slicetest.config.yaml.
 \`slicetest init\` looks at the project and writes a starting config and scenario.
@@ -26,6 +27,9 @@ app's OpenAPI spec; with --uncovered, only for those the last run didn't produce
 migrations, commands and spec files, and says what to fix.
 \`slicetest record\` starts everything and a proxy in front of the app: use the app
 through it (a browser, curl), press Enter, and get the session as a YAML scenario.
+\`slicetest import\` turns a HAR file (the browser's network panel: "Save all as
+HAR"; Charles, mitmproxy, Proxyman) into recordings for the stubs whose
+\`upstream\` it has requests for, so they replay the real service's answers.
 
 Options:
   -c, --config <file>  Config file (default: ${CONFIG_NAMES.join(" / ")} in the current directory)
@@ -35,6 +39,8 @@ Options:
       --out <dir>      gen: where to write scenarios (default: scenarios)
                        record: the scenario file (default: scenarios/recorded-<time>.scenario.yaml)
       --port <n>       record: the proxy's port (default: any free port)
+      --stub <name>    import: only this stub (with --upstream, one not in the config)
+      --upstream <url> import: the real service's base URL for --stub
       --uncovered      gen: only responses the last run didn't cover
       --force          init, gen: overwrite existing files
       --diagrams <dir> Write a Mermaid sequence diagram of every scenario to <dir>,
@@ -73,6 +79,8 @@ export async function main(argv = process.argv.slice(2)) {
       uncovered: { type: "boolean" },
       port: { type: "string" },
       diagrams: { type: "string" },
+      stub: { type: "string" },
+      upstream: { type: "string" },
     },
   });
   if (values.help) {
@@ -115,6 +123,32 @@ export async function main(argv = process.argv.slice(2)) {
         : []),
     ];
     process.stdout.write(`${lines.join("\n")}\n`);
+    return;
+  }
+  if (positionals[0] === "import") {
+    const har = positionals[1];
+    if (!har) throw new Error("slicetest import: which HAR file? e.g. npx slicetest import session.har");
+    const config = configPath && existsSync(configPath) ? ((parse(await readFile(configPath, "utf8")) ?? {}) as CliConfig) : undefined;
+    const root = configPath && config ? path.dirname(configPath) : process.cwd();
+    const declared = (config?.stubs ?? []).flatMap((s) => (typeof s === "object" && s.upstream ? [s] : []));
+    let targets = declared.map((s) => ({ name: s.name, upstream: s.upstream!, file: path.resolve(root, s.recordings ?? `recordings/${s.name}.yaml`) }));
+    if (values.stub) {
+      const known = targets.find((t) => t.name === values.stub);
+      const upstream = values.upstream ?? known?.upstream;
+      if (!upstream) throw new Error(`slicetest import: stub "${values.stub}" has no upstream in the config; pass --upstream https://api.example.com`);
+      targets = [{ name: values.stub, upstream, file: known?.file ?? path.resolve(root, `recordings/${values.stub}.yaml`) }];
+    }
+    if (targets.length === 0) throw new Error("slicetest import: no stub to import into. Give stubs an `upstream` in the config, or pass --stub <name> --upstream <url>.");
+    const { importHar } = await import("./har.js");
+    const { written, skipped, others } = await importHar(path.resolve(har), targets);
+    const lines = [
+      ...written.map((w) => `  ${w.name}: ${w.count} recording(s) → ${path.relative(process.cwd(), w.file)}`),
+      ...(written.length === 0 ? [`No requests in ${har} go to ${targets.map((t) => t.upstream).join(", ")}.`] : []),
+      ...(skipped ? [`  skipped ${skipped} preflight, aborted or binary request(s)`] : []),
+      ...(others.length ? ["", "Requests to other hosts (not imported):", ...others.slice(0, 10).map(([h, n]) => `  ${h} (${n})`), "Import one with --stub <name> --upstream <url>."] : []),
+    ];
+    process.stdout.write(`${lines.join("\n")}\n`);
+    if (written.length === 0) process.exitCode = 1;
     return;
   }
   if (!configPath || !existsSync(configPath)) {

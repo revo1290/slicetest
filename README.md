@@ -46,7 +46,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **`db.changes()`**: a diff of every row the scenario inserted, updated or deleted. `toEqual` on it catches writes you didn't expect.
 - **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test.
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
-- **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
+- **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, or import a HAR file saved from the browser, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
 - **Record instead of write.** `npx slicetest record` puts a proxy in front of the app: click through a flow, press Enter, and get a replayable YAML scenario with the stubs' answers, the responses, captured ids and the database changes.
 - **Readable in CI.** On GitHub Actions, failing YAML steps are annotated in the pull request on the line that failed, and the job summary shows the OpenAPI coverage table and a sequence diagram of each failed scenario.
@@ -450,6 +450,17 @@ SLICETEST_RECORD=github npx vitest     # or SLICETEST_RECORD=1 for every stub wi
 ```
 
 Calls no route matches are forwarded to `upstream` (under its path prefix, headers included) and the answers are written to `recordings/github.yaml` (`recordings:` changes the path). Later runs replay them without touching the network. A request is identified by method, path, query and body (JSON key order doesn't matter); identical requests replay their recordings in the order they were made. Only `content-type`, `location`, `retry-after`, `link` and `etag` response headers are kept, and request headers are never stored, so tokens stay out of the file; bodies are stored as sent, so review the file before committing it.
+
+#### From a HAR file: `npx slicetest import`
+
+No credentials at hand, or the call happens in a flow that's easier to click through? Save the network traffic as HAR (the browser's network panel: "Save all as HAR"; Charles, mitmproxy, Proxyman and Postman export it too) and import it:
+
+```sh
+npx slicetest import session.har                       # every stub with an upstream that the HAR has requests for
+npx slicetest import session.har --stub stripe --upstream https://api.stripe.com
+```
+
+Requests under a stub's `upstream` become entries of its recordings file, in the same format and with the same filtering as recording: only the five response headers above, no request headers, the path relative to the upstream's. Preflights, aborted requests and binary responses are skipped, and the hosts it didn't import are listed. Entries already in the file aren't added twice.
 
 Precedence is: registered route, then recording, then `autoReply`, then a 501 that says how to record the call. Replayed calls have `call.fallback === true`, and are checked against the provider's spec when the stub has one. To refresh recordings, delete the file (or the entries) and record again.
 
