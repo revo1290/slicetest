@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Sequence diagrams: `diagram()` in a scenario returns what it did so far as a Mermaid sequence diagram (requests to the app, the stub calls made while answering each, their replies, mail and changed tables). `npx slicetest --diagrams <dir>` / `SLICETEST_DIAGRAMS` writes one Markdown page of diagrams per scenario file, and on GitHub Actions each failed scenario's diagram goes to the job summary.
 - GraphQL: `stub(name).graphql("CreateIssue", { variables })` answers an operation at whatever path the app posts it to (POST bodies and GET query parameters; the name comes from `operationName` or the document), with `.data()` / `.errors()` for GraphQL-shaped replies. `http.graphql(query, variables)` calls the app's endpoint. Matchers `toHaveReceivedGraphQL(operation, variables)` and `toHaveGraphQLData(expected)`, which fails on `errors` answered with 200. Unanswered operations are reported as `GraphQL mutation CreateIssue`. YAML: `graphql:` on stub, request and received steps, `when.variables`, `reply: { data, errors }`, `{{call.variables.x}}`.
 
 ## 0.6.1

@@ -49,7 +49,8 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, commit the YAML it writes, and later runs are offline and deterministic.
 - **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
 - **Record instead of write.** `npx slicetest record` puts a proxy in front of the app: click through a flow, press Enter, and get a replayable YAML scenario with the stubs' answers, the responses, captured ids and the database changes.
-- **Readable in CI.** On GitHub Actions, failing YAML steps are annotated in the pull request on the line that failed, and the job summary shows the OpenAPI coverage table.
+- **Readable in CI.** On GitHub Actions, failing YAML steps are annotated in the pull request on the line that failed, and the job summary shows the OpenAPI coverage table and a sequence diagram of each failed scenario.
+- **Diagrams that can't go stale.** `--diagrams docs/flows` writes a Mermaid sequence diagram of every scenario (app, stubs, mail, database), regenerated from what really happened on each run.
 - **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
 - **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
@@ -628,10 +629,30 @@ Dates (`Date` values and ISO strings) become `[date]` and UUIDs `[uuid]`. Mask m
 
 The example apps share one snapshot file: the Node and the Python implementation must produce the same trace, byte for byte.
 
+### Sequence diagrams of every scenario
+
+`await diagram()` returns the scenario so far as a [Mermaid](https://mermaid.js.org/) sequence diagram: each request to the app, the stub calls the app made while answering it (GraphQL ones by operation), their replies, the mail it sent and the tables it changed:
+
+```mermaid
+sequenceDiagram
+  participant test as scenario
+  participant app
+  participant s_slack as slack (stub)
+  participant db as database
+  test->>+app: POST /polls
+  app->>+s_slack: POST /hook
+  s_slack-->>-app: 200
+  app-->>-test: 201 id: 1
+  Note over app,db: polls +1
+```
+
+- **Living documentation.** `npx slicetest --diagrams docs/flows` (or `SLICETEST_DIAGRAMS=docs/flows` with Vitest) writes one Markdown page per scenario file, with a diagram for each scenario. Commit them, and a pull request that changes how the app talks to the outside world shows it as a diagram diff.
+- **Failures on GitHub Actions.** A failing scenario's diagram goes to the job summary, collapsed under its name, next to the error.
+
 ### Scenarios
 
 ```ts
-scenario("name", async ({ http, db, stub, app, service, container, trace }) => { ... }, timeoutMs?);
+scenario("name", async ({ http, db, stub, app, service, container, trace, diagram }) => { ... }, timeoutMs?);
 scenario.only / scenario.skip / scenario.todo
 scenario.each([{ choice: "a", status: 204 }, { choice: "x", status: 400 }])(
   "voting $choice returns $status",

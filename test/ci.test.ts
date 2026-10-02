@@ -26,6 +26,8 @@ test("on GitHub Actions, a failing YAML scenario is annotated at its file and li
   const md = await readFile(summary, "utf8");
   expect(md).toContain("failed YAML step(s)");
   expect(md).toContain("`test/fixtures/failing/failing.scenario.yaml:4`");
+  // Every failed scenario, TypeScript or YAML, with a sequence diagram of what it did.
+  expect(md).toContain("<details><summary>✗ yaml wrong status <code>failing.scenario.yaml</code>: what happened</summary>\n\n```mermaid\nsequenceDiagram");
 }, 120_000);
 
 test("the OpenAPI coverage table has a Markdown form for the job summary", async () => {

@@ -26,12 +26,15 @@ function define(register: typeof test | typeof test.only | typeof test.skip) {
             "slicetest: scenarios share one app and database per file, so they can't run concurrently. Remove .concurrent / sequence.concurrent.",
           );
         }
+        const file = task.file?.filepath ?? task.file?.name ?? "";
         onTestFailed(async () => {
           console.error(`--- slicetest ---\n${await runtime.diagnostics()}\n-----------------`);
+          await runtime.reportDiagram(file, task.name, true);
         });
         await runtime.beforeScenario();
         await body(runtime.context());
         await runtime.afterScenario();
+        await runtime.reportDiagram(file, task.name, false);
       },
       timeout,
     );

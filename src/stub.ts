@@ -2,6 +2,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { isDeepStrictEqual } from "node:util";
 import { describeGraphQL, graphqlErrors, graphqlOf, type GraphQLCall } from "./graphql.js";
+import { timeline } from "./timeline.js";
 
 export interface RecordedCall {
   method: string;
@@ -343,6 +344,7 @@ export class Stub {
   }
 
   async #handle(req: http.IncomingMessage, res: http.ServerResponse) {
+    const start = performance.now();
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const body = Buffer.concat(chunks).toString("utf8");
@@ -358,6 +360,8 @@ export class Stub {
       matched: false,
     };
     call.graphql = graphqlOf(call);
+    timeline.set(call, { start });
+    res.once("close", () => (timeline.get(call)!.end = performance.now()));
     this.#calls.push(call);
 
     let route: Route | undefined;

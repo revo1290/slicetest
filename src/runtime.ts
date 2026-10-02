@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { App } from "./app.js";
@@ -7,6 +7,8 @@ import { Issuer } from "./auth.js";
 import type { ResolvedOptions } from "./config.js";
 import { Dependency } from "./containers.js";
 import { Db, formatChanges, noDatabase } from "./db.js";
+import { diagramPage, failureDiagram, sequenceDiagram } from "./diagram.js";
+import { appendSummary } from "./ci.js";
 import { engineFor, type Engine } from "./drivers/index.js";
 import { formatHistory, HttpClient, type HttpResponse } from "./http.js";
 import { Interceptor } from "./intercept.js";
@@ -32,6 +34,8 @@ export interface ScenarioContext {
    * with timestamps and UUIDs masked. `expect(await trace()).toMatchSnapshot()`.
    */
   trace: (opts?: MaskOptions) => Promise<Trace>;
+  /** The scenario so far as a Mermaid sequence diagram: requests, stub calls, mail and changed tables. */
+  diagram: () => Promise<string>;
   /** Mail the app sent during the scenario. Needs `mail: true` in the config. */
   mail: Mailbox;
   /** The OpenID Connect issuer the app trusts: `auth.token(claims)`. Needs `auth` in the config. */
@@ -224,6 +228,7 @@ export class Runtime {
         return c;
       },
       trace: async (opts) => mask(buildTrace(this.http.history, this.stubs.values(), await this.db.changesSinceStart(), this.mailbox), opts),
+      diagram: () => this.diagram(),
       get mail(): Mailbox {
         if (!mailbox) throw new Error("slicetest: mail is off. Add `mail: true` to the config and point the app's SMTP settings at {{mail.host}} / {{mail.port}}.");
         return mailbox;
@@ -320,6 +325,35 @@ export class Runtime {
         ...(this.recorders.has(s.name) ? [`    ${this.recorders.get(s.name)!.hint()}`] : []),
       ];
     });
+  }
+
+  /** The current scenario as a Mermaid sequence diagram. */
+  async diagram() {
+    const changes = this.opts.db.none ? undefined : await this.db.changesSinceStart().catch(() => undefined);
+    return sequenceDiagram(this.http.history, this.stubs.values(), changes, this.mailbox);
+  }
+
+  /**
+   * After a scenario: its diagram goes to the `SLICETEST_DIAGRAMS` directory (one Markdown page
+   * per test file) and, when it failed on GitHub Actions, to the job summary.
+   */
+  async reportDiagram(file: string, scenario: string, failed: boolean, env = process.env) {
+    const dir = env.SLICETEST_DIAGRAMS;
+    const summary = failed && env.GITHUB_STEP_SUMMARY;
+    if (!dir && !summary) return;
+    let diagram: string;
+    try {
+      diagram = await this.diagram();
+    } catch {
+      return;
+    }
+    const rel = path.relative(this.opts.root, file).replace(/\\/g, "/");
+    if (summary) await appendSummary(failureDiagram(rel, scenario, diagram), env);
+    if (dir) {
+      const out = path.resolve(this.opts.root, dir, `${rel.replace(/^(\.\.\/)+/, "")}.md`);
+      await mkdir(path.dirname(out), { recursive: true });
+      await writeFile(out, diagramPage(out, rel, scenario, diagram, failed)).catch(() => {});
+    }
   }
 
   /** What happened during the current scenario, printed when it fails. */

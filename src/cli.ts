@@ -37,6 +37,8 @@ Options:
       --port <n>       record: the proxy's port (default: any free port)
       --uncovered      gen: only responses the last run didn't cover
       --force          init, gen: overwrite existing files
+      --diagrams <dir> Write a Mermaid sequence diagram of every scenario to <dir>,
+                       one Markdown page per scenario file
   -h, --help           Show this help
 
 Config (paths are relative to the config file):
@@ -70,6 +72,7 @@ export async function main(argv = process.argv.slice(2)) {
       out: { type: "string" },
       uncovered: { type: "boolean" },
       port: { type: "string" },
+      diagrams: { type: "string" },
     },
   });
   if (values.help) {
@@ -126,6 +129,8 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  // Workers inherit the environment; a relative directory is taken from where the command runs.
+  if (values.diagrams) process.env.SLICETEST_DIAGRAMS = path.resolve(values.diagrams);
   const { startVitest, version } = await import("vitest/node");
   if (Number.parseInt(version, 10) < 4) {
     process.stderr.write(`slicetest: needs Vitest 4 or later, and this project has Vitest ${version}. Upgrade it (npm i -D vitest@latest), or run slicetest from a folder with its own package.json.\n`);

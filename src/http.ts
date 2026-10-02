@@ -1,5 +1,6 @@
 import { formRequest, type SubmitOptions } from "./form.js";
 import { lookupHost } from "./intercept.js";
+import { timeline } from "./timeline.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
 
 export interface HttpResponse {
@@ -200,7 +201,9 @@ export class HttpClient {
       res = await fetch(target, { method, headers, body: payload, redirect: "manual" });
     } catch (e) {
       const cause = (e as { cause?: { code?: string } }).cause?.code;
-      this.#record({ method, url: url.pathname + url.search, status: 0, headers: new Headers(), text: `${e}${cause ? ` (${cause})` : ""}`, json: undefined, durationMs: Math.round(performance.now() - started) });
+      const failed: HttpResponse = { method, url: url.pathname + url.search, status: 0, headers: new Headers(), text: `${e}${cause ? ` (${cause})` : ""}`, json: undefined, durationMs: Math.round(performance.now() - started) };
+      timeline.set(failed, { start: started, end: performance.now() });
+      this.#record(failed);
       throw e;
     }
     if (!stub) for (const cookie of res.headers.getSetCookie()) this.#storeCookie(cookie, url.pathname);
@@ -218,6 +221,7 @@ export class HttpClient {
       json,
       durationMs: Math.round(performance.now() - started),
     };
+    timeline.set(out, { start: started, end: performance.now() });
     this.#record(out);
     // Listeners (contract checks, coverage) are about the app's responses only.
     if (!stub) for (const listener of this.#session.listeners) listener(out);
