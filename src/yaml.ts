@@ -31,13 +31,18 @@ export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep 
   name?: string;
 };
 
+type GraphQLReply = { data?: unknown; errors?: (string | { message: string })[] };
+
 export interface StubStep {
   stub: string;
-  on: string;
+  /** METHOD /path; or `graphql` instead. */
+  on?: string;
+  /** A GraphQL operation name, answered at any path. */
+  graphql?: string;
   when?: Conditions;
   /** `sse`: a streamed reply, a list of { event, data, id } (instead of `body`). */
-  reply?: { status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] };
-  sequence?: { status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] }[];
+  reply?: { status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] } & GraphQLReply;
+  sequence?: ({ status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] } & GraphQLReply)[];
   networkError?: boolean;
   times?: number;
   delay?: number;
@@ -48,6 +53,8 @@ export interface Conditions {
   headers?: Record<string, unknown>;
   json?: unknown;
   body?: unknown;
+  /** Subset of a GraphQL request's variables (with `graphql`). */
+  variables?: unknown;
 }
 
 export interface RequestStep {
@@ -57,6 +64,8 @@ export interface RequestStep {
   json?: unknown;
   form?: Record<string, unknown>;
   body?: string;
+  /** A GraphQL operation sent as the JSON body. */
+  graphql?: string | { query: string; variables?: Record<string, unknown>; operationName?: string };
   follow?: boolean;
   /** Send `Authorization: Bearer` with a token from the `auth` issuer: `true`, or the claims, e.g. { sub: u1, roles: [admin] }. */
   auth?: true | Record<string, unknown>;
@@ -132,6 +141,8 @@ export interface DbStep {
 export interface ReceivedStep {
   received: string;
   call?: string;
+  /** A GraphQL operation name, instead of `call`. */
+  graphql?: string;
   when?: Conditions;
   /** Exact number of matching calls. Default: at least one. */
   times?: number;
@@ -184,13 +195,13 @@ export interface MailStep {
 }
 
 const KINDS = {
-  stub: ["on", "when", "reply", "sequence", "networkError", "times", "delay"],
-  request: ["headers", "query", "json", "form", "body", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
+  stub: ["on", "graphql", "when", "reply", "sequence", "networkError", "times", "delay"],
+  request: ["headers", "query", "json", "form", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
   submit: ["form", "fields", "headers", "follow", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
   db: ["where", "orderBy", "expect", "capture", "within"],
-  received: ["call", "when", "times", "within"],
+  received: ["call", "graphql", "when", "times", "within"],
   changes: ["within"],
   log: ["from", "within"],
   checkpoint: [],
@@ -207,12 +218,12 @@ const EXPECT_KEYS: Record<string, string[]> = {
   sql: ["rows", "count"],
   db: ["rows", "count"],
 };
-const CONDITION_KEYS = ["query", "headers", "json", "body"];
+const CONDITION_KEYS = ["query", "headers", "json", "body", "variables"];
 const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature"];
 const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard"];
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];
-const RESPONSE_KEYS = ["status", "headers", "body", "sse"];
+const RESPONSE_KEYS = ["status", "headers", "body", "sse", "data", "errors"];
 const SCENARIO_KEYS = ["name", "steps", "each", "skip", "only", "timeout"];
 const CALL = /^([A-Za-z]+|\*)\s+(\/\S*)$/;
 /** A request may also go to a captured URL of the app, e.g. a link from a mail: `GET {{link}}`. */
@@ -336,17 +347,26 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
   }
   if (kind in EXPECT_KEYS) keysOf("expect", EXPECT_KEYS[kind]!);
   keysOf("when", CONDITION_KEYS);
+  if (raw.graphql !== undefined && kind !== "request" && (typeof raw.graphql !== "string" || !raw.graphql)) fail(at("graphql"), "`graphql` is the operation's name, e.g. `graphql: GetUser`");
+  if ((raw.when as Record<string, unknown> | undefined)?.variables !== undefined && raw.graphql === undefined) fail(at("when"), "`when.variables` needs `graphql: <operation>`");
 
   switch (kind) {
     case "stub": {
-      if (raw.on === undefined) fail(node, "a stub step needs `on`, e.g. `on: POST /hook`");
+      if ((raw.on === undefined) === (raw.graphql === undefined)) fail(node, "a stub step needs one of `on` (e.g. `on: POST /hook`) or `graphql` (e.g. `graphql: GetUser`)");
       call("on");
       const answers = ["reply", "sequence", "networkError"].filter((k) => raw[k] !== undefined);
       if (answers.length !== 1) fail(node, "a stub step needs exactly one of reply / sequence / networkError");
       keysOf("reply", RESPONSE_KEYS);
       for (const [where, r] of [["reply", raw.reply], ...((Array.isArray(raw.sequence) ? raw.sequence : []) as unknown[]).map((r) => ["sequence", r] as const)] as const) {
         if (!r || typeof r !== "object") continue;
-        const { body, sse } = r as { body?: unknown; sse?: unknown };
+        const { body, sse, data, errors } = r as { body?: unknown; sse?: unknown; data?: unknown; errors?: unknown };
+        if (data !== undefined || errors !== undefined) {
+          if (raw.graphql === undefined) fail(at(where), "`data` and `errors` answer a GraphQL operation: use them with `graphql: <operation>`, or send `body`");
+          if (body !== undefined || sse !== undefined) fail(at(where), "a GraphQL reply has `data` / `errors`, not `body` or `sse`");
+          if (errors !== undefined && !(Array.isArray(errors) && errors.every((e) => typeof e === "string" || (e && typeof e === "object" && typeof (e as { message?: unknown }).message === "string")))) {
+            fail(at(where), "`errors` must be a list of messages or { message, path, extensions }");
+          }
+        }
         if (sse === undefined) continue;
         if (body !== undefined) fail(at(where), "a reply has either `body` or `sse`, not both");
         if (!Array.isArray(sse) || sse.some((e) => !e || typeof e !== "object" || Array.isArray(e) || !("data" in e) || Object.keys(e).some((k) => !["event", "data", "id"].includes(k)))) {
@@ -360,7 +380,12 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     }
     case "request":
       call("request", REQUEST);
-      if (["json", "form", "body"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / body");
+      if (["json", "form", "body", "graphql"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / body / graphql");
+      if (raw.graphql !== undefined) {
+        const g = raw.graphql as Record<string, unknown> | string | null;
+        const ok = (typeof g === "string" && g.trim()) || (g && typeof g === "object" && !Array.isArray(g) && typeof g.query === "string" && Object.keys(g).every((k) => ["query", "variables", "operationName"].includes(k)));
+        if (!ok) fail(at("graphql"), "`graphql` is the query, or { query, variables, operationName }");
+      }
       if (raw.webhook !== undefined) {
         const w = raw.webhook as Record<string, unknown> | null;
         if (!w || typeof w !== "object" || Array.isArray(w)) fail(at("webhook"), "`webhook` must be a mapping such as { provider: stripe, secret: whsec_test }");
@@ -422,6 +447,7 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       break;
     case "received":
       call("call");
+      if (raw.call !== undefined && raw.graphql !== undefined) fail(node, "a received step takes `call` or `graphql`, not both");
       number("times");
       break;
     case "mail":

@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { isDeepStrictEqual } from "node:util";
+import { describeGraphQL, graphqlErrors, graphqlOf, type GraphQLCall } from "./graphql.js";
 
 export interface RecordedCall {
   method: string;
@@ -20,6 +21,8 @@ export interface RecordedCall {
   fallback?: boolean;
   /** The fault `chaos()` injected instead of the normal answer: `503`, `reset`. */
   fault?: string;
+  /** The GraphQL operation, when the call is a GraphQL request. */
+  graphql?: GraphQLCall;
 }
 
 /**
@@ -80,6 +83,8 @@ export interface MatchOptions {
   headers?: Record<string, Matcher>;
   json?: unknown;
   body?: Matcher;
+  /** A GraphQL request for this operation (its name, or a RegExp), with `variables` as a subset. */
+  graphql?: { operation?: string | RegExp; variables?: unknown };
 }
 
 type Matcher = string | number | boolean | RegExp | ((value: any) => boolean) | { asymmetricMatch(value: unknown): boolean };
@@ -96,6 +101,8 @@ interface Route {
   delayMs: number;
   fault?: "reset";
   hits: number;
+  /** Shown instead of `method path` in diagnostics. */
+  label?: string;
 }
 
 /** Builder returned by `stub.on()`. Finish it with `reply()` or `networkError()`. */
@@ -111,6 +118,18 @@ export interface RouteBuilder {
   replySequence(responses: StubResponse[]): Stub;
   /** Drop the connection without answering. */
   networkError(): Stub;
+}
+
+/** Builder returned by `stub.graphql()`: `reply()` as usual, or `data()` / `errors()` for a GraphQL answer. */
+export interface GraphQLRouteBuilder extends RouteBuilder {
+  times(n: number): GraphQLRouteBuilder;
+  once(): GraphQLRouteBuilder;
+  delay(ms: number): GraphQLRouteBuilder;
+  /** Answer `{ data }` (a function receives the call, with `call.graphql.variables`). */
+  data(data: (call: RecordedCall) => unknown): Stub;
+  data(data: unknown): Stub;
+  /** Answer `{ errors, data }` with status 200, as GraphQL servers report resolver errors. */
+  errors(errors: (string | { message: string; [k: string]: unknown })[], data?: unknown): Stub;
 }
 
 /**
@@ -155,6 +174,29 @@ export class Stub {
    * `call.params`) or be a RegExp; `method` may be `*`. Later routes win.
    */
   on(method: string, path: string | RegExp, match: MatchOptions = {}): RouteBuilder {
+    return this.#on(method, path, match);
+  }
+
+  /**
+   * Answer a GraphQL operation, whatever path the app posts it to:
+   * `stub("github").graphql("CreateIssue", { variables: { title: "Bug" } }).data({ createIssue: { issue: { number: 1 } } })`.
+   * The operation is `operationName`, or the name in the document when the client sends none.
+   */
+  graphql(operation: string | RegExp, match: Omit<MatchOptions, "graphql"> & { variables?: unknown; path?: string | RegExp } = {}): GraphQLRouteBuilder {
+    const { variables, path, ...rest } = match;
+    const builder = this.#on("*", path ?? /.*/, { ...rest, graphql: { operation, variables } }, `GraphQL ${operation}${path ? ` at ${path}` : ""}`);
+    const gql: GraphQLRouteBuilder = {
+      ...builder,
+      times: (n) => (builder.times(n), gql),
+      once: () => (builder.once(), gql),
+      delay: (ms) => (builder.delay(ms), gql),
+      data: (data: unknown) => builder.reply(async (call) => ({ status: 200, body: { data: typeof data === "function" ? await data(call) : data } })),
+      errors: (errors, data) => builder.reply({ status: 200, body: { errors: graphqlErrors(errors), ...(data === undefined ? {} : { data }) } }),
+    };
+    return gql;
+  }
+
+  #on(method: string, path: string | RegExp, match: MatchOptions, label?: string): RouteBuilder {
     const { pattern, paramNames } = compilePath(path);
     const route: Omit<Route, "respond"> = {
       method: method.toUpperCase(),
@@ -165,6 +207,7 @@ export class Stub {
       remaining: Infinity,
       delayMs: 0,
       hits: 0,
+      label,
     };
     const add = (respond: Responder, extra: Partial<Route> = {}) => {
       this.#routes.unshift({ ...route, ...extra, respond });
@@ -271,8 +314,9 @@ export class Stub {
   describeRoutes() {
     return this.#routes.map((r) => {
       const limit = Number.isFinite(r.remaining + r.hits) ? ` (${r.hits}/${r.remaining + r.hits} used)` : "";
-      const cond = Object.keys(r.match).length ? ` + ${Object.keys(r.match).join("/")} conditions` : "";
-      return `${r.method} ${r.path}${cond}${limit}`;
+      const keys = Object.keys(r.match).filter((k) => !(k === "graphql" && r.label));
+      const cond = keys.length ? ` + ${keys.join("/")} conditions` : "";
+      return `${r.label ?? `${r.method} ${r.path}`}${cond}${limit}`;
     });
   }
 
@@ -313,6 +357,7 @@ export class Stub {
       params: {},
       matched: false,
     };
+    call.graphql = graphqlOf(call);
     this.#calls.push(call);
 
     let route: Route | undefined;
@@ -340,7 +385,8 @@ export class Stub {
       }
       if (!out) {
         const hint = this.#hint ? ` (${this.#hint})` : "";
-        res.writeHead(501, { "content-type": "text/plain" }).end(`slicetest: no stub for ${call.method} ${call.path}${hint}`);
+        const what = call.graphql ? `${describeGraphQL(call.graphql)} (${call.method} ${call.path})` : `${call.method} ${call.path}`;
+        res.writeHead(501, { "content-type": "text/plain" }).end(`slicetest: no stub for ${what}${hint}`);
         return;
       }
       call.matched = true;
@@ -416,6 +462,13 @@ function matchConditions(match: MatchOptions, call: RecordedCall) {
   }
   if (match.body !== undefined && !test(match.body, call.body)) return false;
   if (match.json !== undefined && !subset(match.json, call.json)) return false;
+  if (match.graphql) {
+    const g = call.graphql;
+    if (!g) return false;
+    const { operation, variables } = match.graphql;
+    if (operation !== undefined && !(operation instanceof RegExp ? g.operation !== undefined && operation.test(g.operation) : g.operation === operation)) return false;
+    if (variables !== undefined && !subset(variables, g.variables)) return false;
+  }
   return true;
 }
 

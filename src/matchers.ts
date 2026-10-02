@@ -1,13 +1,18 @@
 import { expect } from "vitest";
 import { Db, type Where } from "./db.js";
 import type { HttpResponse } from "./http.js";
-import { Stub, type MatchOptions, type RecordedCall } from "./stub.js";
+import { describeGraphQL } from "./graphql.js";
+import { Stub, subset, type MatchOptions, type RecordedCall } from "./stub.js";
 
 interface SlicetestMatchers<R = unknown> {
   /** The stub received at least one call matching `method path` (and `match`, if given). */
   toHaveReceived(method: string, path: string | RegExp, match?: MatchOptions): R;
   /** The stub received exactly `n` calls matching `method path`. */
   toHaveReceivedTimes(n: number, method?: string, path?: string | RegExp, match?: MatchOptions): R;
+  /** The stub received a GraphQL request for `operation` (with `variables` as a subset, if given). */
+  toHaveReceivedGraphQL(operation: string | RegExp, variables?: unknown): R;
+  /** A GraphQL response without `errors`, whose `data` contains `expected` (if given). The failure message shows the errors. */
+  toHaveGraphQLData(expected?: unknown): R;
   /** The response has this status; the failure message shows the response body. */
   toHaveStatus(status: number): R;
   /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`. */
@@ -26,6 +31,7 @@ function describeCalls(calls: RecordedCall[]) {
   if (calls.length === 0) return "  (no calls)";
   const shown = calls.slice(-MAX_SHOWN).map((c) => {
     const q = c.query.size ? `?${c.query}` : "";
+    if (c.graphql) return `  ${describeGraphQL(c.graphql)} (${c.method} ${c.path})  variables ${JSON.stringify(c.graphql.variables)}`;
     const body = c.body ? `  ${c.body.length > 200 ? `${c.body.slice(0, 200)}…` : c.body}` : "";
     return `  ${c.method} ${c.path}${q}${body}`;
   });
@@ -80,6 +86,37 @@ expect.extend({
         `Calls received:\n${describeCalls(received.calls())}`,
       actual,
       expected: n,
+    };
+  },
+
+  toHaveReceivedGraphQL(received: unknown, operation: string | RegExp, variables?: unknown) {
+    assertStub(received);
+    const pass = received.calls("*", undefined, { graphql: { operation, variables } }).length > 0;
+    const cond = variables === undefined ? "" : ` with variables ${this.utils.stringify(variables)}`;
+    return {
+      pass,
+      message: () =>
+        `expected stub "${received.name}" ${pass ? "not " : ""}to have received GraphQL ${operation}${cond}\n` +
+        `Calls received:\n${describeCalls(received.calls())}`,
+    };
+  },
+
+  toHaveGraphQLData(received: HttpResponse, expected?: unknown) {
+    const body = received?.json;
+    const errors = body && typeof body === "object" ? body.errors : undefined;
+    const isGraphQL = body && typeof body === "object" && ("data" in body || "errors" in body);
+    const hasErrors = Array.isArray(errors) && errors.length > 0;
+    const pass = received?.status === 200 && isGraphQL && !hasErrors && (expected === undefined || subset(expected, body.data));
+    return {
+      pass,
+      message: () => {
+        const head = `expected ${received.method} ${received.url} ${this.isNot ? "not " : ""}to answer GraphQL data${expected === undefined ? "" : ` containing ${this.utils.stringify(expected)}`}`;
+        if (!isGraphQL) return `${head}, got status ${received.status} without data or errors:\n  ${received.text.slice(0, 1000) || "(empty)"}`;
+        if (hasErrors) return `${head}, got errors:\n${(errors as { message?: string; path?: unknown[] }[]).map((e) => `  ${e.message}${e.path ? ` (at ${e.path.join(".")})` : ""}`).join("\n")}`;
+        return `${head}, got status ${received.status} and data:\n  ${JSON.stringify(body.data)}`;
+      },
+      actual: body?.data,
+      expected,
     };
   },
 

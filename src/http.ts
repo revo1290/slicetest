@@ -115,6 +115,17 @@ export class HttpClient {
   }
 
   /**
+   * Send a GraphQL operation to the app: `http.graphql("query { poll(id: 1) { title } }")`,
+   * `http.graphql(CREATE_POLL, { title: "Tea?" })`. Posts `{ query, variables, operationName }` to
+   * `/graphql` (`path` for another endpoint). Pair with `toHaveGraphQLData()`, since GraphQL
+   * servers answer errors with status 200.
+   */
+  graphql(query: string, variables?: Record<string, unknown>, opts: RequestOptions & { path?: string; operationName?: string } = {}) {
+    const { path = "/graphql", operationName, ...request } = opts;
+    return this.request("POST", path, { query, ...(variables ? { variables } : {}), ...(operationName ? { operationName } : {}) }, request);
+  }
+
+  /**
    * Run `send` `n` times at once and wait for every response, to provoke races
    * (double bookings, lost updates). Pair with `toHaveStatuses({ 201: 1, 409: n - 1 })`
    * and a check of the database. Requests are released together once all are prepared.

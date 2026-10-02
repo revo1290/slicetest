@@ -55,6 +55,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
 - **Webhooks signed like the real sender.** Stripe, GitHub, Slack, Shopify and Standard Webhooks signatures, plus forged and replayed deliveries, so signature checks are tested instead of bypassed.
 - **Reproducible chaos.** Stubs can fail the first calls, drop connections or add latency, from a seed the failure output prints, so a resilience test that fails once fails again on demand.
+- **GraphQL on both sides.** Stubs answer by operation name and variables rather than by path, and `toHaveGraphQLData()` fails on the `errors` a GraphQL server returns with status 200.
 - **Forms as a browser sends them.** `http.submit()` presses a button on a server-rendered page, hidden fields included, so CSRF tokens and Next.js server actions work without knowing their internals.
 - **Hard-coded APIs, stubbed anyway.** `hosts: [api.github.com]` catches calls to URLs written in the code or built into a framework, over HTTPS, from Node, Python, Go, Ruby or the JVM, with no change to the app. Redirects to those hosts are followed to the stub, so OAuth logins run end to end.
 - **N+1 detection for any stack.** A wire-protocol proxy records the SQL the app runs, so query counts are asserted at the HTTP boundary, whatever the ORM or language.
@@ -174,6 +175,7 @@ await http.get("/polls", { query: { page: 2 }, headers: { accept: "text/html" } 
 await http.post("/login", http.form({ user: "a", pass: "b" }));  // urlencoded; FormData, Blob and bytes also work
 await http.get("/old-path", { follow: true });                    // redirects are NOT followed by default
 await http.submit(await http.get("/signup"), { button: "Sign up", fields: { email: "a@b.test" } }); // a form, as a browser sends it
+await http.graphql("query Poll($id: ID!) { poll(id: $id) { title } }", { id: 1 });  // POST /graphql ({ path } for another)
 
 const admin = http.with({ headers: { authorization: `Bearer ${token}` } }); // shares cookies with http
 http.cookies.get("session");                                     // cookies persist within a scenario
@@ -351,6 +353,23 @@ stub("anthropic").on("POST", "/v1/messages").reply(sse([
 
 In YAML, `reply: { sse: [{ event: message_start, data: { ... } }, ...] }` instead of `body`.
 
+#### GraphQL: stubs that answer an operation
+
+GraphQL APIs (GitHub, Shopify, Linear, Contentful, your own) take every call at one path, so `on("POST", "/graphql")` can't tell them apart. `stub.graphql()` matches the operation instead, whatever the path, for POSTs with `{ query, variables, operationName }` and GETs with those as query parameters. Without `operationName`, the name in the document counts (`query Viewer { ... }`):
+
+```ts
+stub("github").graphql("Viewer").data({ viewer: { login: "octocat" } });
+stub("github").graphql("CreateIssue", { variables: { title: "Bug" } }).data((call) => ({ createIssue: { issue: { number: 1, title: call.graphql.variables.title } } }));
+stub("github").graphql("CreateIssue").once().errors(["rate limited"]);   // { errors: [{ message }] } with status 200, as servers do
+
+expect(stub("github")).toHaveReceivedGraphQL("CreateIssue", { title: "Bug" });   // variables as a subset
+expect(await http.graphql(REPORT_BUG, { title: "Bug" })).toHaveGraphQLData({ reportBug: { number: 1 } });
+```
+
+`toHaveGraphQLData()` fails on a response with `errors` and prints them, which `toHaveStatus(200)` can't, since GraphQL servers report errors with 200. Unanswered operations fail the scenario named as `GraphQL mutation CreateIssue`. `call.graphql` holds `{ operation, type, query, variables }` for every GraphQL call a stub receives.
+
+In YAML, a stub step takes `graphql: CreateIssue` instead of `on`, `when: { variables }`, and `reply: { data, errors }`; a request takes `graphql: { query, variables }` instead of `json` and fails on `errors` unless `expect.json` names them; a received step takes `graphql:` instead of `call`.
+
 #### Chaos: faults the app must survive
 
 `chaos()` makes a stub misbehave for the rest of the scenario, to test retries, timeouts and fallbacks against the app's real HTTP client:
@@ -442,6 +461,8 @@ expect(responses).toHaveStatuses({ 201: 1, 409: 9 });            // an array, e.
 expect(stub("slack")).toHaveReceived("POST", "/hook", { json: { text: "hi" } });
 expect(stub("slack")).toHaveReceivedTimes(1, "POST", "/hook");
 expect(stub("mail")).not.toHaveReceived("POST", "/send");
+expect(stub("github")).toHaveReceivedGraphQL("CreateIssue", { title: "Bug" });
+expect(await http.graphql(QUERY)).toHaveGraphQLData({ poll: { title: "x" } }); // no errors, data as a subset
 await expect(db).toHaveRow("polls", { title: "x" });             // at least one row
 await expect(db).toHaveRow("votes", { poll_id: 1 }, 3);          // exactly three
 ```
@@ -700,9 +721,9 @@ scenarios:
 
 | Step | Keys |
 |---|---|
-| `stub: <name>` | `on: METHOD /path` (`:params` allowed), `when: { query, headers, json, body }`, one of `reply: { status, headers, body }` / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`. |
+| `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, body, variables }`, one of `reply: { status, headers, body }` (`{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.variables.id}}`. |
 | `submit: <button>` | `form`, `fields`, `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
-| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
+| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body` / `graphql: { query, variables, operationName }`, `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |
 | `request` with `webhook` | `{ provider, secret, event, stale, invalidSignature }`: signs the body like that provider's deliveries |
@@ -710,7 +731,7 @@ scenarios:
 | `make: <table>` | `rows` (a mapping, or a list for several rows), `count`, `capture` (from `row` / `rows`) — like `db.make()` |
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |
-| `received: <stub>` | `call: METHOD /path`, `when`, `times` (exact; default at least once) |
+| `received: <stub>` | `call: METHOD /path` or `graphql: <operation>`, `when`, `times` (exact; default at least once) |
 | `log: <regex>` | `from` (a service; default the app), `within` (ms, default 5000). Waits for a matching line printed during the scenario. |
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |

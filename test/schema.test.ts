@@ -70,6 +70,21 @@ scenarios:
         expect: { statuses: { 201: 1, 409: 4 } }
       - request: POST /raw
         body: hello
+      - stub: gh
+        graphql: CreateIssue
+        when: { variables: { title: Bug }, headers: { authorization: x } }
+        reply: { headers: { x: y }, data: { createIssue: { number: 1 } }, errors: [oops, { message: bad, path: [a] }] }
+      - stub: gh
+        graphql: Viewer
+        sequence: [{ errors: [down] }, { data: { viewer: { login: a } } }]
+      - request: POST /graphql
+        graphql: "{ me }"
+      - request: POST /graphql
+        graphql: { query: "query Q($a: Int) { q(a: $a) }", variables: { a: 1 }, operationName: Q }
+        expect: { json: { data: { q: 1 } } }
+      - received: gh
+        graphql: CreateIssue
+        when: { variables: { title: Bug } }
       - submit: Sign up
         form: signup
         fields: { email: a@b.test, age: 3, terms: true, tags: [a, b] }
@@ -137,6 +152,11 @@ test.each([
   ["checkpoint that isn't true", "scenarios:\n  - name: a\n    steps:\n      - checkpoint: yes please\n"],
   ["submit without a button", "scenarios:\n  - name: a\n    steps:\n      - submit: false\n"],
   ["a submit field that is a mapping", "scenarios:\n  - name: a\n    steps:\n      - submit: Go\n        fields: { a: { b: 1 } }\n"],
+  ["a stub with both on and graphql", "scenarios:\n  - name: a\n    steps:\n      - stub: s\n        on: POST /graphql\n        graphql: Q\n        reply: { data: {} }\n"],
+  ["a GraphQL reply with a body", "scenarios:\n  - name: a\n    steps:\n      - stub: s\n        graphql: Q\n        reply: { body: x, data: {} }\n"],
+  ["a request with both json and graphql", "scenarios:\n  - name: a\n    steps:\n      - request: POST /graphql\n        json: {}\n        graphql: \"{ a }\"\n"],
+  ["a graphql request with an unknown key", "scenarios:\n  - name: a\n    steps:\n      - request: POST /graphql\n        graphql: { query: \"{ a }\", vars: {} }\n"],
+  ["received with both call and graphql", "scenarios:\n  - name: a\n    steps:\n      - received: s\n        call: POST /graphql\n        graphql: Q\n"],
   ["a reply with both body and sse", "scenarios:\n  - name: a\n    steps:\n      - stub: s\n        on: GET /\n        reply: { body: x, sse: [{ data: y }] }\n"],
   ["an sse event without data", "scenarios:\n  - name: a\n    steps:\n      - stub: s\n        on: GET /\n        reply: { sse: [{ event: start }] }\n"],
   ["statuses on submit", "scenarios:\n  - name: a\n    steps:\n      - submit: Go\n        expect: { statuses: { 200: 1 } }\n"],

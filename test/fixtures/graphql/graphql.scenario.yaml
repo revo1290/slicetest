@@ -1,0 +1,27 @@
+scenarios:
+  - name: a GraphQL request, answered by a GraphQL stub
+    steps:
+      - stub: github
+        graphql: CreateIssue
+        when: { variables: { title: Bug } }
+        reply: { data: { createIssue: { issue: { number: 7 } } } }
+      - request: POST /graphql
+        graphql:
+          query: "mutation Report($title: String!) { report(title: $title) }"
+          variables: { title: Bug }
+        expect:
+          json: { data: { report: 7 } }
+      - received: github
+        graphql: CreateIssue
+        when: { variables: { title: Bug } }
+        times: 1
+
+  - name: a reply can echo the variables, and expected errors pass
+    steps:
+      - stub: github
+        graphql: CreateIssue
+        reply: { errors: ["no repo for {{call.variables.title}}"] }
+      - request: POST /graphql
+        graphql: { query: "mutation { report(title: \"Docs\") }", variables: { title: Docs } }
+        expect:
+          json: { errors: [{ message: "github: no repo for Docs" }] }

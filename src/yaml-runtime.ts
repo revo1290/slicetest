@@ -8,7 +8,8 @@ import { scenario } from "./scenario.js";
 import type { HttpResponse } from "./http.js";
 import type { MailFilter } from "./mail.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
-import { sse, type MatchOptions, type RecordedCall, type ServerSentEvent, type StubResponse } from "./stub.js";
+import { graphqlErrors } from "./graphql.js";
+import { sse, type MatchOptions, type RecordedCall, type RouteBuilder, type ServerSentEvent, type StubResponse } from "./stub.js";
 import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
 
 type Vars = Record<string, unknown>;
@@ -51,8 +52,8 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
 function describeStep(step: Step) {
   if ("submit" in step) return step.submit === true ? "submit" : `submit ${JSON.stringify(step.submit)}`;
   if ("request" in step) return step.concurrency ? `${step.request} ×${step.concurrency}` : step.request;
-  if ("stub" in step) return `stub ${step.stub} ${step.on}`;
-  if ("received" in step) return `received ${step.received}${step.call ? ` ${step.call}` : ""}`;
+  if ("stub" in step) return `stub ${step.stub} ${step.on ?? `GraphQL ${step.graphql}`}`;
+  if ("received" in step) return `received ${step.received}${step.call ? ` ${step.call}` : step.graphql ? ` GraphQL ${step.graphql}` : ""}`;
   if ("insert" in step) return `insert ${step.insert}`;
   if ("make" in step) return `make ${step.make}`;
   if ("chaos" in step) return `chaos ${step.chaos}`;
@@ -141,13 +142,23 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
   }
 
   if ("stub" in step) {
-    const [method, path] = splitCall(step.on);
-    let route = ctx.stub(step.stub).on(method, interpolate(path, vars) as string, conditions(step.when, vars));
+    const stub = ctx.stub(step.stub);
+    let route: RouteBuilder;
+    if (step.graphql !== undefined) {
+      const { variables, ...when } = conditions(step.when, vars) as MatchOptions & { variables?: unknown };
+      route = stub.graphql(interpolate(step.graphql, vars) as string, { ...when, variables });
+    } else {
+      const [method, path] = splitCall(step.on!);
+      route = stub.on(method, interpolate(path, vars) as string, conditions(step.when, vars));
+    }
     if (step.times !== undefined) route = route.times(step.times);
     if (step.delay !== undefined) route = route.delay(step.delay);
-    // Replies are interpolated when a call arrives, so they can echo it: {{call.params.id}}, {{call.json.name}}.
+    // Replies are interpolated when a call arrives, so they can echo it: {{call.params.id}}, {{call.json.name}}, {{call.variables.id}}.
     const answer = (template: unknown) => (call: RecordedCall) => {
-      const { sse: events, ...response } = interpolate(template, { ...vars, call: callVars(call) }) as StubResponse & { sse?: ServerSentEvent[] };
+      const { sse: events, data, errors, ...response } = interpolate(template, { ...vars, call: callVars(call) }) as StubResponse & { sse?: ServerSentEvent[]; data?: unknown; errors?: (string | { message: string })[] };
+      if (data !== undefined || errors !== undefined) {
+        return { status: 200, ...response, body: { ...(errors ? { errors: graphqlErrors(errors) } : {}), ...(data !== undefined ? { data } : {}) } };
+      }
       return events ? sse(events, response) : response;
     };
     if (step.networkError) route.networkError();
@@ -183,8 +194,11 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
       query: interpolate(step.query, vars) as Record<string, string> | undefined,
       follow: step.follow,
     };
+    const gql = step.graphql === undefined ? undefined : (interpolate(typeof step.graphql === "string" ? { query: step.graphql } : step.graphql, vars) as Record<string, unknown>);
     let body =
-      step.json !== undefined
+      gql !== undefined
+        ? gql
+        : step.json !== undefined
         ? interpolate(step.json, vars)
         : step.form !== undefined
           ? ctx.http.form(interpolate(step.form, vars) as Record<string, string>)
@@ -195,7 +209,12 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
       opts.headers = { "content-type": signed.type, ...signWebhook(signed.body, interpolate(step.webhook, vars) as WebhookOptions), ...opts.headers };
     }
     const e = step.expect;
-    const verify = (res: HttpResponse) => verifyResponse(res, e, vars);
+    const verify = (res: HttpResponse) => {
+      // GraphQL servers answer errors with 200, so a status check alone would pass them.
+      const expectsErrors = !!e?.json && typeof e.json === "object" && "errors" in (e.json as object);
+      if (gql && !expectsErrors && Array.isArray(res.json?.errors) && res.json.errors.length) expect(res).toHaveGraphQLData();
+      verifyResponse(res, e, vars);
+    };
     if (step.concurrency !== undefined) {
       // Each request gets its own body: a URLSearchParams body can only be read once.
       const all = await ctx.http.concurrently(step.concurrency, () => ctx.http.request(method, path, body instanceof URLSearchParams ? new URLSearchParams(body) : body, opts));
@@ -257,7 +276,8 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
   // received
   const [method, path] = step.call ? splitCall(step.call) : [undefined, undefined];
   const stub = ctx.stub(step.received);
-  const match = conditions(step.when, vars);
+  const { variables, ...match } = conditions(step.when, vars) as MatchOptions & { variables?: unknown };
+  if (step.graphql !== undefined) match.graphql = { operation: interpolate(step.graphql, vars) as string, variables };
   const p = path && (interpolate(path, vars) as string);
   if (step.times === undefined) expect(stub).toHaveReceived(method ?? "*", p ?? /.*/, match);
   else expect(stub).toHaveReceivedTimes(step.times, method, p, match);
@@ -303,6 +323,7 @@ function callVars(call: RecordedCall) {
     headers: call.headers,
     json: call.json,
     body: call.body,
+    variables: call.graphql?.variables,
   };
 }
 

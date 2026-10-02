@@ -19,6 +19,7 @@
     "language-agnostic",
     "openapi",
     "contract-testing",
+    "graphql",
     "jwt",
     "oidc",
     "webhooks",

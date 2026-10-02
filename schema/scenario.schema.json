@@ -62,8 +62,7 @@
         {
           "type": "object",
           "required": [
-            "stub",
-            "on"
+            "stub"
           ],
           "additionalProperties": false,
           "properties": {
@@ -93,7 +92,10 @@
                 "json": {
                   "description": "Subset of the request JSON"
                 },
-                "body": {}
+                "body": {},
+                "variables": {
+                  "description": "Subset of the GraphQL variables (with `graphql`)"
+                }
               }
             },
             "reply": {
@@ -131,12 +133,60 @@
                       }
                     }
                   }
+                },
+                "data": {
+                  "description": "GraphQL `data` (with `graphql`): the reply's body is { data, errors }"
+                },
+                "errors": {
+                  "type": "array",
+                  "description": "GraphQL errors (with `graphql`): messages or { message, path, extensions }",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "message"
+                        ]
+                      }
+                    ]
+                  }
                 }
               },
               "not": {
-                "required": [
-                  "body",
-                  "sse"
+                "anyOf": [
+                  {
+                    "required": [
+                      "body",
+                      "sse"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "body",
+                      "data"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "body",
+                      "errors"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "sse",
+                      "data"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "sse",
+                      "errors"
+                    ]
+                  }
                 ]
               }
             },
@@ -177,12 +227,60 @@
                         }
                       }
                     }
+                  },
+                  "data": {
+                    "description": "GraphQL `data` (with `graphql`): the reply's body is { data, errors }"
+                  },
+                  "errors": {
+                    "type": "array",
+                    "description": "GraphQL errors (with `graphql`): messages or { message, path, extensions }",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "message"
+                          ]
+                        }
+                      ]
+                    }
                   }
                 },
                 "not": {
-                  "required": [
-                    "body",
-                    "sse"
+                  "anyOf": [
+                    {
+                      "required": [
+                        "body",
+                        "sse"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "body",
+                        "data"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "body",
+                        "errors"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "sse",
+                        "data"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "sse",
+                        "errors"
+                      ]
+                    }
                   ]
                 }
               },
@@ -198,8 +296,34 @@
             "delay": {
               "type": "integer",
               "minimum": 0
+            },
+            "graphql": {
+              "type": "string",
+              "description": "A GraphQL operation (its operationName, or the name in the document), instead of METHOD /path. Matches POST and GET GraphQL requests to any path"
             }
-          }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "on"
+              ],
+              "not": {
+                "required": [
+                  "graphql"
+                ]
+              }
+            },
+            {
+              "required": [
+                "graphql"
+              ],
+              "not": {
+                "required": [
+                  "on"
+                ]
+              }
+            }
+          ]
         },
         {
           "type": "object",
@@ -353,7 +477,55 @@
               "additionalProperties": {
                 "type": "string"
               }
+            },
+            "graphql": {
+              "description": "Send a GraphQL operation as the JSON body: the query, or { query, variables, operationName }. A response with `errors` fails the step unless `expect.json` names `errors`",
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "query"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "variables": {
+                      "type": "object"
+                    },
+                    "operationName": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
             }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "graphql",
+                  "json"
+                ]
+              },
+              {
+                "required": [
+                  "graphql",
+                  "form"
+                ]
+              },
+              {
+                "required": [
+                  "graphql",
+                  "body"
+                ]
+              }
+            ]
           }
         },
         {
@@ -707,7 +879,10 @@
                 "json": {
                   "description": "Subset of the request JSON"
                 },
-                "body": {}
+                "body": {},
+                "variables": {
+                  "description": "Subset of the GraphQL variables (with `graphql`)"
+                }
               }
             },
             "times": {
@@ -719,7 +894,17 @@
               "type": "integer",
               "minimum": 1,
               "description": "Retry this step for up to this many milliseconds, for effects the app applies asynchronously"
+            },
+            "graphql": {
+              "type": "string",
+              "description": "A GraphQL operation (its operationName, or the name in the document), instead of METHOD /path. Matches POST and GET GraphQL requests to any path"
             }
+          },
+          "not": {
+            "required": [
+              "call",
+              "graphql"
+            ]
           }
         },
         {
