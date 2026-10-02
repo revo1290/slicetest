@@ -1,3 +1,16 @@
+define:
+  issue reported:
+    params: [title, number]
+    steps:
+      - stub: github
+        graphql: CreateIssue
+        when: { variables: { title: "{{title}}" } }
+        reply: { data: { createIssue: { issue: { number: "{{number}}" } } } }
+      - request: POST /graphql
+        graphql: { query: "mutation R($title: String!) { report(title: $title) }", variables: { title: "{{title}}" } }
+        expect: { json: { data: { report: "{{number}}" } } }
+        capture: { reported: json.data.report }
+
 scenarios:
   - name: a GraphQL request, answered by a GraphQL stub
     steps:
@@ -25,3 +38,12 @@ scenarios:
         graphql: { query: "mutation { report(title: \"Docs\") }", variables: { title: Docs } }
         expect:
           json: { errors: [{ message: "github: no repo for Docs" }] }
+
+  - name: steps from define, with params, capture for later steps
+    steps:
+      - use: issue reported
+        with: { title: Crash, number: 9 }
+      - request: GET /nothing
+        expect: { json: { errors: [{ message: { $contains: "unknown field" } }] } }
+      - use: issue reported
+        with: { title: "Crash {{reported}}", number: 10 }

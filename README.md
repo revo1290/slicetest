@@ -769,6 +769,7 @@ scenarios:
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
 | `mail: { to, from, subject, text, html }` | `times` (exact; default at least one), `within` (ms, default 5000), `capture` from the last match (`subject`, `text`, `links.0`). Waits for mail the app sends. `{}` matches any message. |
+| `use: <definition>` | `with: { param: value }`. Runs the steps of a `define:` entry. |
 | `snapshot: true` | The scenario's [trace](#snapshot-the-whole-scenario-trace) so far must match its stored snapshot. `mask: [keys]` hides more values. |
 
 `db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously.
@@ -777,7 +778,35 @@ scenarios:
 - `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.
 - Expected `json`, `rows` and `headers` are subsets: extra keys are fine. `{ $type: number }`, `{ $regex: "^ch_" }`, `{ $contains: "..." }` and `{ $any: true }` match loosely.
 - A file-level `setup:` list runs at the start of every scenario. `skip`, `only` and `timeout` work per scenario.
+- A file-level `define:` names step lists that `use:` steps run, like functions: `params` are given with `with:` and are `{{variables}}` inside, and what the steps capture is visible after the `use` (see below).
 - Mistakes are reported with the file and line before anything runs (`polls.scenario.yaml:12: unknown key "stauts" in expect`). A failing step reports its file, line and step number. The JSON Schema in `schema/` gives editors completion and inline errors.
+
+### Reusing steps: `define` and `use`
+
+```yaml
+define:
+  signed up:
+    params: [email]
+    steps:
+      - request: POST /signup
+        json: { email: "{{email}}", password: hunter22 }
+        expect: { status: 201 }
+        capture: { userId: json.id }
+      - request: POST /login
+        json: { email: "{{email}}", password: hunter22 }
+        capture: { token: json.token }
+
+scenarios:
+  - name: a new user has an empty cart
+    steps:
+      - use: signed up
+        with: { email: ada@example.com }
+      - request: GET /users/{{userId}}/cart
+        headers: { authorization: "Bearer {{token}}" }
+        expect: { json: { items: [] } }
+```
+
+A definition is a list of steps, or `{ params, steps }`, and may `use` other definitions. Unknown names, missing or extra `with` keys and definitions that use themselves are reported with their line before anything runs. A failing step inside one names the whole path: `cart.scenario.yaml:5 (a new user has an empty cart, step 1: use signed up → step 2: POST /login)`.
 
 ### Without any JavaScript: `npx slicetest`
 

@@ -77,3 +77,39 @@ test("$-objects become asymmetric matchers", () => {
   expect({ id: "1", ref: "ch_9", note: "is ok", any: 0, gone: null }).not.toEqual(m);
   expect(() => toMatchers({ $typo: 1 })).toThrow("unknown matcher $typo");
 });
+
+const USES = (use: string) => `
+define:
+  login:
+    params: [email]
+    steps:
+      - request: POST /login
+        json: { email: "{{email}}" }
+  twice:
+    - use: login
+      with: { email: a@b.test }
+scenarios:
+  - name: a
+    steps:
+${use}
+`;
+
+test("define and use: steps, params and line numbers", () => {
+  const doc = parse(USES("      - use: twice"));
+  expect(doc.define.login).toMatchObject({ params: ["email"], steps: [{ request: "POST /login", line: 6 }] });
+  expect(doc.define.twice!.params).toEqual([]);
+  expect(doc.scenarios[0]!.steps[0]).toMatchObject({ use: "twice", line: 14 });
+});
+
+test.each([
+  ["an unknown definition", "      - use: logn", 's.scenario.yaml:14: no definition "logn" (defined: login, twice)'],
+  ["a missing param", "      - use: login", "s.scenario.yaml:14: use login needs `with: { email }`"],
+  ["an unknown param", "      - use: login\n        with: { email: x, pass: y }", 's.scenario.yaml:14: "pass" isn\'t a param of login (params: email)'],
+])("use rejects %s", (_, use, message) => {
+  expect(() => parse(USES(use))).toThrow(message);
+});
+
+test("a definition that uses itself, through another, is rejected", () => {
+  const text = "define:\n  a:\n    - use: b\n  b:\n    - use: a\nscenarios:\n  - name: x\n    steps:\n      - use: a\n";
+  expect(() => parse(text)).toThrow('s.scenario.yaml:5: "a" uses itself (a → b → a)');
+});

@@ -15,6 +15,41 @@
         "$ref": "#/$defs/step"
       }
     },
+    "define": {
+      "type": "object",
+      "description": "Named step lists that `use:` steps run. A list of steps, or { params, steps } for values given with `with:`",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/step"
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "steps"
+            ],
+            "properties": {
+              "params": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/step"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
     "scenarios": {
       "type": "array",
       "minItems": 1,
@@ -1176,6 +1211,27 @@
             "name": {
               "type": "string",
               "description": "Label shown when this step fails"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "use"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "use": {
+              "type": "string",
+              "description": "Run the steps of a `define:` entry; what they capture is visible afterwards"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            },
+            "with": {
+              "type": "object",
+              "description": "Values for the definition's params, available as {{param}} inside it"
             }
           }
         }

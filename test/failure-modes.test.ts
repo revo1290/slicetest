@@ -42,9 +42,10 @@ test("a crashed service fails the scenario with its output, and is restarted on 
 });
 
 test("YAML steps fail with the file, line and step that failed", () => {
-  expect(output).toMatch(/failing\.scenario\.yaml:4 \(yaml wrong status, step 1: GET \/\)\n.*expected GET \/ to respond 201, got 200/);
-  expect(output).toMatch(/failing\.scenario\.yaml:9 \(yaml wrong json, step 1: GET \/json\)/);
+  expect(output).toMatch(/failing\.scenario\.yaml:11 \(yaml wrong status, step 1: GET \/\)\n.*expected GET \/ to respond 201, got 200/);
+  expect(output).toMatch(/failing\.scenario\.yaml:16 \(yaml wrong json, step 1: GET \/json\)/);
   expect(output).toMatch(/-\s+"name": "bob"/);
   expect(output).toContain("unknown variable {{userId}}. Defined so far: (none)");
-  expect(output).toMatch(/failing\.scenario\.yaml:22 \(yaml stub never called, step 2: received mail POST \/send\)\nexpected stub "mail" to have received POST \/send\n/);
+  expect(output).toMatch(/failing\.scenario\.yaml:5 \(yaml failing inside use, step 1: use open home → step 1: GET \/\)\n.*expected GET \/ to respond 418, got 200/);
+  expect(output).toMatch(/failing\.scenario\.yaml:29 \(yaml stub never called, step 2: received mail POST \/send\)\nexpected stub "mail" to have received POST \/send\n/);
 });

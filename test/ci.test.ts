@@ -22,10 +22,10 @@ test("on GitHub Actions, a failing YAML scenario is annotated at its file and li
   const summary = path.join(await mkdtemp(path.join(os.tmpdir(), "slicetest-summary-")), "summary.md");
   const root = path.join(import.meta.dirname, "..");
   const output = await runFailingFixture("failing", { GITHUB_ACTIONS: "true", GITHUB_WORKSPACE: root, GITHUB_STEP_SUMMARY: summary });
-  expect(output).toMatch(/^::error file=test\/fixtures\/failing\/failing\.scenario\.yaml,line=4,title=yaml wrong status%3A step 1%3A GET \/::.*expected GET \/ to respond 201, got 200/m);
+  expect(output).toMatch(/^::error file=test\/fixtures\/failing\/failing\.scenario\.yaml,line=11,title=yaml wrong status%3A step 1%3A GET \/::.*expected GET \/ to respond 201, got 200/m);
   const md = await readFile(summary, "utf8");
   expect(md).toContain("failed YAML step(s)");
-  expect(md).toContain("`test/fixtures/failing/failing.scenario.yaml:4`");
+  expect(md).toContain("`test/fixtures/failing/failing.scenario.yaml:11`");
   // Every failed scenario, TypeScript or YAML, with a sequence diagram of what it did.
   expect(md).toContain("<details><summary>✗ yaml wrong status <code>failing.scenario.yaml</code>: what happened</summary>\n\n```mermaid\nsequenceDiagram");
 }, 120_000);

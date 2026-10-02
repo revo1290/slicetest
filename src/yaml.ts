@@ -13,6 +13,8 @@ export interface YamlFile {
   path?: string;
   /** Steps run at the start of every scenario in the file. */
   setup: Step[];
+  /** Named step lists that `use:` steps run, with `with:` values for their `params`. */
+  define: Record<string, { params: string[]; steps: Step[] }>;
   scenarios: YamlScenario[];
 }
 
@@ -26,12 +28,18 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep) & {
+export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep | UseStep) & {
   line: number;
   name?: string;
 };
 
 type GraphQLReply = { data?: unknown; errors?: (string | { message: string })[] };
+
+/** Run the steps of a `define:` entry. Values in `with` become variables inside it; what it captures is visible afterwards. */
+export interface UseStep {
+  use: string;
+  with?: Record<string, unknown>;
+}
 
 export interface StubStep {
   stub: string;
@@ -209,6 +217,7 @@ const KINDS = {
   mail: ["times", "within", "capture"],
   make: ["rows", "count", "capture"],
   chaos: ["failFirst", "errorRate", "statuses", "networkErrorRate", "latency", "seed"],
+  use: ["with"],
 } as const;
 type Kind = keyof typeof KINDS;
 
@@ -245,7 +254,7 @@ export function parseScenarioFile(text: string, file: string): YamlFile {
   const root = doc.contents;
   if (!isMap(root)) return fail(root, "expected a mapping with a `scenarios:` list");
   const top = doc.toJS() as Record<string, unknown>;
-  for (const key of Object.keys(top)) if (key !== "scenarios" && key !== "setup") fail(root, `unknown top-level key "${key}" (expected scenarios, setup)`);
+  for (const key of Object.keys(top)) if (!["scenarios", "setup", "define"].includes(key)) fail(root, `unknown top-level key "${key}" (expected scenarios, setup, define)`);
 
   const stepsOf = (seqNode: unknown, what: string): Step[] => {
     if (!isSeq(seqNode)) return fail(seqNode, `${what} must be a list of steps`);
@@ -256,9 +265,46 @@ export function parseScenarioFile(text: string, file: string): YamlFile {
   if (!isSeq(scenariosNode) || scenariosNode.items.length === 0) return fail(scenariosNode ?? root, "`scenarios:` must be a non-empty list");
   const setupNode = root.get("setup", true);
 
-  return {
+  const define: YamlFile["define"] = {};
+  const defineNode = root.get("define", true);
+  if (defineNode !== undefined) {
+    if (!isMap(defineNode)) return fail(defineNode, "`define:` maps names to step lists, e.g. `define: { login: [ ...steps ] }`");
+    for (const pair of defineNode.items) {
+      const name = String((pair.key as { value?: unknown })?.value ?? pair.key);
+      const value = pair.value;
+      if (isSeq(value)) {
+        define[name] = { params: [], steps: stepsOf(value, `define "${name}"`) };
+        continue;
+      }
+      if (!isMap(value)) return fail(value ?? pair.key, `define "${name}" must be a list of steps, or { params, steps }`);
+      const raw = value.toJSON() as Record<string, unknown>;
+      for (const k of Object.keys(raw)) if (k !== "params" && k !== "steps") fail(value, `unknown key "${k}" in define "${name}" (allowed: params, steps)`);
+      if (raw.params !== undefined && !(Array.isArray(raw.params) && raw.params.every((p) => typeof p === "string" && p))) fail(value.get("params", true) ?? value, "`params` must be a list of names, e.g. [email, password]");
+      define[name] = { params: (raw.params as string[] | undefined) ?? [], steps: stepsOf(value.get("steps", true), `define "${name}": steps`) };
+    }
+  }
+  // `use:` must name a definition and give it exactly its params; definitions can't use themselves.
+  const checkUses = (steps: Step[], chain: string[]) => {
+    for (const step of steps) {
+      if (!("use" in step)) continue;
+      const def = define[step.use];
+      const at = `${file}:${step.line}`;
+      if (!def) throw new YamlScenarioError(`${at}: no definition "${step.use}" (defined: ${Object.keys(define).join(", ") || "none; add a top-level \`define:\`"})`);
+      if (chain.includes(step.use)) throw new YamlScenarioError(`${at}: "${step.use}" uses itself (${[...chain, step.use].join(" → ")})`);
+      const given = Object.keys(step.with ?? {});
+      const missing = def.params.filter((p) => !given.includes(p));
+      const extra = given.filter((g) => !def.params.includes(g));
+      if (missing.length) throw new YamlScenarioError(`${at}: use ${step.use} needs \`with: { ${missing.join(", ")} }\``);
+      if (extra.length) throw new YamlScenarioError(`${at}: "${extra.join('", "')}" ${extra.length > 1 ? "aren't params" : "isn't a param"} of ${step.use} (params: ${def.params.join(", ") || "none"})`);
+      checkUses(def.steps, [...chain, step.use]);
+    }
+  };
+  for (const [name, def] of Object.entries(define)) checkUses(def.steps, [name]);
+
+  const parsed: YamlFile = {
     file,
     setup: setupNode ? stepsOf(setupNode, "setup") : [],
+    define,
     scenarios: scenariosNode.items.map((node) => {
       if (!isMap(node)) return fail(node, "each scenario must be a mapping with `name` and `steps`");
       const raw = (node as { toJSON(): Record<string, unknown> }).toJSON();
@@ -279,6 +325,9 @@ export function parseScenarioFile(text: string, file: string): YamlFile {
       };
     }),
   };
+  checkUses(parsed.setup, []);
+  for (const sc of parsed.scenarios) checkUses(sc.steps, []);
+  return parsed;
 }
 
 function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, lineOf: (node: unknown) => number): Step {
@@ -319,6 +368,9 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
         if (!(scalar(v) || typeof v === "boolean" || (Array.isArray(v) && v.every(scalar)))) fail(at("fields"), `field "${k}" must be a string, number, true / false or a list`);
       }
     }
+  } else if (kind === "use") {
+    if (typeof raw.use !== "string" || !raw.use) fail(at(kind), "`use:` names a step list from `define:`");
+    if (raw.with !== undefined && (!raw.with || typeof raw.with !== "object" || Array.isArray(raw.with))) fail(at("with"), "`with` maps params to values, e.g. { email: a@b.test }");
   } else if (kind === "checkpoint") {
     if (raw.checkpoint !== true) fail(at(kind), "use `checkpoint: true`");
   } else if (kind === "snapshot") {

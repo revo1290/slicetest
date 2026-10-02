@@ -26,19 +26,27 @@ export function defineYamlScenarios(doc: YamlFile) {
   }
 }
 
-async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: ScenarioContext, vars: Vars) {
+async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: ScenarioContext, vars: Vars, trail: string[] = []) {
   for (const [i, step] of steps.entries()) {
+    if ("use" in step) {
+      // The definition sees the scenario's variables plus `with`; what it captures is kept afterwards.
+      const args = (interpolate(step.with ?? {}, vars) as Vars) ?? {};
+      const inner: Vars = { ...vars, ...args };
+      await runSteps(doc, sc, doc.define[step.use]!.steps, ctx, inner, [...trail, `step ${i + 1}: use ${step.use}`]);
+      for (const [k, v] of Object.entries(inner)) if (!(k in args)) vars[k] = v;
+      continue;
+    }
     try {
       // A log step waits by itself; `within` is its timeout.
       // Log and mail steps wait by themselves; `within` is their timeout.
       await retry("within" in step && !("log" in step) && !("mail" in step) ? step.within : undefined, () => runStep(step, ctx, vars));
     } catch (e) {
       const label = step.name ?? describeStep(step);
-      const where = `${doc.file}:${step.line} (${sc.name}, step ${i + 1}: ${label})`;
+      const where = `${doc.file}:${step.line} (${sc.name}, ${[...trail, `step ${i + 1}: ${label}`].join(" → ")})`;
       const ciDir = inject("slicetestDb")?.ciDir;
       if (ciDir && doc.path) {
         const message = (e instanceof Error ? e.message : String(e)).replace(/\x1b\[[0-9;]*m/g, "");
-        await recordYamlFailure(ciDir, { file: doc.path, line: step.line, scenario: sc.name, step: `step ${i + 1}: ${label}`, message }).catch(() => {});
+        await recordYamlFailure(ciDir, { file: doc.path, line: step.line, scenario: sc.name, step: [...trail, `step ${i + 1}: ${label}`].join(" → "), message }).catch(() => {});
       }
       if (e instanceof Error) {
         e.message = `${where}\n${e.message}`;
@@ -50,6 +58,7 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
 }
 
 function describeStep(step: Step) {
+  if ("use" in step) return `use ${step.use}`;
   if ("submit" in step) return step.submit === true ? "submit" : `submit ${JSON.stringify(step.submit)}`;
   if ("request" in step) return step.concurrency ? `${step.request} ×${step.concurrency}` : step.request;
   if ("stub" in step) return `stub ${step.stub} ${step.on ?? `GraphQL ${step.graphql}`}`;
@@ -84,6 +93,7 @@ async function retry(within: number | undefined, fn: () => Promise<void>) {
 }
 
 async function runStep(step: Step, ctx: ScenarioContext, vars: Vars) {
+  if ("use" in step) throw new Error("slicetest: use steps are expanded by runSteps");
   if ("checkpoint" in step) {
     await ctx.db.checkpoint();
     return;

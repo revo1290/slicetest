@@ -1,3 +1,10 @@
+define:
+  open home:
+    params: [status]
+    steps:
+      - request: GET /
+        expect: { status: "{{status}}" }
+
 scenarios:
   - name: yaml wrong status
     steps:
@@ -21,3 +28,8 @@ scenarios:
         reply: { status: 202 }
       - received: mail
         call: POST /send
+
+  - name: yaml failing inside use
+    steps:
+      - use: open home
+        with: { status: 418 }

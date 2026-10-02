@@ -30,7 +30,17 @@ test.each(["examples/scenarios/polls.scenario.yaml", "test/fixtures/failing/fail
 
 /** Every step kind with every option. Both the schema and the parser must accept it. */
 const EVERYTHING = `
+define:
+  plain:
+    - checkpoint: true
+  with params:
+    params: [n]
+    steps:
+      - use: plain
 setup:
+  - use: with params
+    with: { n: 1 }
+    name: reused
   - stub: pay
     on: POST /charges/:id
     when: { query: { a: "1" }, headers: { x: y }, json: { amount: 1 }, body: raw }
