@@ -242,3 +242,12 @@ test("form conditions explain a body that isn't form-encoded", async () => {
   expect(stub.calls()[0]!.form).toBeUndefined();
   expect(stub.explain(stub.unmatched()[0]!)).toBe('closest route POST /token: form: expected a form-encoded body, got application/json: "{\\"grant_type\\":\\"client_credentials\\"}"');
 });
+
+test("a param with invalid percent-encoding is passed as sent instead of dropping the call", async () => {
+  stub.on("GET", "/files/:name").reply((call) => ({ body: call.params }));
+
+  const res = await fetch(`${stub.url}/files/100%zz`);
+
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ name: "100%zz" });
+});

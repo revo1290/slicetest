@@ -506,8 +506,17 @@ function matchPath(path: string | RegExp, pattern: RegExp | undefined, actual: s
   const m = re.exec(actual);
   if (!m) return undefined;
   const params: Record<string, string> = { ...m.groups };
-  names.forEach((n, i) => (params[n] = decodeURIComponent(m[i + 1]!)));
+  names.forEach((n, i) => (params[n] = decodeSegment(m[i + 1]!)));
   return params;
+}
+
+/** A path segment decoded, or as sent when it isn't valid percent-encoding (`%zz`), instead of dropping the call. */
+function decodeSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 function matchConditions(match: MatchOptions, call: RecordedCall) {
