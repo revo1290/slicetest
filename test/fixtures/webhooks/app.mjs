@@ -24,6 +24,14 @@ function line(req, body) {
   return same(expected, req.headers["x-line-signature"] ?? "") ? null : "bad signature";
 }
 
+// twilio.validateRequest: the URL the request came to, plus the form parameters sorted by name.
+function twilio(req, body) {
+  const url = `http://${req.headers.host}${req.url}`;
+  const params = [...new URLSearchParams(body)].sort(([a], [b]) => (a < b ? -1 : 1));
+  const expected = createHmac("sha1", process.env.TWILIO_AUTH_TOKEN).update(url + params.map(([k, v]) => k + v).join("")).digest("base64");
+  return same(expected, req.headers["x-twilio-signature"] ?? "") ? null : "bad signature";
+}
+
 http
   .createServer(async (req, res) => {
     const chunks = [];
@@ -33,11 +41,11 @@ http
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(json));
     };
-    const verifier = { "/webhooks/stripe": stripe, "/webhooks/github": github, "/webhooks/line": line }[req.url];
+    const verifier = { "/webhooks/stripe": stripe, "/webhooks/github": github, "/webhooks/line": line, "/webhooks/twilio": twilio }[req.url];
     if (req.method === "POST" && verifier) {
       const error = verifier(req, body);
       if (error) return send(400, { error });
-      const event = JSON.parse(body);
+      const event = req.headers["content-type"]?.startsWith("application/x-www-form-urlencoded") ? { type: new URLSearchParams(body).get("SmsStatus") } : JSON.parse(body);
       events.push({ source: req.url.split("/")[2], type: event.type ?? event.events?.[0]?.type ?? req.headers["x-github-event"] });
       return send(200, { received: true });
     }

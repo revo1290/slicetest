@@ -116,8 +116,9 @@ export class HttpClient {
    * `{ invalidSignature: true }` and `{ stale: true }` make deliveries the app must refuse.
    */
   webhook(path: string, payload: unknown, opts: WebhookOptions) {
-    const { body, type } = webhookBody(payload);
-    return this.request("POST", path, body, { headers: { "content-type": type, ...signWebhook(body, opts), ...opts.headers } });
+    const { body, type } = webhookBody(payload, opts.provider);
+    const url = opts.url ?? new URL(path, this.baseUrl).href;
+    return this.request("POST", path, body, { headers: { "content-type": type, ...signWebhook(body, { ...opts, url }), ...opts.headers } });
   }
 
   /**

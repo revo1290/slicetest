@@ -594,7 +594,8 @@
                         "linear",
                         "gitlab",
                         "zoom",
-                        "twitch"
+                        "twitch",
+                        "twilio"
                       ]
                     },
                     {
@@ -638,6 +639,10 @@
                 "invalidSignature": {
                   "type": "boolean",
                   "description": "Signed with a different secret"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "The URL the app validates against, for providers that sign it (twilio). Default: the app's address and the request path"
                 }
               }
             },

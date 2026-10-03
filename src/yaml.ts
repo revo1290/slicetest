@@ -270,7 +270,7 @@ const EXPECT_KEYS: Record<string, string[]> = {
   db: ["rows", "count"],
 };
 const CONDITION_KEYS = ["query", "headers", "json", "form", "body", "variables"];
-const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature"];
+const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature", "url"];
 const WEBHOOK_PROVIDERS: readonly string[] = PROVIDERS;
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];

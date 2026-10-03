@@ -26,3 +26,16 @@ scenarios:
         expect: { status: 400 }
       - request: GET /events
         expect: { json: [{ source: line, type: message }] }
+
+  - name: a Twilio status callback is signed over the URL and the form
+    steps:
+      - request: POST /webhooks/twilio
+        webhook: { provider: twilio, secret: tw-token }
+        form: { MessageSid: SM1, SmsStatus: delivered, To: "+819012345678" }
+        expect: { status: 200 }
+      - request: POST /webhooks/twilio
+        webhook: { provider: twilio, secret: tw-token, url: "https://public.example.com/webhooks/twilio" }
+        form: { MessageSid: SM2, SmsStatus: failed }
+        expect: { status: 400 }
+      - request: GET /events
+        expect: { json: [{ source: twilio, type: delivered }] }

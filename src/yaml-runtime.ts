@@ -247,9 +247,12 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
             ? await multipart(interpolate(step.multipart, vars) as Record<string, unknown>, base)
             : (interpolate(step.body, vars) as string | undefined);
     if (step.webhook) {
-      const signed = webhookBody(body);
+      const hook = interpolate(step.webhook, vars) as WebhookOptions;
+      const signed = webhookBody(body, hook.provider);
       body = signed.body;
-      opts.headers = { "content-type": signed.type, ...signWebhook(signed.body, interpolate(step.webhook, vars) as WebhookOptions), ...opts.headers };
+      const url = new URL(path, ctx.http.baseUrl);
+      for (const [k, v] of Object.entries(opts.query ?? {})) url.searchParams.set(k, String(v));
+      opts.headers = { "content-type": signed.type, ...signWebhook(signed.body, { url: url.href, ...hook }), ...opts.headers };
     }
     const e = step.expect;
     const verify = (res: HttpResponse) => {

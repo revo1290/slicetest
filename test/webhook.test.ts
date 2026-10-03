@@ -59,3 +59,14 @@ test("LINE, Paddle, Linear, GitLab, Zoom and Twitch sign the way their SDKs veri
     "twitch-eventsub-message-signature": `sha256=${mac("sha256", `m-12023-11-14T22:13:20.000Z${body}`)}`,
   });
 });
+
+test("Twilio: matches the example in Twilio's security docs, and posts objects as a form", async () => {
+  const { webhookBody } = await import("../src/webhook.js");
+  const params = { CallSid: "CA1234567890ABCDE", Caller: "+12349013030", Digits: "1234", From: "+12349013030", To: "+18005551212" };
+  const { body, type } = webhookBody(params, "twilio");
+  expect(type).toBe("application/x-www-form-urlencoded");
+  expect(signWebhook(body, { provider: "twilio", secret: "12345", url: "https://mycompany.com/myapp.php?foo=1&bar=2" })).toEqual({
+    "x-twilio-signature": "0/KCTR6DLpKmkAf8muzZqo1nDgQ=",
+  });
+  expect(() => signWebhook(body, { provider: "twilio", secret: "12345" })).toThrow("signed over its URL");
+});

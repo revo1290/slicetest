@@ -11,7 +11,7 @@ export interface HmacScheme {
   prefix?: string;
 }
 
-export type WebhookProvider = "stripe" | "github" | "slack" | "shopify" | "standard" | "line" | "paddle" | "linear" | "gitlab" | "zoom" | "twitch" | HmacScheme;
+export type WebhookProvider = "stripe" | "github" | "slack" | "shopify" | "standard" | "line" | "paddle" | "linear" | "gitlab" | "zoom" | "twitch" | "twilio" | HmacScheme;
 
 export interface WebhookOptions {
   provider: WebhookProvider;
@@ -27,12 +27,17 @@ export interface WebhookOptions {
   invalidSignature?: boolean;
   /** Message id for `standard` (`webhook-id`, default a random `msg_…`) and `twitch`. */
   id?: string;
+  /**
+   * The URL the app sees the request at, for providers that sign it (Twilio). `http.webhook()` fills in
+   * the app's address and the path; set it when the app validates against a public URL it's configured with.
+   */
+  url?: string;
   /** Extra request headers. */
   headers?: Record<string, string>;
 }
 
 /** The providers `signWebhook` knows by name. */
-export const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard", "line", "paddle", "linear", "gitlab", "zoom", "twitch"] as const;
+export const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard", "line", "paddle", "linear", "gitlab", "zoom", "twitch", "twilio"] as const;
 
 const hmac = (algorithm: string, key: string | Buffer, data: string) => createHmac(algorithm, key).update(data);
 
@@ -99,14 +104,23 @@ export function signWebhook(body: string, opts: WebhookOptions): Record<string, 
         "twitch-eventsub-message-signature": `sha256=${hmac("sha256", secret, `${id}${at}${body}`).digest("hex")}`,
       };
     }
+    case "twilio": {
+      // Twilio's validateRequest: the URL, then each POST parameter's name and value, sorted by name; HMAC-SHA1, base64.
+      if (!opts.url) throw new Error("slicetest: a twilio webhook is signed over its URL: pass `url`, or send it with http.webhook()");
+      const params = [...new URLSearchParams(body)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      return { "x-twilio-signature": hmac("sha1", secret, opts.url + params.map(([k, v]) => k + v).join("")).digest("base64") };
+    }
     default:
       throw new Error(`slicetest: unknown webhook provider ${JSON.stringify(p)} (expected ${WEBHOOK_PROVIDERS.join(", ")} or { header, prefix, encoding })`);
   }
 }
 
-/** The bytes to send and their content type: objects as JSON, URLSearchParams as a form (Slack commands), strings as-is. */
-export function webhookBody(payload: unknown): { body: string; type: string } {
-  if (typeof payload === "string") return { body: payload, type: "application/json" };
-  if (payload instanceof URLSearchParams) return { body: payload.toString(), type: "application/x-www-form-urlencoded" };
+/** The bytes to send and their content type: objects as JSON (as a form for Twilio), URLSearchParams as a form (Slack commands), strings as-is. */
+export function webhookBody(payload: unknown, provider?: WebhookProvider): { body: string; type: string } {
+  const form = "application/x-www-form-urlencoded";
+  if (typeof payload === "string") return { body: payload, type: provider === "twilio" ? form : "application/json" };
+  if (payload instanceof URLSearchParams) return { body: payload.toString(), type: form };
+  // Twilio posts its parameters as a form.
+  if (provider === "twilio" && payload && typeof payload === "object") return { body: new URLSearchParams(Object.entries(payload).map(([k, v]) => [k, String(v)])).toString(), type: form };
   return { body: JSON.stringify(payload ?? {}), type: "application/json" };
 }

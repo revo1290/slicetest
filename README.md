@@ -628,6 +628,7 @@ In YAML, `auth` on a `request` step sends `Authorization: Bearer` with those cla
 | `linear` | `Linear-Signature`, `Linear-Event` (`event`) |
 | `gitlab` | `X-Gitlab-Token` (the secret token), `X-Gitlab-Event` (`event`, default `Push Hook`) |
 | `zoom` | `x-zm-signature: v0=…`, `x-zm-request-timestamp` |
+| `twilio` | `X-Twilio-Signature` over the URL and the sorted form parameters; objects are sent as a form. The URL is the app's address and the path, or `url` when the app validates against a public URL it's configured with |
 | `twitch` | EventSub: `Twitch-Eventsub-Message-Signature`, `-Id`, `-Timestamp`, `-Type` (`event`, default `notification`) |
 
 The signatures are checked against the providers' documented examples where they publish one.
@@ -643,7 +644,7 @@ expect(await http.webhook("/webhooks/stripe", event, { ...stripe, invalidSignatu
 expect(await http.webhook("/webhooks/stripe", event, { ...stripe, stale: true })).toHaveStatus(400);   // signed 10 minutes ago
 ```
 
-Objects are sent as JSON, `URLSearchParams` as a form (Slack slash commands), strings as they are. Other HMAC schemes: `provider: { header: "X-Signature", prefix: "sha256=", encoding: "hex" }`. `signWebhook(body, opts)` returns just the headers. In YAML, add `webhook: { provider, secret, event, stale, invalidSignature }` to a `request` step; its `json`, `form` or `body` is what gets signed.
+Objects are sent as JSON, `URLSearchParams` as a form (Slack slash commands), strings as they are. Other HMAC schemes: `provider: { header: "X-Signature", prefix: "sha256=", encoding: "hex" }`. `signWebhook(body, opts)` returns just the headers. In YAML, add `webhook: { provider, secret, event, stale, invalidSignature, url }` to a `request` step; its `json`, `form` or `body` is what gets signed.
 
 ### Asynchronous side effects
 
