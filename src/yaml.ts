@@ -75,6 +75,8 @@ export interface RequestStep {
   query?: Record<string, unknown>;
   json?: unknown;
   form?: Record<string, unknown>;
+  /** A `multipart/form-data` body: values are fields, `{ file, type, filename }` uploads a file relative to the scenario, `{ content, filename, type }` an inline one. */
+  multipart?: Record<string, unknown>;
   body?: string;
   /** A GraphQL operation sent as the JSON body. */
   graphql?: string | { query: string; variables?: Record<string, unknown>; operationName?: string };
@@ -214,7 +216,7 @@ export interface MailStep {
 
 const KINDS = {
   stub: ["on", "graphql", "when", "reply", "sequence", "networkError", "times", "delay", "optional"],
-  request: ["headers", "query", "json", "form", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
+  request: ["headers", "query", "json", "form", "multipart", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
   submit: ["form", "fields", "headers", "follow", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
@@ -453,7 +455,21 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     }
     case "request":
       call("request", REQUEST);
-      if (["json", "form", "body", "graphql"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / body / graphql");
+      if (["json", "form", "multipart", "body", "graphql"].filter((k) => raw[k] !== undefined).length > 1) fail(node, "use only one of json / form / multipart / body / graphql");
+      if (raw.multipart !== undefined) {
+        const m = raw.multipart as Record<string, unknown> | null;
+        if (!m || typeof m !== "object" || Array.isArray(m)) fail(at("multipart"), "`multipart` maps field names to values, e.g. { name: ada, avatar: { file: ada.png } }");
+        for (const [k, v] of Object.entries(m!)) {
+          for (const part of Array.isArray(v) ? v : [v]) {
+            if (part && typeof part === "object") {
+              const keys = Object.keys(part);
+              const bad = keys.find((x) => !["file", "content", "filename", "type"].includes(x));
+              if (bad) fail(at("multipart"), `unknown key "${bad}" in multipart field "${k}" (allowed: file, content, filename, type)`);
+              if (("file" in part) === ("content" in part)) fail(at("multipart"), `multipart field "${k}" needs one of \`file\` (a path relative to the scenario file) or \`content\``);
+            } else if (part === null) fail(at("multipart"), `multipart field "${k}" has no value`);
+          }
+        }
+      }
       if (raw.graphql !== undefined) {
         const g = raw.graphql as Record<string, unknown> | string | null;
         const ok = (typeof g === "string" && g.trim()) || (g && typeof g === "object" && !Array.isArray(g) && typeof g.query === "string" && Object.keys(g).every((k) => ["query", "variables", "operationName"].includes(k)));

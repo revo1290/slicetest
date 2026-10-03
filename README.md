@@ -289,7 +289,7 @@ stub("slack").on("POST", "/hook").optional().reply(200);      // may go uncalled
 stub("slack").calls("POST", "/hook");                         // recorded calls: method, path, params, query, headers, body, json
 ```
 
-Form-encoded bodies (Stripe, Twilio, OAuth token requests) are parsed into `call.form`, with bracket keys nested the way those providers read them: `metadata[order]=7&items[0][price]=p_1` is `{ metadata: { order: "7" }, items: [{ price: "p_1" }] }`. `form` conditions match a subset of it, and numbers and booleans compare with the strings sent.
+Form-encoded bodies (Stripe, Twilio, OAuth token requests) are parsed into `call.form`, with bracket keys nested the way those providers read them: `metadata[order]=7&items[0][price]=p_1` is `{ metadata: { order: "7" }, items: [{ price: "p_1" }] }`. `form` conditions match a subset of it, and numbers and booleans compare with the strings sent. `multipart/form-data` bodies are read the same way, with each file as `{ filename, type, size, text }` (`text` for text, JSON, XML and CSV files), so `form: { avatar: { filename: "a.png", type: "image/png" } }` checks an upload the app passed on.
 
 Later routes win. `path` may also be a RegExp, and `method` may be `*`. Unanswered calls get a `501` and fail the scenario, with the closest route and why it didn't match (`stub.explain(call)`).
 
@@ -771,7 +771,7 @@ scenarios:
 |---|---|
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, form, body, variables }`, one of `reply: { status, headers, body }` (`{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.form.amount}}`, `{{call.variables.id}}`. |
 | `submit: <button>` | `form`, `fields`, `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
-| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body` / `graphql: { query, variables, operationName }`, `expect.schema` (a JSON Schema, or `../openapi.yaml#/components/schemas/Poll` relative to the file), `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
+| `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `multipart` / `body` / `graphql: { query, variables, operationName }`, `expect.schema` (a JSON Schema, or `../openapi.yaml#/components/schemas/Poll` relative to the file), `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |
 | `request` with `webhook` | `{ provider, secret, event, stale, invalidSignature }`: signs the body like that provider's deliveries |
@@ -790,6 +790,7 @@ scenarios:
 
 `db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously.
 
+- `multipart:` sends `multipart/form-data`: plain values are fields, `{ file: fixtures/avatar.png }` uploads a file (relative to the scenario file, content type from its extension, or `type` / `filename`), `{ content: ..., filename: notes.json }` an inline one, and a list sends a field several times.
 - `request:` also takes a captured URL of the app, e.g. `GET {{link}}` after capturing a link from a mail.
 - `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.
 - Built-ins: `{{$uuid}}` (a new one each time), `{{$seq}}` (1, 2, 3… per scenario, the same on every run), `{{$now}}` (ISO time), `{{$today}}` (`YYYY-MM-DD`, UTC), `{{$timestamp}}` (Unix seconds) and `{{$timestampMs}}`; the time ones take an offset: `{{$now+7d}}`, `{{$timestamp-30m}}` (`ms`, `s`, `m`, `h`, `d`). `{{env.NAME}}` reads an environment variable, for tokens a CI job provides. In a stub's reply they're evaluated per call, so `id: "ch_{{$seq}}"` gives each call its own id.

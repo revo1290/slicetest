@@ -8,6 +8,7 @@ import { scenario } from "./scenario.js";
 import type { HttpResponse } from "./http.js";
 import type { MailFilter } from "./mail.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { graphqlErrors } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
@@ -223,7 +224,9 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
         ? interpolate(step.json, vars)
         : step.form !== undefined
           ? ctx.http.form(interpolate(step.form, vars) as Record<string, string>)
-          : (interpolate(step.body, vars) as string | undefined);
+          : step.multipart !== undefined
+            ? await multipart(interpolate(step.multipart, vars) as Record<string, unknown>, base)
+            : (interpolate(step.body, vars) as string | undefined);
     if (step.webhook) {
       const signed = webhookBody(body);
       body = signed.body;
@@ -347,6 +350,38 @@ function callVars(call: RecordedCall) {
     body: call.body,
     variables: call.graphql?.variables,
   };
+}
+
+const MIME: Record<string, string> = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+  ".pdf": "application/pdf", ".json": "application/json", ".csv": "text/csv", ".txt": "text/plain", ".xml": "application/xml",
+  ".zip": "application/zip", ".html": "text/html", ".md": "text/markdown", ".yaml": "text/yaml", ".yml": "text/yaml",
+};
+
+/** A YAML `multipart:` mapping as FormData: files are read relative to the scenario file. */
+async function multipart(fields: Record<string, unknown>, base = process.cwd()) {
+  const data = new FormData();
+  for (const [name, value] of Object.entries(fields)) {
+    for (const part of Array.isArray(value) ? value : [value]) {
+      if (!part || typeof part !== "object") {
+        data.append(name, String(part));
+        continue;
+      }
+      const p = part as { file?: string; content?: unknown; filename?: string; type?: string };
+      if (p.file !== undefined) {
+        const file = path.resolve(base, p.file);
+        const bytes = await readFile(file).catch(() => {
+          throw new Error(`multipart field "${name}": can't read ${file}`);
+        });
+        const type = p.type ?? MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+        data.append(name, new Blob([bytes], { type }), p.filename ?? path.basename(file));
+      } else {
+        const content = typeof p.content === "string" ? p.content : JSON.stringify(p.content);
+        data.append(name, new Blob([content], { type: p.type ?? (typeof p.content === "string" ? "text/plain" : "application/json") }), p.filename ?? name);
+      }
+    }
+  }
+  return data;
 }
 
 function splitCall(s: string): [string, string] {

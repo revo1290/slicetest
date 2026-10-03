@@ -251,3 +251,23 @@ test("a param with invalid percent-encoding is passed as sent instead of droppin
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ name: "100%zz" });
 });
+
+test("multipart bodies are read into form, with files as filename, type, size and text", async () => {
+  stub.on("POST", "/files", { form: { kind: "avatar", file: { filename: "a.png", size: 3 } } }).reply(201);
+  const send = (size: number) => {
+    const body = new FormData();
+    body.append("kind", "avatar");
+    body.append("file", new Blob([new Uint8Array(size)], { type: "image/png" }), "a.png");
+    body.append("notes", new Blob(['{"a":1}'], { type: "application/json" }), "n.json");
+    return fetch(`${stub.url}/files`, { method: "POST", body });
+  };
+
+  expect((await send(3)).status).toBe(201);
+  expect((await send(4)).status).toBe(501);
+  expect(stub.calls()[0]!.form).toEqual({
+    kind: "avatar",
+    file: { filename: "a.png", type: "image/png", size: 3 },
+    notes: { filename: "n.json", type: "application/json", size: 7, text: '{"a":1}' },
+  });
+  expect(stub.explain(stub.unmatched()[0]!)).toBe("closest route POST /files: form.file.size: expected 3, got 4");
+});

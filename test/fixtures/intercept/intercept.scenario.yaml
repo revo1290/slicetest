@@ -50,3 +50,22 @@ scenarios:
             - { event: stop, data: {} }
       - request: GET /ask
         expect: { json: { contentType: text/event-stream, text: sunny from api.weather.test } }
+
+  - name: multipart uploads are sent from files and read by the stub
+    steps:
+      - stub: weather
+        on: POST /v1/uploads
+        when:
+          form:
+            owner: ada
+            files: [{ filename: note.txt, type: text/plain, size: 18, text: "hello from a file\n" }, { filename: meta.json, type: application/json }]
+        reply: { body: { count: 2 } }
+      - request: POST /upload
+        multipart:
+          owner: ada
+          files:
+            - { file: note.txt }
+            - { content: { v: 1 }, filename: meta.json }
+        expect:
+          status: 200
+          json: { stored: 2, names: ["note.txt (text/plain, 18)", "meta.json (application/json, 7)"] }

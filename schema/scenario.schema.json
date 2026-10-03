@@ -393,6 +393,103 @@
             "form": {
               "type": "object"
             },
+            "multipart": {
+              "type": "object",
+              "description": "A multipart/form-data body: fields, and files as { file: avatar.png } (relative to the scenario file) or { content, filename, type }",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "file": {
+                            "type": "string",
+                            "description": "Path relative to the scenario file"
+                          },
+                          "content": {
+                            "description": "Inline file content; objects are sent as JSON"
+                          },
+                          "filename": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "description": "Content type; from the file extension by default"
+                          }
+                        },
+                        "oneOf": [
+                          {
+                            "required": [
+                              "file"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "content"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "file": {
+                              "type": "string",
+                              "description": "Path relative to the scenario file"
+                            },
+                            "content": {
+                              "description": "Inline file content; objects are sent as JSON"
+                            },
+                            "filename": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "description": "Content type; from the file extension by default"
+                            }
+                          },
+                          "oneOf": [
+                            {
+                              "required": [
+                                "file"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "content"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
             "body": {
               "type": "string"
             },

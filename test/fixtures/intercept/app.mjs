@@ -17,6 +17,15 @@ const server = http.createServer(async (req, res) => {
       const text = (await r.text()).split("\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)).text ?? "").join("");
       return json(200, { contentType: r.headers.get("content-type"), text });
     }
+    if (url.pathname === "/upload") {
+      // Takes an upload and passes it on to a storage API, as a multipart body again.
+      const form = await new Request("http://x", { method: "POST", headers: req.headers, body: req, duplex: "half" }).formData();
+      const out = new FormData();
+      out.append("owner", form.get("owner"));
+      for (const f of form.getAll("files")) out.append("files", f, f.name);
+      const r = await fetch("https://api.weather.test/v1/uploads", { method: "POST", body: out });
+      return json(r.status, { stored: (await r.json()).count, names: form.getAll("files").map((f) => `${f.name} (${f.type}, ${f.size})`) });
+    }
     if (url.pathname === "/feed") {
       const r = await fetch(`https://${url.searchParams.get("group")}.groups.test/ja.atom`);
       return json(200, { feed: await r.text() });

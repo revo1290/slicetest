@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Uploads: YAML `multipart:` on request steps sends `multipart/form-data`, with files read relative to the scenario file (`{ file: avatar.png }`) or given inline (`{ content, filename, type }`). Stubs read multipart bodies into `call.form`, files as `{ filename, type, size, text }`, so `form` conditions check what the app uploaded to a storage or document API.
 - Fix: a stub call whose `:param` segment isn't valid percent-encoding (`/files/100%zz`) had its connection dropped and was reported as unmatched; the segment is now passed as sent.
 - YAML built-in values: `{{$uuid}}`, `{{$seq}}` (per scenario, deterministic), `{{$now}}`, `{{$today}}`, `{{$timestamp}}` and `{{$timestampMs}}` with offsets (`{{$now+7d}}`, `{{$timestamp-30m}}`), and `{{env.NAME}}` for environment variables. A `set:` step names values for later steps (`set: { orderId: "{{$uuid}}" }`).
 - YAML matchers for values that change between runs or only need a range: `$gt`, `$gte`, `$lt`, `$lte` (numbers, or strings such as ISO dates), `$len` (a count or a matcher), `$oneOf`, `$not`, `$format` (`uuid`, `email`, `date`, `date-time`, `uri`, `integer`) and `$type: integer`. `$contains` also finds an item in a list. Several `$` keys in one mapping must all hold (`{ $gte: 1, $lt: 10 }`). They work in `expect`, `rows`, `changes` and stub `when` conditions.

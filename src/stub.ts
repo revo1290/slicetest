@@ -15,7 +15,8 @@ export interface RecordedCall {
   /**
    * Fields of an `application/x-www-form-urlencoded` body (Stripe, Twilio, OAuth token requests),
    * with bracket keys nested as the providers read them: `metadata[order]=7&items[0][price]=p_1`
-   * is `{ metadata: { order: "7" }, items: [{ price: "p_1" }] }`. Undefined for other bodies.
+   * is `{ metadata: { order: "7" }, items: [{ price: "p_1" }] }`. For `multipart/form-data`, the
+   * fields with files as `{ filename, type, size, text }`. Undefined for other bodies.
    */
   form?: Record<string, unknown>;
   /** Values captured by `:name` segments of the matching route's path. */
@@ -400,7 +401,9 @@ export class Stub {
     const start = performance.now();
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
-    const body = Buffer.concat(chunks).toString("utf8");
+    const raw = Buffer.concat(chunks);
+    const body = raw.toString("utf8");
+    const contentType = req.headers["content-type"] ?? "";
     const url = new URL(req.url ?? "/", this.url);
     const call: RecordedCall = {
       method: req.method ?? "GET",
@@ -409,7 +412,7 @@ export class Stub {
       headers: req.headers,
       body,
       json: parseJson(body),
-      form: isForm(req.headers["content-type"]) ? parseForm(body) : undefined,
+      form: isForm(contentType) ? parseForm(body) : /^multipart\/form-data/i.test(contentType) ? await parseMultipart(raw, contentType) : undefined,
       params: {},
       matched: false,
     };
@@ -529,7 +532,7 @@ function matchConditions(match: MatchOptions, call: RecordedCall) {
   }
   if (match.body !== undefined && !test(match.body, call.body)) return false;
   if (match.json !== undefined && !subset(match.json, call.json)) return false;
-  if (match.form !== undefined && !subset(formExpectation(match.form), call.form)) return false;
+  if (match.form !== undefined && !subset(formExpectation(match.form, call.form), call.form)) return false;
   if (match.graphql) {
     const g = call.graphql;
     if (!g) return false;
@@ -559,7 +562,7 @@ function conditionMismatch(match: MatchOptions, call: RecordedCall): string | un
   }
   if (match.form !== undefined) {
     if (call.form === undefined) return `form: expected a form-encoded body, got ${call.body ? `${call.headers["content-type"] ?? "no content type"}: ${JSON.stringify(call.body.slice(0, 100))}` : "an empty body"}`;
-    const diff = difference(formExpectation(match.form), call.form, "form");
+    const diff = difference(formExpectation(match.form, call.form), call.form, "form");
     if (diff) return diff;
   }
   if (match.graphql) {
@@ -701,14 +704,53 @@ export function parseForm(body: string): Record<string, unknown> {
   return out;
 }
 
-/** Form values arrive as strings: compare `amount: 2000` and `capture: true` with what was sent. */
-function formExpectation(expected: unknown): unknown {
-  if (typeof expected === "number" || typeof expected === "boolean") return String(expected);
-  if (Array.isArray(expected)) return expected.map(formExpectation);
+/**
+ * Form values arrive as strings: compare `amount: 2000` and `capture: true` with what was sent.
+ * Only where a string was sent, so an uploaded file's `size` stays a number.
+ */
+function formExpectation(expected: unknown, actual: unknown): unknown {
+  if ((typeof expected === "number" || typeof expected === "boolean") && typeof actual === "string") return String(expected);
+  if (Array.isArray(expected)) return expected.map((e, i) => formExpectation(e, Array.isArray(actual) ? actual[i] : undefined));
   if (expected && typeof expected === "object" && !isAsymmetric(expected) && !(expected instanceof RegExp)) {
-    return Object.fromEntries(Object.entries(expected).map(([k, v]) => [k, formExpectation(v)]));
+    const at = (k: string) => (actual && typeof actual === "object" ? (actual as Record<string, unknown>)[k] : undefined);
+    return Object.fromEntries(Object.entries(expected).map(([k, v]) => [k, formExpectation(v, at(k))]));
   }
   return expected;
+}
+
+/** A file in a multipart body, as `call.form` shows it. `text` only for text, JSON, XML and CSV files. */
+export interface UploadedFile {
+  filename: string;
+  type: string;
+  size: number;
+  text?: string;
+}
+
+const TEXTUAL = /^(text\/|application\/(json|xml|csv|x-ndjson|yaml|javascript)|[^;]*\+(json|xml))/i;
+
+/** Fields of a `multipart/form-data` body, files as `{ filename, type, size, text }`. Undefined if it can't be parsed. */
+async function parseMultipart(raw: Buffer, contentType: string): Promise<Record<string, unknown> | undefined> {
+  let data: FormData;
+  try {
+    data = await new Response(new Uint8Array(raw), { headers: { "content-type": contentType } }).formData();
+  } catch {
+    return undefined;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of data) {
+    const v: unknown =
+      typeof value === "string"
+        ? value
+        : ({
+            filename: value.name,
+            type: value.type,
+            size: value.size,
+            ...(TEXTUAL.test(value.type) ? { text: await value.text() } : {}),
+          } satisfies UploadedFile);
+    const prev = out[key];
+    out[key] = prev === undefined ? v : Array.isArray(prev) ? [...prev, v] : [prev, v];
+  }
+  return out;
 }
 
 function parseJson(body: string) {
