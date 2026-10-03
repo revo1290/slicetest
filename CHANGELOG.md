@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `npx slicetest` takes `-u` / `--update` to rewrite `snapshot: true` snapshots that no longer match (before, YAML-only projects had no way to update them), `--reporter` (`junit`, `json`, `tap`, `dot`, `verbose`, …, repeatable) with `--output-file` for CI test reports, and `--shard <i>/<n>` to split the suite across CI jobs.
 - A query in a stub route's path (`stub("maps").on("GET", "/geocode?country=jp")`, also `calls()`, `toHaveReceived()` and YAML stubs) is a condition on those parameters. Before, such a route never matched, since the path is compared without the query.
 
 Fixes:

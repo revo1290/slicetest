@@ -48,6 +48,11 @@ Options:
       --upstream <url> import: the real service's base URL for --stub
       --uncovered      gen: only responses the last run didn't cover
       --force          init, gen: overwrite existing files
+  -u, --update         Rewrite snapshots (\`snapshot: true\` steps) that no longer match
+      --reporter <name> Vitest reporter: default, verbose, dot, junit, json, tap,
+                       github-actions (repeat for several)
+      --output-file <file> Where junit / json / tap reporters write
+      --shard <i/n>    Run the i-th of n parts of the suite (split CI jobs)
       --diagrams <dir> Write a Mermaid sequence diagram of every scenario to <dir>,
                        one Markdown page per scenario file
   -h, --help           Show this help
@@ -90,6 +95,10 @@ export async function main(argv = process.argv.slice(2)) {
       stub: { type: "string" },
       upstream: { type: "string" },
       json: { type: "boolean" },
+      update: { type: "boolean", short: "u" },
+      reporter: { type: "string", multiple: true },
+      "output-file": { type: "string" },
+      shard: { type: "string" },
     },
   });
   if (values.help) {
@@ -192,6 +201,8 @@ export async function main(argv = process.argv.slice(2)) {
   const { slicetest, YAML_SCENARIOS } = await import("./vitest.js");
   // Vitest 4 takes the mode ("test") first; 5 dropped it.
   const start = (Number.parseInt(version, 10) === 4 ? startVitest.bind(null, "test") : startVitest) as typeof startVitest;
+  const { runOptions } = await import("./cli-run.js");
+  const run = runOptions(values);
   const vitest = await start(
     positionals,
     {
@@ -201,6 +212,7 @@ export async function main(argv = process.argv.slice(2)) {
       watch: !!values.watch,
       run: !values.watch,
       testNamePattern: values.name,
+      ...run,
     },
     { plugins: [slicetest(options)] },
   );

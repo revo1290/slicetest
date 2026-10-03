@@ -897,6 +897,9 @@ npx slicetest                 # every *.scenario.yaml under the config's directo
 npx slicetest polls -t voting # filter by file and scenario name
 npx slicetest --watch
 npx slicetest list --tag smoke # what would run: file, line, tags, steps (--json for tools)
+npx slicetest -u              # rewrite `snapshot: true` snapshots that no longer match
+npx slicetest --reporter junit --output-file reports/slicetest.xml   # GitLab, Jenkins, CircleCI test reports
+npx slicetest --shard 2/4     # the second of four parts, for parallel CI jobs
 ```
 
 ### Scenarios from your OpenAPI spec: `npx slicetest gen`
