@@ -187,6 +187,7 @@ export class Stub {
   /**
    * Answer `method path`. `path` may contain `:name` segments (captured into
    * `call.params`) or be a RegExp; `method` may be `*`. Later routes win.
+   * A query in `path` (`/search?q=tea`) is a condition on those parameters; others may come along.
    */
   on(method: string, path: string | RegExp, match: MatchOptions = {}): RouteBuilder {
     return this.#on(method, path, match);
@@ -212,7 +213,8 @@ export class Stub {
     return gql;
   }
 
-  #on(method: string, path: string | RegExp, match: MatchOptions, label?: string): RouteBuilder {
+  #on(method: string, fullPath: string | RegExp, fullMatch: MatchOptions, label?: string): RouteBuilder {
+    const { path, match } = splitQuery(fullPath, fullMatch);
     const { pattern, paramNames } = compilePath(path);
     const route: Omit<Route, "respond"> = {
       method: method.toUpperCase(),
@@ -313,7 +315,8 @@ export class Stub {
   }
 
   /** Calls received so far, optionally filtered by method, path and conditions (same syntax as `on()`). */
-  calls(method?: string, path?: string | RegExp, match: MatchOptions = {}): RecordedCall[] {
+  calls(method?: string, fullPath?: string | RegExp, fullMatch: MatchOptions = {}): RecordedCall[] {
+    const { path, match } = fullPath === undefined ? { path: undefined, match: fullMatch } : splitQuery(fullPath, fullMatch);
     const compiled = path === undefined ? undefined : compilePath(path);
     return this.#calls.filter(
       (c) =>
@@ -489,6 +492,14 @@ export class Stub {
     res.writeHead(out.status ?? 200, headers);
     res.end(payload);
   }
+}
+
+/** `/search?q=tea` is the path `/search` with the query condition `q: "tea"`; `match.query` wins over the path's. */
+function splitQuery(path: string | RegExp, match: MatchOptions) {
+  if (typeof path !== "string" || !path.includes("?")) return { path, match };
+  const [bare, search] = [path.slice(0, path.indexOf("?")), path.slice(path.indexOf("?") + 1)];
+  const query: Record<string, Matcher> = Object.fromEntries(new URLSearchParams(search));
+  return { path: bare || "/", match: { ...match, query: { ...query, ...match.query } } };
 }
 
 function compilePath(path: string | RegExp) {

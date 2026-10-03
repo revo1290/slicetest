@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A query in a stub route's path (`stub("maps").on("GET", "/geocode?country=jp")`, also `calls()`, `toHaveReceived()` and YAML stubs) is a condition on those parameters. Before, such a route never matched, since the path is compared without the query.
+
 Fixes:
 
 - A header given to a request in another case than the client's default (`authorization` after `with({ headers: { Authorization } })`, `content-type` over a default `Content-Type`) was sent joined with it (`Bearer a, Bearer b`) instead of replacing it. Header names are now compared without case, also for `http.webhook()` headers.

@@ -294,3 +294,15 @@ test("replies with an ArrayBuffer or DataView body send the bytes", async () => 
   expect(await d.text()).toBe("PD");
   expect(d.headers.get("content-type")).toBeNull();
 });
+
+test("a query in a route's path is a condition on those parameters, also for calls()", async () => {
+  stub.on("GET", "/search?q=tea&page=2").reply(200, { hits: 1 });
+  stub.on("GET", "/users/:id?expand=org", { query: { expand: "team" } }).reply(200, { team: true });
+
+  expect((await fetch(`${stub.url}/search?page=2&q=tea&lang=ja`)).status).toBe(200);
+  expect((await fetch(`${stub.url}/search?q=coffee&page=2`)).status).toBe(501);
+  expect(await (await fetch(`${stub.url}/users/7?expand=team`)).json()).toEqual({ team: true });
+  expect(stub.calls("GET", "/search?q=tea")).toHaveLength(1);
+  expect(stub).toHaveReceived("GET", "/users/:id?expand=team");
+  expect(stub.explain(stub.unmatched()[0]!)).toContain('query q: expected "tea", got "coffee"');
+});
