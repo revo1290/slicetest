@@ -18,6 +18,7 @@ const HELP = `Usage: slicetest [filters...] [options]
        slicetest doctor [--config <file>]
        slicetest record [--out <file>] [--port <n>]
        slicetest import <file.har> [--stub <name>] [--upstream <url>]
+       slicetest list [filters...] [--tag <tag>] [-t <pattern>] [--json]
 
 Runs *.scenario.yaml files against your app, as configured in slicetest.config.yaml.
 \`slicetest init\` looks at the project and writes a starting config and scenario.
@@ -27,6 +28,8 @@ app's OpenAPI spec; with --uncovered, only for those the last run didn't produce
 migrations, commands and spec files, and says what to fix.
 \`slicetest record\` starts everything and a proxy in front of the app: use the app
 through it (a browser, curl), press Enter, and get the session as a YAML scenario.
+\`slicetest list\` shows the YAML scenarios (file, line, tags, steps) and which ones
+--tag / -t / filters select, without starting anything; --json for tools.
 \`slicetest import\` turns a HAR file (the browser's network panel: "Save all as
 HAR"; Charles, mitmproxy, Proxyman) into recordings for the stubs whose
 \`upstream\` it has requests for, so they replay the real service's answers.
@@ -86,6 +89,7 @@ export async function main(argv = process.argv.slice(2)) {
       diagrams: { type: "string" },
       stub: { type: "string" },
       upstream: { type: "string" },
+      json: { type: "boolean" },
     },
   });
   if (values.help) {
@@ -154,6 +158,14 @@ export async function main(argv = process.argv.slice(2)) {
     ];
     process.stdout.write(`${lines.join("\n")}\n`);
     if (written.length === 0) process.exitCode = 1;
+    return;
+  }
+  if (positionals[0] === "list") {
+    const root = configPath && existsSync(configPath) ? path.dirname(configPath) : process.cwd();
+    const { listScenarios, formatList } = await import("./list.js");
+    const listed = await listScenarios(root, { filters: positionals.slice(1), name: values.name, tags: values.tag?.join(",") });
+    process.stdout.write(values.json ? `${JSON.stringify(listed, null, 2)}\n` : formatList(listed));
+    if (listed.errors.length) process.exitCode = 1;
     return;
   }
   if (!configPath || !existsSync(configPath)) {

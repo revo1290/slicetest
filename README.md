@@ -895,6 +895,7 @@ stubs: [slack]
 npx slicetest                 # every *.scenario.yaml under the config's directory
 npx slicetest polls -t voting # filter by file and scenario name
 npx slicetest --watch
+npx slicetest list --tag smoke # what would run: file, line, tags, steps (--json for tools)
 ```
 
 ### Scenarios from your OpenAPI spec: `npx slicetest gen`
