@@ -28,7 +28,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | LogStep | SnapshotStep | MailStep | UseStep) & {
+export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | SetStep | LogStep | SnapshotStep | MailStep | UseStep) & {
   line: number;
   name?: string;
 };
@@ -182,6 +182,11 @@ export interface LogStep {
   within?: number;
 }
 
+/** Define variables for later steps: `set: { orderId: "{{$uuid}}" }`. */
+export interface SetStep {
+  set: Record<string, unknown>;
+}
+
 /** Later `changes` steps only see what happens after this step. */
 export interface CheckpointStep {
   checkpoint: true;
@@ -218,6 +223,7 @@ const KINDS = {
   changes: ["within"],
   log: ["from", "within"],
   checkpoint: [],
+  set: [],
   snapshot: ["mask"],
   mail: ["times", "within", "capture"],
   make: ["rows", "count", "capture"],
@@ -376,6 +382,9 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
   } else if (kind === "use") {
     if (typeof raw.use !== "string" || !raw.use) fail(at(kind), "`use:` names a step list from `define:`");
     if (raw.with !== undefined && (!raw.with || typeof raw.with !== "object" || Array.isArray(raw.with))) fail(at("with"), "`with` maps params to values, e.g. { email: a@b.test }");
+  } else if (kind === "set") {
+    if (!raw.set || typeof raw.set !== "object" || Array.isArray(raw.set) || Object.keys(raw.set).length === 0) fail(at(kind), "`set:` maps variable names to values, e.g. { orderId: \"{{$uuid}}\" }");
+    for (const k of Object.keys(raw.set as object)) if (!/^[A-Za-z_][\w]*$/.test(k)) fail(at(kind), `"${k}" isn't a variable name (letters, digits and _)`);
   } else if (kind === "checkpoint") {
     if (raw.checkpoint !== true) fail(at(kind), "use `checkpoint: true`");
   } else if (kind === "snapshot") {

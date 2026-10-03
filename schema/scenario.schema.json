@@ -1052,6 +1052,27 @@
         {
           "type": "object",
           "required": [
+            "set"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "set": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "pattern": "^[A-Za-z_]\\w*$"
+              },
+              "description": "Variables for later steps, e.g. { orderId: \"{{$uuid}}\", expires: \"{{$now+1d}}\" }"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "checkpoint"
           ],
           "additionalProperties": false,

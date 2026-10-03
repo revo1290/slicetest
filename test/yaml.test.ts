@@ -64,6 +64,37 @@ test("interpolation keeps the type of whole-value placeholders", () => {
   expect(() => interpolate("{{nope}}", vars)).toThrow("unknown variable {{nope}}. Defined so far: id, user, list");
 });
 
+test("built-ins give ids, counters, times with offsets and environment variables", () => {
+  process.env.SLICETEST_TEST_TOKEN = "t-1";
+  const before = Date.now();
+  const out = interpolate(
+    { id: "{{$uuid}}", n: "{{$seq}}", m: "{{ $seq }}", now: "{{$now}}", later: "{{$now+1d}}", day: "{{$today-1d}}", ts: "{{$timestamp-30m}}", ms: "{{$timestampMs}}", token: "Bearer {{env.SLICETEST_TEST_TOKEN}}" },
+    {},
+  ) as Record<string, unknown>;
+
+  expect(out.id).toMatch(/^[0-9a-f-]{36}$/);
+  expect((out.m as number) - (out.n as number)).toBe(1);
+  expect(Date.parse(out.later as string) - Date.parse(out.now as string)).toBeGreaterThanOrEqual(86_400_000 - 5);
+  expect(out.day).toBe(new Date(before - 86_400_000).toISOString().slice(0, 10));
+  expect(Math.abs((out.ts as number) - Math.floor((before - 1_800_000) / 1000))).toBeLessThanOrEqual(1);
+  expect(out.ms).toBeGreaterThanOrEqual(before);
+  expect(out.token).toBe("Bearer t-1");
+  expect(interpolate("{{env.x}}", { env: { x: "captured" } })).toBe("captured");
+  expect(() => interpolate("{{env.SLICETEST_NOT_SET}}", {})).toThrow("the environment variable SLICETEST_NOT_SET isn't set");
+  expect(() => interpolate("{{$nope}}", {})).toThrow("unknown built-in {{$nope}}");
+});
+
+test("set steps are parsed, with variable names checked", () => {
+  const doc = parseScenarioFile(`
+scenarios:
+  - name: s
+    steps:
+      - set: { orderId: "{{$uuid}}", expires: "{{$now+1h}}" }
+`, "s.scenario.yaml");
+  expect(doc.scenarios[0]!.steps[0]).toMatchObject({ set: { orderId: "{{$uuid}}", expires: "{{$now+1h}}" } });
+  expect(() => parseScenarioFile("scenarios:\n  - name: s\n    steps:\n      - set: { order-id: 1 }\n", "s.scenario.yaml")).toThrow('"order-id" isn\'t a variable name');
+});
+
 test("lookup reads dotted and bracketed paths", () => {
   expect(lookup({ json: { items: [{ id: 3 }] } }, "json.items[0].id")).toBe(3);
   expect(lookup({ json: { items: [{ id: 3 }] } }, "json.items.0.id")).toBe(3);

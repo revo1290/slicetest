@@ -26,3 +26,17 @@ scenarios:
       - request: POST /signup
         form: { csrf: forged, name: mallory, intent: join }
         expect: { status: 403 }
+
+  - name: set names generated values once, for several steps
+    steps:
+      - set: { title: "post {{$seq}} on {{$today}}", other: "post {{$seq}}" }
+      - insert: authors
+        rows: [{ name: ada }]
+      - request: POST /posts
+        json: { author: ada, title: "{{title}}" }
+        expect: { status: 201 }
+      - db: posts
+        expect: { rows: [{ title: "{{title}}" }] }
+      - db: posts
+        where: { title: "{{other}}" }
+        expect: { count: 0 }

@@ -23,7 +23,10 @@ export function defineYamlScenarios(doc: YamlFile) {
     const rows = sc.each ?? [undefined];
     rows.forEach((row, i) => {
       const title = row ? interpolateTitle(sc.name, row, i) : sc.name;
-      register(title, (ctx) => runSteps(doc, sc, [...doc.setup, ...sc.steps], ctx, { ...row }), sc.timeout);
+      register(title, (ctx) => {
+        seq = 0;
+        return runSteps(doc, sc, [...doc.setup, ...sc.steps], ctx, { ...row });
+      }, sc.timeout);
     });
   }
 }
@@ -71,6 +74,7 @@ function describeStep(step: Step) {
   if ("db" in step) return `db ${step.db}`;
   if ("changes" in step) return "changes";
   if ("checkpoint" in step) return "checkpoint";
+  if ("set" in step) return `set ${Object.keys(step.set).join(", ")}`;
   if ("snapshot" in step) return "snapshot";
   if ("mail" in step) return `mail${Object.entries(step.mail).map(([k, v]) => ` ${k}: ${JSON.stringify(v)}`).join(",")}`;
   if ("log" in step) return `log ${step.from ? `from ${step.from} ` : ""}/${step.log}/`;
@@ -96,6 +100,10 @@ async function retry(within: number | undefined, fn: () => Promise<void>) {
 
 async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: string) {
   if ("use" in step) throw new Error("slicetest: use steps are expanded by runSteps");
+  if ("set" in step) {
+    for (const [k, v] of Object.entries(step.set)) vars[k] = interpolate(v, vars);
+    return;
+  }
   if ("checkpoint" in step) {
     await ctx.db.checkpoint();
     return;
@@ -378,7 +386,38 @@ export function interpolate(value: unknown, vars: Vars): unknown {
   return value;
 }
 
+/** `{{$seq}}`: 1, 2, 3… within a scenario, so generated values are unique and the same on every run. */
+let seq = 0;
+
+const OFFSET = /^\$(now|today|timestamp|timestampMs)\s*(?:([+-])\s*(\d+)\s*(ms|s|m|h|d))?$/;
+const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+/** Built-in values: `$uuid`, `$seq`, `$now`, `$today`, `$timestamp`, `$timestampMs` (the last four with `+1d`, `-30m`, …). */
+function builtin(name: string): unknown {
+  if (name === "$uuid") return crypto.randomUUID();
+  if (name === "$seq") return ++seq;
+  const m = OFFSET.exec(name);
+  if (!m) throw new Error(`unknown built-in {{${name}}} (available: $uuid, $seq, $now, $today, $timestamp, $timestampMs; the time ones take an offset such as $now+1d or $timestamp-30m)`);
+  const t = Date.now() + (m[2] ? (m[2] === "-" ? -1 : 1) * Number(m[3]) * UNIT_MS[m[4]!]! : 0);
+  switch (m[1]) {
+    case "now":
+      return new Date(t).toISOString();
+    case "today":
+      return new Date(t).toISOString().slice(0, 10);
+    case "timestamp":
+      return Math.floor(t / 1000);
+    default:
+      return t;
+  }
+}
+
 function resolve(name: string, vars: Vars) {
+  if (name.startsWith("$")) return builtin(name);
+  if (name.startsWith("env.") && !("env" in vars)) {
+    const v = process.env[name.slice(4)];
+    if (v === undefined) throw new Error(`{{${name}}}: the environment variable ${name.slice(4)} isn't set`);
+    return v;
+  }
   const v = lookup(vars, name);
   if (v === undefined) {
     const known = Object.keys(vars).filter((k) => k !== "call");

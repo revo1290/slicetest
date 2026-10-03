@@ -783,6 +783,7 @@ scenarios:
 | `log: <regex>` | `from` (a service; default the app), `within` (ms, default 5000). Waits for a matching line printed during the scenario. |
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
+| `set: { name: value }` | Defines variables for later steps, e.g. `{ orderId: "{{$uuid}}", expires: "{{$now+1d}}" }`. |
 | `mail: { to, from, subject, text, html }` | `times` (exact; default at least one), `within` (ms, default 5000), `capture` from the last match (`subject`, `text`, `links.0`). Waits for mail the app sends. `{}` matches any message. |
 | `use: <definition>` | `with: { param: value }`. Runs the steps of a `define:` entry. |
 | `snapshot: true` | The scenario's [trace](#snapshot-the-whole-scenario-trace) so far must match its stored snapshot. `mask: [keys]` hides more values. |
@@ -791,6 +792,7 @@ scenarios:
 
 - `request:` also takes a captured URL of the app, e.g. `GET {{link}}` after capturing a link from a mail.
 - `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.
+- Built-ins: `{{$uuid}}` (a new one each time), `{{$seq}}` (1, 2, 3… per scenario, the same on every run), `{{$now}}` (ISO time), `{{$today}}` (`YYYY-MM-DD`, UTC), `{{$timestamp}}` (Unix seconds) and `{{$timestampMs}}`; the time ones take an offset: `{{$now+7d}}`, `{{$timestamp-30m}}` (`ms`, `s`, `m`, `h`, `d`). `{{env.NAME}}` reads an environment variable, for tokens a CI job provides. In a stub's reply they're evaluated per call, so `id: "ch_{{$seq}}"` gives each call its own id.
 - Expected `json`, `rows` and `headers` are subsets: extra keys are fine. Values match loosely with:
 
   | Matcher | Matches |
