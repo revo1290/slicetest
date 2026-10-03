@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `http` requests that get no response fail with the request's method and path and what to look at (`POST /polls: connection refused: the app isn't listening (it may have crashed …)`) instead of fetch's bare `fetch failed`. New `timeout` request option (also `http: { timeout }` in the config) fails a request the app doesn't answer in time, naming it, before the test's own timeout. A list in `query` repeats the parameter.
 - Webhook providers `line` (LINE Messaging API), `paddle` (Paddle Billing), `linear`, `gitlab`, `zoom` and `twitch` (EventSub), for `http.webhook()`, `signWebhook()` and YAML `webhook:`.
 - Polling: a YAML `request` step with `within: <ms>` is sent again (every 200 ms, or `every: <ms>`) until its `expect` passes, for jobs the app answers `202` and finishes in the background. `capture` takes the passing response.
 - YAML stub replies from files: `reply: { file: replies/charge.json }` (also in `sequence`), relative to the scenario file. JSON and YAML files are sent as JSON and still templated with `{{call.*}}`; images, PDFs and other files are sent as they are, with a content type from the extension.

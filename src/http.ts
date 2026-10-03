@@ -15,11 +15,16 @@ export interface HttpResponse {
   durationMs: number;
 }
 
+type QueryValue = string | number | boolean;
+
 export interface RequestOptions {
   headers?: Record<string, string>;
-  query?: Record<string, string | number | boolean | undefined>;
+  /** A list repeats the parameter: `{ tag: ["a", "b"] }` is `?tag=a&tag=b`. */
+  query?: Record<string, QueryValue | QueryValue[] | undefined>;
   /** Follow redirects instead of returning the 3xx response. Default false. */
   follow?: boolean;
+  /** Fail the request when the app hasn't answered within this many ms, naming it, instead of the whole test timing out. */
+  timeout?: number;
 }
 
 /** Per-scenario state shared by a client and every client derived from it with `with()`. */
@@ -151,7 +156,13 @@ export class HttpClient {
     if (url.origin !== new URL(this.baseUrl).origin) {
       throw new Error(`slicetest: http only talks to the app under test; "${path}" resolves to ${url.origin}`);
     }
-    for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
+    for (const [k, v] of Object.entries(opts.query ?? {})) {
+      if (v === undefined) continue;
+      if (Array.isArray(v)) {
+        url.searchParams.delete(k);
+        for (const item of v) url.searchParams.append(k, String(item));
+      } else url.searchParams.set(k, String(v));
+    }
 
     let res = await this.#send(method, url, body, opts);
     for (let hops = 0; opts.follow && REDIRECTS.has(res.status) && hops < 20; hops++) {
@@ -198,13 +209,13 @@ export class HttpClient {
     const started = performance.now();
     let res: Response;
     try {
-      res = await fetch(target, { method, headers, body: payload, redirect: "manual" });
+      res = await fetch(target, { method, headers, body: payload, redirect: "manual", signal: opts.timeout ? AbortSignal.timeout(opts.timeout) : undefined });
     } catch (e) {
       const cause = (e as { cause?: { code?: string } }).cause?.code;
       const failed: HttpResponse = { method, url: url.pathname + url.search, status: 0, headers: new Headers(), text: `${e}${cause ? ` (${cause})` : ""}`, json: undefined, durationMs: Math.round(performance.now() - started) };
       timeline.set(failed, { start: started, end: performance.now() });
       this.#record(failed);
-      throw e;
+      throw new Error(`slicetest: ${method} ${failed.url}: ${requestFailure(e, cause, opts.timeout)}`, { cause: e });
     }
     if (!stub) for (const cookie of res.headers.getSetCookie()) this.#storeCookie(cookie, url.pathname);
     const text = await res.text();
@@ -315,6 +326,14 @@ function pathMatches(requestPath: string, cookiePath: string) {
   if (requestPath === cookiePath) return true;
   if (!requestPath.startsWith(cookiePath)) return false;
   return cookiePath.endsWith("/") || requestPath[cookiePath.length] === "/";
+}
+
+/** Why a request got no response, in terms of what to look at. */
+function requestFailure(e: unknown, code: string | undefined, timeout: number | undefined) {
+  if ((e as Error).name === "TimeoutError") return `no response within ${timeout}ms (http timeout); the app may be waiting on a stub with a delay, a lock or a slow query`;
+  if (code === "ECONNREFUSED") return "connection refused: the app isn't listening (it may have crashed; its output is below)";
+  if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") return "the app closed the connection without answering (did it crash or exit?)";
+  return `${(e as Error).message}${code ? ` (${code})` : ""}`;
 }
 
 function merge(a: RequestOptions, b: RequestOptions): RequestOptions {

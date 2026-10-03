@@ -183,7 +183,7 @@ const admin = http.with({ headers: { authorization: `Bearer ${token}` } }); // s
 http.cookies.get("session");                                     // cookies persist within a scenario
 ```
 
-Requests may only go to the app under test; absolute URLs to other hosts are rejected. Defaults for every request can be set with `http: { headers }` in the plugin config. With `follow`, cookies set by each redirect are kept (a login answering `302` with `Set-Cookie`), `303` and `301`/`302` turn into a `GET` as in browsers, and a redirect to another host is returned instead of followed. Cookies follow their `Path` as in browsers.
+Requests may only go to the app under test; absolute URLs to other hosts are rejected. Defaults for every request can be set with `http: { headers, timeout }` in the plugin config. With `timeout` (ms), a request the app doesn't answer in time fails with its method and path instead of the whole test timing out, and a refused or dropped connection says the app isn't listening or closed it. A list in `query` repeats the parameter (`{ tag: ["a", "b"] }` → `?tag=a&tag=b`). With `follow`, cookies set by each redirect are kept (a login answering `302` with `Set-Cookie`), `303` and `301`/`302` turn into a `GET` as in browsers, and a redirect to another host is returned instead of followed. Cookies follow their `Path` as in browsers.
 
 #### Forms: `http.submit()`
 
