@@ -843,6 +843,7 @@ scenarios:
   | `{ $regex: "^ch_" }` | a string the pattern finds |
   | `{ $contains: "ok" }` | a string with that substring, or a list with a matching item (`{ $contains: { sku: a } }`) |
   | `{ $gte: 1, $lt: 10 }` | numbers (also decimals that `numeric` / `DECIMAL` columns return as strings, `"12.50"`), or strings such as ISO dates (`{ $gte: "2026-01-01" }`); also `$gt`, `$lte` |
+  | `{ $closeTo: 9.99 }` | a number within ±0.005 (`[9.99, 0.1]` for another tolerance), for floats and computed totals; decimal strings too |
   | `{ $len: 3 }` | a string or list of that length; `{ $len: { $gte: 1 } }` |
   | `{ $oneOf: [paid, pending] }` | any of the values (or matchers) |
   | `{ $not: "" }` | anything the value or matcher doesn't match |

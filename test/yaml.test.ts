@@ -146,6 +146,11 @@ test("comparison, length, negation, alternatives and formats match loosely", () 
   expect({ ...ok, price: "12.50", total: "3" }).toEqual(m);
   expect({ ...ok, price: "-0.5" }).not.toEqual(m);
   expect({ ...ok, price: "1e3" }).not.toEqual(m);
+  const close = toMatchers({ total: { $closeTo: 0.3 }, rate: { $closeTo: [10, 0.5] } });
+  expect({ total: 0.1 + 0.2, rate: "10.4" }).toEqual(close);
+  expect({ total: 0.31, rate: 10 }).not.toEqual(close);
+  expect({ total: 0.3, rate: 10.6 }).not.toEqual(close);
+  expect(() => toMatchers({ $closeTo: "1" })).toThrow("$closeTo takes a number or [number, tolerance]");
   expect(() => toMatchers({ $gte: true })).toThrow("$gte takes a number or a string");
   expect(() => toMatchers({ $oneOf: "a" })).toThrow("$oneOf takes a list");
   expect(() => toMatchers({ $format: "ipv9" })).toThrow("$format must be one of");

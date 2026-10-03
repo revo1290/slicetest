@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- YAML matcher `$closeTo`: `{ $closeTo: 0.3 }` matches a number within ±0.005 (so `0.1 + 0.2` passes), `{ $closeTo: [10, 0.5] }` sets the tolerance. Decimal strings from `numeric` columns compare too.
 - Streaming responses from the app: a `text/event-stream` response (an LLM chat endpoint, live updates) comes with `res.events`, each `{ event, data, id }` with `data` parsed as JSON when it is JSON. YAML `expect.events` checks events in order, others allowed between (`[{ event: message_start }, { data: "[DONE]" }]`), with matchers, and `capture` reads them (`events.0.data.id`). A failure lists the events that arrived.
 - Cookie attributes: `expect(res).toSetCookie("sid", { httpOnly: true, secure: true, sameSite: "Lax" })` and YAML `expect: { cookies: { sid: { httpOnly: true }, tracking: null } }` check the cookies a response sets and their attributes (`value`, `httpOnly`, `secure`, `sameSite`, `path`, `domain`, `maxAge`, `expires`, `partitioned`; `null` for a cookie it must not set). The failure lists every cookie the response did set.
 - Response-time budgets: `expect(res).toRespondWithin(300)` and YAML `expect: { duration: 300 }` (or a matcher, `duration: { $lt: 300 }`) fail a request the app answered too slowly, naming the time it took. Unlike a load test, they run on every scenario against the real database, so a missing index or an N+1 shows up as a failed budget.

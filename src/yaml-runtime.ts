@@ -546,7 +546,7 @@ const FORMATS: Record<string, RegExp> = {
   integer: /^-?\d+$/,
 };
 
-const MATCHERS = ["$type", "$regex", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$len", "$not", "$oneOf", "$format"];
+const MATCHERS = ["$type", "$regex", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$closeTo", "$len", "$not", "$oneOf", "$format"];
 
 /** An asymmetric matcher Vitest's `toEqual` / `toMatchObject` call, with a readable name in diffs. */
 function matcher(name: string, test: (v: unknown) => boolean) {
@@ -605,6 +605,12 @@ function single(key: string, arg: unknown): unknown {
       return compare(key, arg, (c) => c < 0);
     case "$lte":
       return compare(key, arg, (c) => c <= 0);
+    case "$closeTo": {
+      // `$closeTo: 9.99` allows ±0.005 (two decimals, like toBeCloseTo); `$closeTo: [9.99, 0.1]` sets the tolerance.
+      const [target, tolerance = 0.005] = Array.isArray(arg) ? arg : [arg];
+      if (typeof target !== "number" || typeof tolerance !== "number" || !(tolerance >= 0)) throw new Error(`$closeTo takes a number or [number, tolerance], got ${JSON.stringify(arg)}`);
+      return matcher(`$closeTo ${JSON.stringify(arg)}`, (v) => (typeof v === "number" || (typeof v === "string" && DECIMAL.test(v))) && Math.abs(Number(v) - target) <= tolerance + Number.EPSILON);
+    }
     case "$len": {
       const want = toMatchers(arg);
       return matcher(`$len ${JSON.stringify(arg)}`, (v) => (typeof v === "string" || Array.isArray(v)) && equalsMatcher(want, v.length));
