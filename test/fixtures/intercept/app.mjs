@@ -19,6 +19,10 @@ const server = http.createServer(async (req, res) => {
       const text = (await r.text()).split("\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)).text ?? "").join("");
       return json(200, { contentType: r.headers.get("content-type"), text });
     }
+    if (url.pathname === "/upload-form") {
+      res.writeHead(200, { "content-type": "text/html" });
+      return res.end(`<form method="post" action="/upload" enctype="multipart/form-data"><input name="owner" value="ada"><input type="file" name="files"><button>Send</button></form>`);
+    }
     if (url.pathname === "/upload") {
       // Takes an upload and passes it on to a storage API, as a multipart body again.
       const form = await new Request("http://x", { method: "POST", headers: req.headers, body: req, duplex: "half" }).formData();

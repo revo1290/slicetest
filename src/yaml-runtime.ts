@@ -15,7 +15,8 @@ import path from "node:path";
 import { graphqlErrors } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
 import { sse, type MatchOptions, type RecordedCall, type RouteBuilder, type ServerSentEvent, type StubResponse } from "./stub.js";
-import type { ChangeSpec, Conditions, Step, YamlFile, YamlScenario } from "./yaml.js";
+import type { ChangeSpec, Conditions, FilePart, Step, YamlFile, YamlScenario } from "./yaml.js";
+import type { SubmitOptions } from "./form.js";
 
 type Vars = Record<string, unknown>;
 
@@ -216,7 +217,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
     const res = await ctx.http.submit(page, {
       button: step.submit === true ? undefined : (interpolate(step.submit, vars) as string),
       form: interpolate(step.form, vars) as string | number | undefined,
-      fields: interpolate(step.fields, vars) as Record<string, string>,
+      fields: await withFiles(interpolate(step.fields, vars) as Record<string, unknown> | undefined, base),
       headers: interpolate(step.headers, vars) as Record<string, string> | undefined,
       follow: step.follow,
     });
@@ -411,30 +412,40 @@ const MIME: Record<string, string> = {
   ".zip": "application/zip", ".html": "text/html", ".md": "text/markdown", ".yaml": "text/yaml", ".yml": "text/yaml",
 };
 
-/** A YAML `multipart:` mapping as FormData: files are read relative to the scenario file. */
-async function multipart(fields: Record<string, unknown>, base = process.cwd()) {
+/** A `{ file }` / `{ content }` part as a File: files are read relative to the scenario file. */
+async function toFile(name: string, p: FilePart, base = process.cwd()): Promise<File> {
+  if (p.file !== undefined) {
+    const file = path.resolve(base, p.file);
+    const bytes = await readFile(file).catch(() => {
+      throw new Error(`field "${name}": can't read ${file}`);
+    });
+    const type = p.type ?? MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+    return new File([new Uint8Array(bytes)], p.filename ?? path.basename(file), { type });
+  }
+  const content = typeof p.content === "string" ? p.content : JSON.stringify(p.content);
+  return new File([content], p.filename ?? name, { type: p.type ?? (typeof p.content === "string" ? "text/plain" : "application/json") });
+}
+
+/** A YAML `multipart:` mapping as FormData. */
+async function multipart(fields: Record<string, unknown>, base?: string) {
   const data = new FormData();
   for (const [name, value] of Object.entries(fields)) {
     for (const part of Array.isArray(value) ? value : [value]) {
-      if (!part || typeof part !== "object") {
-        data.append(name, String(part));
-        continue;
-      }
-      const p = part as { file?: string; content?: unknown; filename?: string; type?: string };
-      if (p.file !== undefined) {
-        const file = path.resolve(base, p.file);
-        const bytes = await readFile(file).catch(() => {
-          throw new Error(`multipart field "${name}": can't read ${file}`);
-        });
-        const type = p.type ?? MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
-        data.append(name, new Blob([bytes], { type }), p.filename ?? path.basename(file));
-      } else {
-        const content = typeof p.content === "string" ? p.content : JSON.stringify(p.content);
-        data.append(name, new Blob([content], { type: p.type ?? (typeof p.content === "string" ? "text/plain" : "application/json") }), p.filename ?? name);
-      }
+      if (part && typeof part === "object") data.append(name, await toFile(name, part as FilePart, base));
+      else data.append(name, String(part));
     }
   }
   return data;
+}
+
+/** Submit fields with `{ file }` / `{ content }` values turned into Files. */
+async function withFiles(fields: Record<string, unknown> | undefined, base?: string) {
+  if (!fields) return undefined;
+  const out: NonNullable<SubmitOptions["fields"]> = {};
+  for (const [name, v] of Object.entries(fields)) {
+    out[name] = v && typeof v === "object" && !Array.isArray(v) ? await toFile(name, v as FilePart, base) : (v as string);
+  }
+  return out;
 }
 
 function splitCall(s: string): [string, string] {

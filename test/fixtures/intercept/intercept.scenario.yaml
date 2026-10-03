@@ -110,3 +110,14 @@ scenarios:
       - order:
           - weather GET /v1/now
           - { stub: provider, call: POST /notify, when: { json: { text: 9°C } } }
+
+  - name: submit uploads a file through a form's file input
+    steps:
+      - stub: weather
+        on: POST /v1/uploads
+        when: { form: { owner: ada, files: { filename: note.txt, size: 18 } } }
+        reply: { body: { count: 1 } }
+      - request: GET /upload-form
+      - submit: Send
+        fields: { files: { file: note.txt } }
+        expect: { json: { stored: 1, names: ["note.txt (text/plain, 18)"] } }

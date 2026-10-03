@@ -826,7 +826,7 @@
             },
             "fields": {
               "type": "object",
-              "description": "Values typed into the form by field name; true / false / a list of values check checkboxes and radios",
+              "description": "Values typed into the form by field name; true / false / a list of values check checkboxes and radios; { file: path } uploads a file through a file input",
               "additionalProperties": {
                 "oneOf": [
                   {
@@ -844,6 +844,36 @@
                         "number"
                       ]
                     }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "file": {
+                        "type": "string",
+                        "description": "Path relative to the scenario file"
+                      },
+                      "content": {},
+                      "filename": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "file"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "content"
+                        ]
+                      }
+                    ],
+                    "description": "A file for a file input"
                   }
                 ]
               }

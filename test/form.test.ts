@@ -93,3 +93,31 @@ test("explains what is on the page when the form, button or field doesn't exist"
   expect(() => formRequest(html, { button: "Save", fields: { emial: "x" } })).toThrow('the form has no field "emial". Fields: email');
   expect(() => formRequest(`<form><button disabled>Go</button></form>`, { button: "Go" })).toThrow("is disabled");
 });
+
+test("file inputs: an empty file when none is given, the given File in a multipart form", async () => {
+  const page = `<form method="post" action="/avatar" enctype="multipart/form-data">
+    <input name="caption" value="me"><input type="file" name="avatar"><button>Upload</button></form>`;
+
+  const none = formRequest(page).body as FormData;
+  expect((none.get("avatar") as File).name).toBe("");
+  expect((none.get("avatar") as File).size).toBe(0);
+
+  const sent = formRequest(page, { fields: { avatar: new File(["png!"], "me.png", { type: "image/png" }) } }).body as FormData;
+  const file = sent.get("avatar") as File;
+  expect([file.name, file.type, await file.text()]).toEqual(["me.png", "image/png", "png!"]);
+  expect(sent.get("caption")).toBe("me");
+
+  expect(() => formRequest(page, { fields: { avatar: "me.png" } })).toThrow('"avatar" is a file input; give it a file');
+  expect(() => formRequest(page, { fields: { caption: new Blob(["x"]) } })).toThrow('"caption" isn\'t a file input');
+});
+
+test("a file in a urlencoded form is refused; without one, the field is sent empty as browsers do", () => {
+  const page = `<form method="post" action="/a"><input type="file" name="doc"><button>Go</button></form>`;
+  expect(String(formRequest(page).body)).toBe("doc=");
+  expect(() => formRequest(page, { fields: { doc: new File(["x"], "x.txt") } })).toThrow("can't carry files");
+});
+
+test("an image button sends the click position", () => {
+  const page = `<form method="post" action="/pay"><input name="amount" value="5"><input type="image" name="pay" src="pay.png" alt="Pay"></form>`;
+  expect(String(formRequest(page, { button: "Pay" }).body)).toBe("amount=5&pay.x=0&pay.y=0");
+});

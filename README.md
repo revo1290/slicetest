@@ -200,6 +200,8 @@ await http.submit(await http.get("/settings"), {
 });
 ```
 
+File inputs take a `File` (`fields: { avatar: new File([bytes], "me.png", { type: "image/png" }) }`, YAML `{ file: me.png }` relative to the scenario), and one left alone is sent as the empty file a browser sends; the form must be `multipart/form-data`. An image button (`<input type="image">`) sends its click position.
+
 `button` matches a submit button's text, `value`, `name` or `id`, and picks its form; its `formaction` / `formmethod` / `formenctype` apply. `fields` replace what the page had and must name existing fields, so a typo fails. When nothing matches, the error lists the page's forms and their buttons. In YAML, `submit:` uses the page the previous step requested.
 
 ### `db` — arrange and inspect the real database
@@ -791,7 +793,7 @@ scenarios:
 | Step | Keys |
 |---|---|
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, form, body, variables }`, one of `reply: { status, headers, body }` (`{ file }` for a fixture file, `{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.form.amount}}`, `{{call.variables.id}}`. |
-| `submit: <button>` | `form`, `fields`, `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
+| `submit: <button>` | `form`, `fields` (`{ file: path }` for a file input), `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `multipart` / `body` / `graphql: { query, variables, operationName }`, `expect.schema` (a JSON Schema, or `../openapi.yaml#/components/schemas/Poll` relative to the file), `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |

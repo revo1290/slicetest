@@ -14,8 +14,11 @@ export interface SubmitOptions {
   button?: string;
   /** The form, by `id`, `name` or position (0-based), when the page has several and no `button` picks one. */
   form?: string | number;
-  /** Values typed into the form, by field name. A name the form doesn't have is an error (a typo, usually). */
-  fields?: Record<string, string | number | boolean | (string | number)[]>;
+  /**
+   * Values typed into the form, by field name. A name the form doesn't have is an error (a typo, usually).
+   * A file input takes a `Blob` / `File` (its name is the file name sent), and the form must be multipart.
+   */
+  fields?: Record<string, string | number | boolean | (string | number)[] | Blob>;
 }
 
 export interface FormRequest {
@@ -192,28 +195,51 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
 
   const names = new Set(form.controls.filter((c) => c.attrs.name !== undefined && !isSubmit(c) && c.tag !== "button").map((c) => c.attrs.name!));
   const typed = new Map<string, string[] | boolean>();
+  const files = new Map<string, Blob>();
+  const fileInputs = new Set(form.controls.filter((c) => c.tag === "input" && c.attrs.type?.toLowerCase() === "file").map((c) => c.attrs.name));
   for (const [name, value] of Object.entries(opts.fields ?? {})) {
     if (!names.has(name)) {
       const shown = [...names].filter((n) => !n.startsWith("$ACTION_"));
       throw new Error(`slicetest: submit: the form has no field "${name}". Fields: ${shown.join(", ") || "(none)"}`);
     }
-    typed.set(name, typeof value === "boolean" ? value : (Array.isArray(value) ? value : [value]).map(String));
+    if (fileInputs.has(name) !== value instanceof Blob) {
+      throw new Error(
+        fileInputs.has(name)
+          ? `slicetest: submit: "${name}" is a file input; give it a file (a Blob or File, or { file: path } in YAML)`
+          : `slicetest: submit: "${name}" isn't a file input, so it can't take a file`,
+      );
+    }
+    if (value instanceof Blob) files.set(name, value);
+    else typed.set(name, typeof value === "boolean" ? value : (Array.isArray(value) ? value : [value]).map(String));
   }
 
   // The successful controls, in document order (HTML's "constructing the entry list").
   // A typed value replaces what the page had: text for a field, the checked state for
   // checkboxes and radios (true / false, or the values to check), the options of a select.
-  const entries: [string, string][] = [];
+  const entries: [string, string | Blob][] = [];
   const done = new Set<string>();
   for (const c of form.controls) {
     const name = c.attrs.name;
+    if (c === button && c.attrs.type?.toLowerCase() === "image") {
+      // An image button sends the click position, as name.x / name.y (x / y without a name).
+      const prefix = name ? `${name}.` : "";
+      entries.push([`${prefix}x`, "0"], [`${prefix}y`, "0"]);
+      continue;
+    }
     if (name === undefined || "disabled" in c.attrs) continue;
     if (c.tag === "button" || isSubmit(c)) {
       if (c === button) entries.push([name, c.attrs.value ?? ""]);
       continue;
     }
     const type = c.tag === "input" ? (c.attrs.type ?? "text").toLowerCase() : c.tag;
-    if (type === "reset" || type === "button" || type === "file") continue;
+    if (type === "reset" || type === "button") continue;
+    if (type === "file") {
+      // With no file chosen, browsers still send the field: an empty file without a name.
+      const file = files.get(name);
+      if (!done.has(name)) entries.push([name, file ?? new File([], "", { type: "application/octet-stream" })]);
+      done.add(name);
+      continue;
+    }
     const want = typed.get(name);
     if (type === "checkbox" || type === "radio") {
       const value = c.attrs.value ?? "on";
@@ -234,10 +260,18 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
   const pick = (attr: string) => (button && button.attrs[`form${attr}`] !== undefined ? button.attrs[`form${attr}`] : form.attrs[attr]);
   const method = (pick("method") ?? "get").toUpperCase() === "POST" ? "POST" : "GET";
   const action = pick("action") ?? "";
-  if (method === "GET") return { method, action: `${action.replace(/[?#].*$/, "")}?${new URLSearchParams(entries)}` };
-  const multipart = (pick("enctype") ?? "").toLowerCase() === "multipart/form-data";
-  if (!multipart) return { method, action, body: new URLSearchParams(entries) };
+  const multipart = method === "POST" && (pick("enctype") ?? "").toLowerCase() === "multipart/form-data";
+  if (files.size && !multipart) {
+    throw new Error(`slicetest: submit: the form sends ${method === "GET" ? "a GET" : "urlencoded"} data, which can't carry files; a browser would send only the file name. Upload forms need method="post" enctype="multipart/form-data"`);
+  }
+  // Outside multipart, a file field is sent as its file name (empty when none was chosen), as browsers do.
+  const plain = () => new URLSearchParams(entries.map(([k, v]) => [k, typeof v === "string" ? v : ((v as File).name ?? "")]));
+  if (method === "GET") return { method, action: `${action.replace(/[?#].*$/, "")}?${plain()}` };
+  if (!multipart) return { method, action, body: plain() };
   const body = new FormData();
-  for (const [k, v] of entries) body.append(k, v);
+  for (const [k, v] of entries) {
+    if (typeof v === "string") body.append(k, v);
+    else body.append(k, v, (v as File).name ?? "blob");
+  }
   return { method, action, body };
 }

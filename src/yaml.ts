@@ -110,7 +110,8 @@ export interface SubmitStep {
   /** The form by id, name or 0-based position, when the page has several. */
   form?: string | number;
   /** Values typed into the form by field name; true / false / a list check checkboxes and radios. */
-  fields?: Record<string, string | number | boolean | (string | number)[]>;
+  /** `{ file: path }` (relative to the scenario) or `{ content, filename, type }` for a file input. */
+  fields?: Record<string, string | number | boolean | (string | number)[] | FilePart>;
   headers?: Record<string, string>;
   follow?: boolean;
   expect?: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object };
@@ -201,6 +202,14 @@ export interface LogStep {
 export interface OrderStep {
   order: (string | { stub: string; call: string; when?: Conditions })[];
   within?: number;
+}
+
+/** A file to upload: read from `file` (relative to the scenario file), or `content` given inline. */
+export interface FilePart {
+  file?: string;
+  content?: unknown;
+  filename?: string;
+  type?: string;
 }
 
 /** Define variables for later steps: `set: { orderId: "{{$uuid}}" }`. */
@@ -403,7 +412,8 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       if (!fields || typeof fields !== "object" || Array.isArray(fields)) fail(at("fields"), "`fields` must map field names to values, e.g. { email: a@b.test }");
       for (const [k, v] of Object.entries(fields as object)) {
         const scalar = (x: unknown) => typeof x === "string" || typeof x === "number";
-        if (!(scalar(v) || typeof v === "boolean" || (Array.isArray(v) && v.every(scalar)))) fail(at("fields"), `field "${k}" must be a string, number, true / false or a list`);
+        const isFile = !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).every((x) => ["file", "content", "filename", "type"].includes(x)) && ("file" in v) !== ("content" in v);
+        if (!(scalar(v) || typeof v === "boolean" || (Array.isArray(v) && v.every(scalar)) || isFile)) fail(at("fields"), `field "${k}" must be a string, number, true / false, a list, or a file ({ file: path } or { content, filename })`);
       }
     }
   } else if (kind === "use") {
