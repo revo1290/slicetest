@@ -2,6 +2,8 @@
 // slicetest catches these calls with `stubs: [{ name, hosts }]`; the app is not changed.
 import http from "node:http";
 
+const jobs = new Map();
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const json = (status, body, headers = {}) => res.writeHead(status, { "content-type": "application/json", ...headers }).end(JSON.stringify(body));
@@ -25,6 +27,16 @@ const server = http.createServer(async (req, res) => {
       for (const f of form.getAll("files")) out.append("files", f, f.name);
       const r = await fetch("https://api.weather.test/v1/uploads", { method: "POST", body: out });
       return json(r.status, { stored: (await r.json()).count, names: form.getAll("files").map((f) => `${f.name} (${f.type}, ${f.size})`) });
+    }
+    // A job that finishes in the background, as queues and batch exports do.
+    if (url.pathname === "/jobs" && req.method === "POST") {
+      const id = String(jobs.size + 1);
+      jobs.set(id, Date.now() + 300);
+      return json(202, { id });
+    }
+    if (url.pathname.startsWith("/jobs/")) {
+      const due = jobs.get(url.pathname.slice(6));
+      return due === undefined ? json(404, {}) : json(200, { status: Date.now() >= due ? "done" : "running" });
     }
     if (url.pathname === "/logo") {
       const r = await fetch("https://api.weather.test/v1/logo.png");

@@ -46,7 +46,12 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
     try {
       // A log step waits by itself; `within` is its timeout.
       // Log and mail steps wait by themselves; `within` is their timeout.
-      await retry("within" in step && !("log" in step) && !("mail" in step) ? step.within : undefined, () => runStep(step, ctx, vars, doc.path ? path.dirname(doc.path) : undefined));
+      // Requests poll the app (`every` ms, default 200): a job answered 202 until it's done.
+      await retry(
+        "within" in step && !("log" in step) && !("mail" in step) ? step.within : undefined,
+        () => runStep(step, ctx, vars, doc.path ? path.dirname(doc.path) : undefined),
+        "request" in step ? (step.every ?? 200) : 50,
+      );
     } catch (e) {
       const label = step.name ?? describeStep(step);
       const where = `${doc.file}:${step.line} (${sc.name}, ${[...trail, `step ${i + 1}: ${label}`].join(" → ")})`;
@@ -84,7 +89,7 @@ function describeStep(step: Step) {
 }
 
 /** Run `fn` until it passes or `within` ms have passed, then rethrow its last error. */
-async function retry(within: number | undefined, fn: () => Promise<void>) {
+async function retry(within: number | undefined, fn: () => Promise<void>, every = 50) {
   if (!within) return fn();
   const deadline = Date.now() + within;
   for (;;) {
@@ -95,7 +100,7 @@ async function retry(within: number | undefined, fn: () => Promise<void>) {
         if (e instanceof Error) e.message = `${e.message}\n(still failing after retrying for ${within}ms)`;
         throw e;
       }
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, every));
     }
   }
 }

@@ -86,3 +86,13 @@ scenarios:
         reply: { file: replies/logo.png }
       - request: GET /logo
         expect: { json: { type: image/png, size: 10, first: [137, 80, 78, 71] } }
+
+  - name: a request with within polls until the job is done
+    steps:
+      - request: POST /jobs
+        expect: { status: 202 }
+        capture: { job: json.id }
+      - request: GET /jobs/{{job}}
+        within: 3000
+        every: 50
+        expect: { json: { status: done } }

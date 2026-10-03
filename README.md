@@ -788,7 +788,17 @@ scenarios:
 | `use: <definition>` | `with: { param: value }`. Runs the steps of a `define:` entry. |
 | `snapshot: true` | The scenario's [trace](#snapshot-the-whole-scenario-trace) so far must match its stored snapshot. `mask: [keys]` hides more values. |
 
-`db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously.
+`db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously. A `request` step with `within` sends the request again (every 200 ms, or `every: <ms>`) until its `expect` passes, for a job the app answers `202` and finishes later:
+
+```yaml
+- request: POST /exports
+  expect: { status: 202 }
+  capture: { job: json.id }
+- request: GET /exports/{{job}}
+  within: 10000
+  expect: { json: { status: done } }
+  capture: { file: json.url }
+```
 
 - `reply: { file: replies/charge.json }` answers with a file relative to the scenario file: `.json` and `.yaml` are sent as JSON and may still use `{{call.*}}`, other files as they are (images, PDFs, CSV), with a content type from the extension unless `headers` set one. Large provider payloads stay out of the scenario.
 - `multipart:` sends `multipart/form-data`: plain values are fields, `{ file: fixtures/avatar.png }` uploads a file (relative to the scenario file, content type from its extension, or `type` / `filename`), `{ content: ..., filename: notes.json }` an inline one, and a list sends a field several times.

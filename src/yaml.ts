@@ -88,6 +88,10 @@ export interface RequestStep {
   webhook?: { provider: string | { header: string; algorithm?: string; encoding?: "hex" | "base64"; prefix?: string }; secret: string; event?: string; stale?: boolean; invalidSignature?: boolean };
   /** Send the request this many times at once. `expect` applies to every response; `statuses` counts them. */
   concurrency?: number;
+  /** Repeat the request until `expect` passes, for up to this many ms: polling a job the app finishes later. */
+  within?: number;
+  /** With `within`: ms between attempts. Default 200. */
+  every?: number;
   /** `queries`: at most this many SQL statements (not counting BEGIN/COMMIT), with `db.queries` on. */
   /** `schema`: a JSON Schema for the response JSON, inline or `file#/pointer` relative to the scenario file. */
   expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number; schema?: string | object };
@@ -217,7 +221,7 @@ export interface MailStep {
 
 const KINDS = {
   stub: ["on", "graphql", "when", "reply", "sequence", "networkError", "times", "delay", "optional"],
-  request: ["headers", "query", "json", "form", "multipart", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture"],
+  request: ["headers", "query", "json", "form", "multipart", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture", "within", "every"],
   submit: ["form", "fields", "headers", "follow", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
@@ -492,6 +496,9 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       }
       if (raw.auth !== undefined && raw.auth !== true && !(raw.auth && typeof raw.auth === "object" && !Array.isArray(raw.auth))) fail(at("auth"), "`auth` must be true or the token's claims, e.g. { sub: u1, roles: [admin] }");
       if (raw.concurrency !== undefined && !(Number.isInteger(raw.concurrency) && (raw.concurrency as number) >= 1)) fail(at("concurrency"), "`concurrency` must be a positive whole number");
+      if (raw.every !== undefined && !(typeof raw.every === "number" && raw.every > 0)) fail(at("every"), "`every` must be a positive number of milliseconds");
+      if (raw.every !== undefined && raw.within === undefined) fail(at("every"), "`every` sets the pause between attempts of a `within` step; add `within: <ms>`");
+      if (raw.within !== undefined && raw.concurrency !== undefined) fail(at("within"), "`within` repeats one request until it passes; it can't be combined with `concurrency`");
       {
         const q = (raw.expect as Record<string, unknown> | undefined)?.queries;
         if (q !== undefined && !(Number.isInteger(q) && (q as number) >= 0)) fail(at("expect"), "`expect.queries` is the most SQL statements the request may run, e.g. 3");

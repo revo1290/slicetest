@@ -710,6 +710,16 @@
                   }
                 }
               ]
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Repeat the request until `expect` passes, for up to this many milliseconds (polling a job the app finishes later)"
+            },
+            "every": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "With `within`: milliseconds between attempts. Default 200"
             }
           },
           "not": {
@@ -731,7 +741,42 @@
                   "graphql",
                   "body"
                 ]
+              },
+              {
+                "required": [
+                  "multipart",
+                  "json"
+                ]
+              },
+              {
+                "required": [
+                  "multipart",
+                  "form"
+                ]
+              },
+              {
+                "required": [
+                  "multipart",
+                  "body"
+                ]
+              },
+              {
+                "required": [
+                  "multipart",
+                  "graphql"
+                ]
+              },
+              {
+                "required": [
+                  "within",
+                  "concurrency"
+                ]
               }
+            ]
+          },
+          "dependentRequired": {
+            "every": [
+              "within"
             ]
           }
         },

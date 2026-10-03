@@ -34,7 +34,7 @@ test.each([
   ["scenarios:\n  - name: a\n    steps:\n      - checkpoint: db\n", "use `checkpoint: true`"],
   ["scenarios:\n  - name: a\n    steps:\n      - log: \"(\"\n", "`log` must be a regular expression"],
   ["scenarios:\n  - name: a\n    steps:\n      - db: t\n        within: 0\n", "`within` must be a positive number of milliseconds"],
-  ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 100\n", 'unknown key "within" in a request step'],
+  ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 100\n        concurrency: 2\n", "can't be combined with `concurrency`"],
 ])("rejects %j", (text, message) => {
   expect(() => parse(text)).toThrow(message);
 });
