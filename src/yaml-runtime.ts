@@ -657,7 +657,7 @@ function interpolateTitle(name: string, row: Record<string, unknown>, index: num
   });
 }
 
-function verifyResponse(res: HttpResponse, e: { status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
+function verifyResponse(res: HttpResponse, e: { duration?: number | Record<string, unknown>; status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
   if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as never);
   if (e?.headers !== undefined) {
     const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
@@ -665,6 +665,11 @@ function verifyResponse(res: HttpResponse, e: { status?: ExpectedStatus; headers
   }
   if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
   if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
+  if (e?.duration !== undefined) {
+    const want = interpolate(e.duration, vars);
+    if (typeof want === "number") expect(res).toRespondWithin(want);
+    else check(res.durationMs, want, vars, `${res.method} ${res.url} response time (${res.durationMs}ms)`);
+  }
   if (e?.schema !== undefined) {
     const problems = schemaProblems(e.schema, res.json, base);
     if (problems.length) throw new Error(`${res.method} ${res.url}: the response JSON doesn't match ${typeof e.schema === "string" ? e.schema : "the schema"}:\n${problems.map((p) => `  ${p}`).join("\n")}`);

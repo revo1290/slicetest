@@ -676,6 +676,14 @@
                   "description": "Subset of the response JSON"
                 },
                 "text": {},
+                "duration": {
+                  "description": "The response arrived within this many milliseconds, or a matcher on the time: { $lt: 200 }",
+                  "type": [
+                    "integer",
+                    "object"
+                  ],
+                  "minimum": 1
+                },
                 "statuses": {
                   "type": "object",
                   "propertyNames": {
@@ -927,6 +935,14 @@
                   "description": "Subset of the response JSON"
                 },
                 "text": {},
+                "duration": {
+                  "description": "The response arrived within this many milliseconds, or a matcher on the time: { $lt: 200 }",
+                  "type": [
+                    "integer",
+                    "object"
+                  ],
+                  "minimum": 1
+                },
                 "schema": {
                   "description": "A JSON Schema the response JSON must match: inline, or a file relative to this one with an optional pointer, e.g. ../openapi.yaml#/components/schemas/Poll",
                   "oneOf": [

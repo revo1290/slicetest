@@ -30,6 +30,8 @@ interface SlicetestMatchers<R = unknown> {
   toMatchSchema(schema: object | string): R;
   /** The response has this status, a status of this class (`"2xx"`) or one of a list (`[200, 204]`); the failure message shows the response body. */
   toHaveStatus(status: number | `${1 | 2 | 3 | 4 | 5}xx` | (number | `${1 | 2 | 3 | 4 | 5}xx`)[]): R;
+  /** The response arrived within `ms` milliseconds (measured from sending the request to reading the whole body). */
+  toRespondWithin(ms: number): R;
   /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`. */
   toHaveStatuses(counts: Record<number, number>): R;
   /** Async: the table has at least one row matching `where` (`count` for an exact number). */
@@ -218,6 +220,19 @@ expect.extend({
       },
       actual: received?.status,
       expected: status,
+    };
+  },
+
+  toRespondWithin(received: HttpResponse, ms: number) {
+    if (!received || typeof received !== "object" || typeof received.durationMs !== "number") {
+      throw new TypeError(`slicetest: toRespondWithin expects a response from http, got ${this.utils.stringify(received)}`);
+    }
+    if (!(typeof ms === "number" && ms > 0)) throw new TypeError(`slicetest: toRespondWithin needs a positive number of milliseconds, got ${this.utils.stringify(ms)}`);
+    return {
+      pass: received.durationMs <= ms,
+      message: () => `expected ${received.method} ${received.url} ${this.isNot ? "not " : ""}to respond within ${ms}ms, it took ${received.durationMs}ms`,
+      actual: received.durationMs,
+      expected: ms,
     };
   },
 

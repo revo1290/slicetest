@@ -183,3 +183,14 @@ test("toHaveStatus takes a class or a list of statuses", async () => {
   expect(() => expect(res).toHaveStatus("20x" as never)).toThrow('a status is a code (201), a class ("2xx") or a list of them, got "20x"');
   expect(() => expect(undefined).toHaveStatus(200)).toThrow("toHaveStatus expects a response from http, got undefined");
 });
+
+test("toRespondWithin checks the response time", async () => {
+  const client = new HttpClient(baseUrl);
+  const fast = await client.get("/x");
+  const slow = await client.get("/slow");
+
+  expect(fast).toRespondWithin(400);
+  expect(slow).not.toRespondWithin(400);
+  expect(() => expect(slow).toRespondWithin(400)).toThrow(/expected GET \/slow to respond within 400ms, it took \d+ms/);
+  expect(() => expect(fast).toRespondWithin(0)).toThrow("toRespondWithin needs a positive number of milliseconds, got 0");
+});
