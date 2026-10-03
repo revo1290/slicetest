@@ -129,3 +129,16 @@ test("controls in a disabled fieldset aren't sent, and its buttons can't be pres
   expect(String(formRequest(page, { button: "Go" }).body)).toBe("keep=1&open=4");
   expect(() => formRequest(page, { button: "Locked" })).toThrow("is disabled");
 });
+
+test("selects skip disabled options and keep one selection, as browsers do: a disabled placeholder isn't sent", () => {
+  const html = `<form method="post">
+    <select name="plan"><option disabled>Choose a plan</option><option value="free">Free</option><option value="pro">Pro</option></select>
+    <select name="size"><option value="" disabled selected>Pick a size</option><option>S</option></select>
+    <select name="tier"><optgroup label="Old" disabled><option value="legacy">Legacy</option></optgroup><option value="new">New</option></select>
+    <select name="one"><option selected>a</option><option selected>b</option></select>
+    <select name="many" multiple><option selected>a</option><option selected disabled>b</option><option selected>c</option></select>
+    <button>Save</button></form>`;
+
+  expect(String(formRequest(html).body)).toBe("plan=free&tier=new&one=b&many=a&many=c");
+  expect(String(formRequest(html, { fields: { size: "S" } }).body)).toBe("plan=free&size=S&tier=new&one=b&many=a&many=c");
+});

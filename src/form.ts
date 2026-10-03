@@ -34,7 +34,7 @@ interface Control {
   /** Text content: a button's label, a textarea's value. */
   text: string;
   /** For select: its options. */
-  options: { value: string; selected: boolean }[];
+  options: { value: string; selected: boolean; disabled: boolean }[];
 }
 
 interface ParsedForm {
@@ -77,6 +77,7 @@ export function parseForms(html: string): ParsedForm[] {
   let open: { control: Control; start: number } | undefined;
   let select: Control | undefined;
   let option: { attrs: Record<string, string>; start: number } | undefined;
+  let groupDisabled = false;
 
   // Controls inside a disabled <fieldset> are disabled too (and not submitted).
   const fieldsets: boolean[] = [];
@@ -89,7 +90,7 @@ export function parseForms(html: string): ParsedForm[] {
   const closeOption = (end: number) => {
     if (!option || !select) return;
     const value = option.attrs.value ?? textOf(html.slice(option.start, end));
-    select.options.push({ value, selected: "selected" in option.attrs });
+    select.options.push({ value, selected: "selected" in option.attrs, disabled: "disabled" in option.attrs || groupDisabled });
     option = undefined;
   };
 
@@ -139,6 +140,7 @@ export function parseForms(html: string): ParsedForm[] {
       if (closing) {
         closeOption(m.index);
         select = undefined;
+        groupDisabled = false;
       } else {
         select = { tag, attrs: parseAttrs(m[3] ?? ""), text: "", options: [] };
         add(select);
@@ -147,6 +149,7 @@ export function parseForms(html: string): ParsedForm[] {
     }
     if (tag === "option" || tag === "optgroup") {
       closeOption(m.index);
+      if (tag === "optgroup") groupDisabled = !closing && "disabled" in parseAttrs(m[3] ?? "");
       if (tag === "option" && !closing && select) option = { attrs: parseAttrs(m[3] ?? ""), start: TAG.lastIndex };
       continue;
     }
@@ -259,9 +262,13 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
       done.add(name);
     } else if (c.tag === "textarea") entries.push([name, c.text]);
     else if (c.tag === "select") {
-      const selected = c.options.filter((o) => o.selected);
-      const chosen = selected.length ? selected : "multiple" in c.attrs || c.options.length === 0 ? [] : [c.options[0]!];
-      for (const o of chosen) entries.push([name, o.value]);
+      // With nothing selected, a single select shows its first option that isn't disabled; disabled options are never sent.
+      // A single select keeps only the last option marked selected.
+      const marked = c.options.filter((o) => o.selected);
+      const selected = "multiple" in c.attrs ? marked : marked.slice(-1);
+      const first = c.options.find((o) => !o.disabled);
+      const chosen = selected.length ? selected : "multiple" in c.attrs || !first ? [] : [first];
+      for (const o of chosen) if (!o.disabled) entries.push([name, o.value]);
     } else entries.push([name, c.attrs.value ?? ""]);
   }
 
