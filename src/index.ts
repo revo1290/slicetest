@@ -18,4 +18,4 @@ export { signWebhook, type WebhookOptions, type WebhookProvider, type HmacScheme
 export type { SlicetestOptions, ContainerOptions } from "./config.js";
 // Type-only: pulls the matcher declarations (toHaveStatus, toHaveRow, ...) into
 // the public types without running anything. The matchers are registered by the plugin.
-export type {} from "./matchers.js";
+export type { OrderedCall } from "./matchers.js";

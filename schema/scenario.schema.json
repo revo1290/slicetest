@@ -1292,6 +1292,77 @@
         {
           "type": "object",
           "required": [
+            "order"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "order": {
+              "type": "array",
+              "minItems": 2,
+              "description": "Calls to stubs in the order they must have happened (others may come in between): \"<stub> METHOD /path\" or { stub, call, when }",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\S+\\s+([A-Za-z]+|\\*)\\s+/\\S*$"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "stub",
+                      "call"
+                    ],
+                    "properties": {
+                      "stub": {
+                        "type": "string"
+                      },
+                      "call": {
+                        "type": "string",
+                        "pattern": "^([A-Za-z]+|\\*)\\s+/\\S*$"
+                      },
+                      "when": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "query": {
+                            "type": "object"
+                          },
+                          "headers": {
+                            "type": "object"
+                          },
+                          "json": {
+                            "description": "Subset of the request JSON"
+                          },
+                          "form": {
+                            "type": "object",
+                            "description": "Subset of a form-encoded body's fields; bracket keys are nested (metadata[order] → metadata: { order })"
+                          },
+                          "body": {},
+                          "variables": {
+                            "description": "Subset of the GraphQL variables (with `graphql`)"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "within": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retry this step for up to this many milliseconds, for effects the app applies asynchronously"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label shown when this step fails"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "checkpoint"
           ],
           "additionalProperties": false,

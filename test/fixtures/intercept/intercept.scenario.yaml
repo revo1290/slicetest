@@ -96,3 +96,17 @@ scenarios:
         within: 3000
         every: 50
         expect: { json: { status: done } }
+
+  - name: order checks calls across stubs happened in sequence
+    steps:
+      - stub: weather
+        on: GET /v1/now
+        reply: { body: { temp_c: 9 } }
+      - stub: provider
+        on: POST /notify
+        reply: { status: 204 }
+      - request: GET /alert
+        expect: { status: 200 }
+      - order:
+          - weather GET /v1/now
+          - { stub: provider, call: POST /notify, when: { json: { text: 9°C } } }

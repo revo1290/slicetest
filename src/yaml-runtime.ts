@@ -3,6 +3,7 @@ import { recordYamlFailure } from "./ci.js";
 import "./provided.js";
 import { formatChanges } from "./db.js";
 import "./matchers.js";
+import type { OrderedCall } from "./matchers.js";
 import type { ScenarioContext } from "./runtime.js";
 import { scenario } from "./scenario.js";
 import type { HttpResponse } from "./http.js";
@@ -82,6 +83,7 @@ function describeStep(step: Step) {
   if ("changes" in step) return "changes";
   if ("checkpoint" in step) return "checkpoint";
   if ("set" in step) return `set ${Object.keys(step.set).join(", ")}`;
+  if ("order" in step) return `order ${step.order.map((o) => (typeof o === "string" ? o : `${o.stub} ${o.call}`)).join(" → ")}`;
   if ("snapshot" in step) return "snapshot";
   if ("mail" in step) return `mail${Object.entries(step.mail).map(([k, v]) => ` ${k}: ${JSON.stringify(v)}`).join(",")}`;
   if ("log" in step) return `log ${step.from ? `from ${step.from} ` : ""}/${step.log}/`;
@@ -107,6 +109,15 @@ async function retry(within: number | undefined, fn: () => Promise<void>, every 
 
 async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: string) {
   if ("use" in step) throw new Error("slicetest: use steps are expanded by runSteps");
+  if ("order" in step) {
+    const calls = step.order.map((o): OrderedCall => {
+      const [name, call, when] = typeof o === "string" ? [o.slice(0, o.search(/\s/)), o.slice(o.search(/\s/)).trim(), undefined] : [o.stub, o.call, o.when];
+      const [method, p] = splitCall(interpolate(call, vars) as string);
+      return [name, method, p, conditions(when, vars)];
+    });
+    expect(ctx.stub).toHaveReceivedInOrder(calls);
+    return;
+  }
   if ("set" in step) {
     for (const [k, v] of Object.entries(step.set)) vars[k] = interpolate(v, vars);
     return;

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Call order across stubs: `expect(stub).toHaveReceivedInOrder([["stripe", "POST", "/v1/charges"], ["mail", "POST", "/send", { json }]])` and the YAML `order:` step check that calls came in that sequence (others may come between), and on failure mark the entry that didn't follow and list the calls in the order they arrived.
 - `db.changes({ ignore })`, YAML `changes` + `ignore:`, and `db.ignoreChanges` in the config: leave out columns the app sets on every write (`updated_at`), a column of one table (`orders.synced_at`) or a whole table (`sessions.*`). An update that only touched ignored columns isn't reported. The config setting also applies to `trace()` snapshots and the failure output.
 - Tags: `scenario(name, fn, { tags: ["smoke"] })` and YAML `tags: [smoke]`, selected with `npx slicetest --tag smoke` (several `--tag`s for any of them, `--tag '!slow'` to leave some out) or `SLICETEST_TAGS=smoke,!slow` under Vitest. Left-out scenarios show as skipped. The third argument of `scenario()` takes `{ timeout, tags }` as well as a timeout.
 - `http` requests that get no response fail with the request's method and path and what to look at (`POST /polls: connection refused: the app isn't listening (it may have crashed …)`) instead of fetch's bare `fetch failed`. New `timeout` request option (also `http: { timeout }` in the config) fails a request the app doesn't answer in time, naming it, before the test's own timeout. A list in `query` repeats the parameter.

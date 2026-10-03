@@ -38,6 +38,12 @@ const server = http.createServer(async (req, res) => {
       const due = jobs.get(url.pathname.slice(6));
       return due === undefined ? json(404, {}) : json(200, { status: Date.now() >= due ? "done" : "running" });
     }
+    // Two providers in a row: read the weather, then notify about it.
+    if (url.pathname === "/alert") {
+      const now = await (await fetch("https://api.weather.test/v1/now?city=Tokyo")).json();
+      await fetch("https://id.provider.test/notify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `${now.temp_c}°C` }) });
+      return json(200, { sent: true });
+    }
     if (url.pathname === "/logo") {
       const r = await fetch("https://api.weather.test/v1/logo.png");
       const bytes = new Uint8Array(await r.arrayBuffer());

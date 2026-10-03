@@ -4,12 +4,21 @@ import type { HttpResponse } from "./http.js";
 import { describeGraphQL } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
 import { Stub, subset, type MatchOptions, type RecordedCall } from "./stub.js";
+import { timeline } from "./timeline.js";
+
+/** One expected call for `toHaveReceivedInOrder`: `[stub, method, path, match?]`. */
+export type OrderedCall = [stub: string, method: string, path: string | RegExp, match?: MatchOptions];
 
 interface SlicetestMatchers<R = unknown> {
   /** The stub received at least one call matching `method path` (and `match`, if given). */
   toHaveReceived(method: string, path: string | RegExp, match?: MatchOptions): R;
   /** The stub received exactly `n` calls matching `method path`. */
   toHaveReceivedTimes(n: number, method?: string, path?: string | RegExp, match?: MatchOptions): R;
+  /**
+   * On the scenario's `stub` accessor: the calls happened in this order, across stubs (other calls
+   * may come in between): `expect(stub).toHaveReceivedInOrder([["stripe", "POST", "/v1/charges"], ["mail", "POST", "/send"]])`.
+   */
+  toHaveReceivedInOrder(calls: OrderedCall[]): R;
   /** The stub received a GraphQL request for `operation` (with `variables` as a subset, if given). */
   toHaveReceivedGraphQL(operation: string | RegExp, variables?: unknown): R;
   /** A GraphQL response without `errors`, whose `data` contains `expected` (if given). The failure message shows the errors. */
@@ -92,6 +101,40 @@ expect.extend({
         `Calls received:\n${describeCalls(received.calls())}`,
       actual,
       expected: n,
+    };
+  },
+
+  toHaveReceivedInOrder(received: unknown, expected: OrderedCall[]) {
+    if (typeof received !== "function") throw new TypeError("slicetest: toHaveReceivedInOrder takes the scenario's stub accessor: expect(stub).toHaveReceivedInOrder([...])");
+    const stubOf = received as (name: string) => Stub;
+    const startOf = (c: RecordedCall) => timeline.get(c)?.start ?? 0;
+    let after = -Infinity;
+    let failedAt = -1;
+    for (const [i, [name, method, path, match]] of expected.entries()) {
+      const next = stubOf(name)
+        .calls(method, path, match)
+        .map(startOf)
+        .filter((t) => t > after)
+        .sort((a, b) => a - b)[0];
+      if (next === undefined) {
+        failedAt = i;
+        break;
+      }
+      after = next;
+    }
+    const names = [...new Set(expected.map(([n]) => n))];
+    const all = names
+      .flatMap((n) => stubOf(n).calls().map((c) => ({ n, c })))
+      .sort((a, b) => startOf(a.c) - startOf(b.c))
+      .map(({ n, c }) => `  ${n}: ${c.graphql ? describeGraphQL(c.graphql) : `${c.method} ${c.path}`}`);
+    const label = ([n, m, p, match]: OrderedCall) => `${n}: ${m} ${p}${match && Object.keys(match).length ? ` with ${JSON.stringify(match, (_, v) => (v instanceof RegExp ? String(v) : v))}` : ""}`;
+    return {
+      pass: failedAt === -1,
+      message: () =>
+        failedAt === -1
+          ? `expected the stubs not to receive, in this order:\n${expected.map((e) => `  ${label(e)}`).join("\n")}`
+          : `expected the stubs to receive, in this order:\n${expected.map((e, i) => `  ${i === failedAt ? "✗" : i < failedAt ? "✓" : " "} ${label(e)}`).join("\n")}\n` +
+            `${failedAt === 0 ? "the first call never came" : `no matching call came after #${failedAt}`}. Calls received, in order:\n${all.join("\n") || "  (no calls)"}`,
     };
   },
 

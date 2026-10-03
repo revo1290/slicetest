@@ -196,3 +196,10 @@ test("ignored() reads columns, table.column and table.*", async () => {
   expect(ignored(list, "billing.invoices")).toEqual(new Set(["updated_at", "paid_at"]));
   expect(ignored(["invoices.*"], "billing.invoices")).toBe("*");
 });
+
+test("order steps need two calls in the <stub> METHOD /path form", () => {
+  const src = (order: string) => `scenarios:\n  - name: s\n    steps:\n      - order: ${order}\n`;
+  expect(parseScenarioFile(src('["a GET /x", { stub: b, call: POST /y, when: { json: { k: 1 } } }]'), "s.scenario.yaml").scenarios[0]!.steps[0]).toMatchObject({ order: ["a GET /x", { stub: "b" }] });
+  expect(() => parseScenarioFile(src('["a GET /x"]'), "s.scenario.yaml")).toThrow("lists at least two calls");
+  expect(() => parseScenarioFile(src('["a GET /x", "POST /y"]'), "s.scenario.yaml")).toThrow('"POST /y" should be "<stub> METHOD /path"');
+});

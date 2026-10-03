@@ -31,7 +31,7 @@ export interface YamlScenario {
   steps: Step[];
 }
 
-export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | SetStep | LogStep | SnapshotStep | MailStep | UseStep) & {
+export type Step = (StubStep | RequestStep | SubmitStep | InsertStep | MakeStep | ChaosStep | SqlStep | DbStep | ReceivedStep | ChangesStep | CheckpointStep | SetStep | OrderStep | LogStep | SnapshotStep | MailStep | UseStep) & {
   line: number;
   name?: string;
 };
@@ -194,6 +194,15 @@ export interface LogStep {
   within?: number;
 }
 
+/**
+ * Calls to stubs happened in this order (others may come in between):
+ * `order: ["stripe POST /v1/charges", { stub: mail, call: POST /send, when: { json: { to: a@b.test } } }]`.
+ */
+export interface OrderStep {
+  order: (string | { stub: string; call: string; when?: Conditions })[];
+  within?: number;
+}
+
 /** Define variables for later steps: `set: { orderId: "{{$uuid}}" }`. */
 export interface SetStep {
   set: Record<string, unknown>;
@@ -236,6 +245,7 @@ const KINDS = {
   log: ["from", "within"],
   checkpoint: [],
   set: [],
+  order: ["within"],
   snapshot: ["mask"],
   mail: ["times", "within", "capture"],
   make: ["rows", "count", "capture"],
@@ -399,6 +409,24 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
   } else if (kind === "use") {
     if (typeof raw.use !== "string" || !raw.use) fail(at(kind), "`use:` names a step list from `define:`");
     if (raw.with !== undefined && (!raw.with || typeof raw.with !== "object" || Array.isArray(raw.with))) fail(at("with"), "`with` maps params to values, e.g. { email: a@b.test }");
+  } else if (kind === "order") {
+    const list = raw.order;
+    if (!Array.isArray(list) || list.length < 2) fail(at(kind), "`order:` lists at least two calls, e.g. [\"stripe POST /v1/charges\", \"mail POST /send\"]");
+    for (const item of list as unknown[]) {
+      if (typeof item === "string") {
+        if (!/^\S+\s+([A-Za-z]+|\*)\s+\/\S*$/.test(item)) fail(at(kind), `"${item}" should be "<stub> METHOD /path", e.g. "mail POST /send"`);
+        continue;
+      }
+      if (!item || typeof item !== "object" || Array.isArray(item)) fail(at(kind), "each `order` entry is \"<stub> METHOD /path\" or { stub, call, when }");
+      const o = item as Record<string, unknown>;
+      for (const k of Object.keys(o)) if (!["stub", "call", "when"].includes(k)) fail(at(kind), `unknown key "${k}" in an order entry (allowed: stub, call, when)`);
+      if (typeof o.stub !== "string" || !o.stub) fail(at(kind), "an order entry needs `stub`");
+      if (typeof o.call !== "string" || !CALL.test(o.call)) fail(at(kind), `an order entry's \`call\` must look like "POST /path", got ${JSON.stringify(o.call)}`);
+      if (o.when !== undefined) {
+        if (!o.when || typeof o.when !== "object" || Array.isArray(o.when)) fail(at(kind), "`when` in an order entry must be a mapping");
+        for (const k of Object.keys(o.when as object)) if (!CONDITION_KEYS.includes(k)) fail(at(kind), `unknown key "${k}" in when (allowed: ${CONDITION_KEYS.join(", ")})`);
+      }
+    }
   } else if (kind === "set") {
     if (!raw.set || typeof raw.set !== "object" || Array.isArray(raw.set) || Object.keys(raw.set).length === 0) fail(at(kind), "`set:` maps variable names to values, e.g. { orderId: \"{{$uuid}}\" }");
     for (const k of Object.keys(raw.set as object)) if (!/^[A-Za-z_][\w]*$/.test(k)) fail(at(kind), `"${k}" isn't a variable name (letters, digits and _)`);

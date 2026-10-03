@@ -487,6 +487,7 @@ expect(responses).toHaveStatuses({ 201: 1, 409: 9 });            // an array, e.
 expect(stub("slack")).toHaveReceived("POST", "/hook", { json: { text: "hi" } });
 expect(stub("slack")).toHaveReceivedTimes(1, "POST", "/hook");
 expect(stub("mail")).not.toHaveReceived("POST", "/send");
+expect(stub).toHaveReceivedInOrder([["stripe", "POST", "/v1/charges"], ["mail", "POST", "/send"]]); // across stubs, others may come between
 expect(stub("github")).toHaveReceivedGraphQL("CreateIssue", { title: "Bug" });
 expect(await http.graphql(QUERY)).toHaveGraphQLData({ poll: { title: "x" } }); // no errors, data as a subset
 await expect(db).toHaveRow("polls", { title: "x" });             // at least one row
@@ -494,7 +495,7 @@ await expect(db).toHaveRow("votes", { poll_id: 1 }, 3);          // exactly thre
 expect(res).toMatchSchema("openapi.yaml#/components/schemas/Poll"); // a response's JSON, or any value; inline schemas too
 ```
 
-Failure messages list the calls the stub actually received, or the first rows of the table. `toMatchSchema` takes a JSON Schema object or a file with an optional pointer (relative to the working directory; JSON or YAML, OpenAPI 3.0 `nullable` understood, `$ref`s resolved within the file), and lists every mismatch by its JSON path: no OpenAPI setup is needed to check one response's shape.
+Failure messages list the calls the stub actually received, or the first rows of the table. `toHaveReceivedInOrder` is called on the scenario's `stub` accessor and checks the order of calls across stubs ("charge, then send the receipt"), each entry `[stub, method, path, match?]`; on failure it marks which entry didn't follow and lists every call to those stubs in the order they came. `toMatchSchema` takes a JSON Schema object or a file with an optional pointer (relative to the working directory; JSON or YAML, OpenAPI 3.0 `nullable` understood, `$ref`s resolved within the file), and lists every mismatch by its JSON path: no OpenAPI setup is needed to check one response's shape.
 
 ### Services: workers and other processes
 
@@ -800,6 +801,7 @@ scenarios:
 | `db: <table>` | `where`, `orderBy`, `expect: { rows, count }`, `capture` |
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |
 | `received: <stub>` | `call: METHOD /path` or `graphql: <operation>`, `when`, `times` (exact; default at least once) |
+| `order: [...]` | Calls to stubs in the order they must have come, others allowed between: `"stripe POST /v1/charges"` or `{ stub, call, when }`. Like `toHaveReceivedInOrder`. |
 | `log: <regex>` | `from` (a service; default the app), `within` (ms, default 5000). Waits for a matching line printed during the scenario. |
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. `ignore: [updated_at, sessions.*]` leaves out columns and tables. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
