@@ -87,7 +87,8 @@ export type Responder = StubResponse | ((call: RecordedCall) => StubResponse | P
  * `expect.*` asymmetric matchers receive the actual value.
  */
 export interface MatchOptions {
-  query?: Record<string, Matcher>;
+  /** A list matches a repeated parameter's values in order: `{ ids: ["1", "2"] }` for `?ids=1&ids=2`. */
+  query?: Record<string, Matcher | Matcher[]>;
   headers?: Record<string, Matcher>;
   json?: unknown;
   /** Subset of a form-encoded body's fields (`call.form`). Numbers and booleans compare as the strings sent. */
@@ -498,7 +499,8 @@ export class Stub {
 function splitQuery(path: string | RegExp, match: MatchOptions) {
   if (typeof path !== "string" || !path.includes("?")) return { path, match };
   const [bare, search] = [path.slice(0, path.indexOf("?")), path.slice(path.indexOf("?") + 1)];
-  const query: Record<string, Matcher> = Object.fromEntries(new URLSearchParams(search));
+  const params = new URLSearchParams(search);
+  const query: Record<string, Matcher | Matcher[]> = Object.fromEntries([...new Set(params.keys())].map((k) => [k, params.getAll(k).length > 1 ? params.getAll(k) : params.get(k)!]));
   return { path: bare || "/", match: { ...match, query: { ...query, ...match.query } } };
 }
 
@@ -539,7 +541,7 @@ function decodeSegment(segment: string) {
 
 function matchConditions(match: MatchOptions, call: RecordedCall) {
   for (const [k, m] of Object.entries(match.query ?? {})) {
-    if (!test(m, call.query.get(k) ?? undefined)) return false;
+    if (!testQuery(m, call.query, k)) return false;
   }
   for (const [k, m] of Object.entries(match.headers ?? {})) {
     const v = call.headers[k.toLowerCase()];
@@ -561,8 +563,10 @@ function matchConditions(match: MatchOptions, call: RecordedCall) {
 /** The first condition of `match` that `call` fails, described; undefined when it meets them all. */
 function conditionMismatch(match: MatchOptions, call: RecordedCall): string | undefined {
   for (const [k, m] of Object.entries(match.query ?? {})) {
-    const v = call.query.get(k) ?? undefined;
-    if (!test(m, v)) return `query ${k}: expected ${show(m)}, got ${v === undefined ? "nothing" : JSON.stringify(v)}`;
+    if (testQuery(m, call.query, k)) continue;
+    const all = call.query.getAll(k);
+    const got = all.length === 0 ? "nothing" : Array.isArray(m) || all.length > 1 ? JSON.stringify(all) : JSON.stringify(all[0]);
+    return `query ${k}: expected ${Array.isArray(m) ? `[${m.map(show).join(", ")}]` : show(m)}, got ${got}`;
   }
   for (const [k, m] of Object.entries(match.headers ?? {})) {
     const raw = call.headers[k.toLowerCase()];
@@ -651,6 +655,13 @@ function distance(a: string, b: string) {
     }
   }
   return row[b.length]!;
+}
+
+/** A query condition: one matcher for the first value, or a list for every value of a repeated parameter, in order. */
+function testQuery(m: Matcher | Matcher[], query: URLSearchParams, key: string) {
+  if (!Array.isArray(m)) return test(m, query.get(key) ?? undefined);
+  const values = query.getAll(key);
+  return values.length === m.length && m.every((x, i) => test(x, values[i]));
 }
 
 function test(m: Matcher, value: string | undefined): boolean {

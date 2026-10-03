@@ -294,7 +294,7 @@ stub("slack").calls("POST", "/hook");                         // recorded calls:
 
 Form-encoded bodies (Stripe, Twilio, OAuth token requests) are parsed into `call.form`, with bracket keys nested the way those providers read them: `metadata[order]=7&items[0][price]=p_1` is `{ metadata: { order: "7" }, items: [{ price: "p_1" }] }`. `form` conditions match a subset of it, and numbers and booleans compare with the strings sent. `multipart/form-data` bodies are read the same way, with each file as `{ filename, type, size, text }` (`text` for text, JSON, XML and CSV files), so `form: { avatar: { filename: "a.png", type: "image/png" } }` checks an upload the app passed on.
 
-Later routes win. `path` may also be a RegExp, and `method` may be `*`. A query written into the path (`on("GET", "/search?q=tea")`, also in `calls()`, `toHaveReceived()` and YAML stubs) is a condition on those parameters, like `query: { q: "tea" }`; other parameters may come along. Unanswered calls get a `501` and fail the scenario, with the closest route and why it didn't match (`stub.explain(call)`).
+Later routes win. `path` may also be a RegExp, and `method` may be `*`. A query written into the path (`on("GET", "/search?q=tea")`, also in `calls()`, `toHaveReceived()` and YAML stubs) is a condition on those parameters, like `query: { q: "tea" }`; other parameters may come along. A list matches a repeated parameter's values in order: `query: { ids: ["1", "2"] }` for `?ids=1&ids=2`. Unanswered calls get a `501` and fail the scenario, with the closest route and why it didn't match (`stub.explain(call)`).
 
 ### OpenAPI contracts — for your app and for the services you stub
 

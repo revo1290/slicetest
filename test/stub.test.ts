@@ -306,3 +306,15 @@ test("a query in a route's path is a condition on those parameters, also for cal
   expect(stub).toHaveReceived("GET", "/users/:id?expand=team");
   expect(stub.explain(stub.unmatched()[0]!)).toContain('query q: expected "tea", got "coffee"');
 });
+
+test("a list in a query condition matches a repeated parameter's values in order", async () => {
+  stub.on("GET", "/items", { query: { ids: ["1", /^\d+$/] } }).reply(200, { ok: 1 });
+  stub.on("GET", "/tags?t=a&t=b").reply(200, { ok: 2 });
+
+  expect((await fetch(`${stub.url}/items?ids=1&ids=22`)).status).toBe(200);
+  expect((await fetch(`${stub.url}/items?ids=1`)).status).toBe(501);
+  expect((await fetch(`${stub.url}/tags?t=a&t=b`)).status).toBe(200);
+  expect((await fetch(`${stub.url}/tags?t=b&t=a`)).status).toBe(501);
+  expect(stub.calls("GET", "/items", { query: { ids: ["1", "22"] } })).toHaveLength(1);
+  expect(stub.explain(stub.unmatched()[0]!)).toContain('query ids: expected ["1", /^\\d+$/], got ["1"]');
+});

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Stub `query` conditions take a list for a repeated parameter (`query: { ids: ["1", "2"] }` matches `?ids=1&ids=2`, in order); before, only the first value could be checked. A repeated parameter in a route's path (`/tags?t=a&t=b`) means the same.
 - YAML matcher `$closeTo`: `{ $closeTo: 0.3 }` matches a number within ±0.005 (so `0.1 + 0.2` passes), `{ $closeTo: [10, 0.5] }` sets the tolerance. Decimal strings from `numeric` columns compare too.
 - Streaming responses from the app: a `text/event-stream` response (an LLM chat endpoint, live updates) comes with `res.events`, each `{ event, data, id }` with `data` parsed as JSON when it is JSON. YAML `expect.events` checks events in order, others allowed between (`[{ event: message_start }, { data: "[DONE]" }]`), with matchers, and `capture` reads them (`events.0.data.id`). A failure lists the events that arrived.
 - Cookie attributes: `expect(res).toSetCookie("sid", { httpOnly: true, secure: true, sameSite: "Lax" })` and YAML `expect: { cookies: { sid: { httpOnly: true }, tracking: null } }` check the cookies a response sets and their attributes (`value`, `httpOnly`, `secure`, `sameSite`, `path`, `domain`, `maxAge`, `expires`, `partitioned`; `null` for a cookie it must not set). The failure lists every cookie the response did set.
