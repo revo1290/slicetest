@@ -657,7 +657,7 @@ function interpolateTitle(name: string, row: Record<string, unknown>, index: num
   });
 }
 
-function verifyResponse(res: HttpResponse, e: { duration?: number | Record<string, unknown>; status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
+function verifyResponse(res: HttpResponse, e: { cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
   if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as never);
   if (e?.headers !== undefined) {
     const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
@@ -665,6 +665,12 @@ function verifyResponse(res: HttpResponse, e: { duration?: number | Record<strin
   }
   if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
   if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
+  if (e?.cookies !== undefined) {
+    for (const [name, attrs] of Object.entries(e.cookies)) {
+      if (attrs === null) expect(res).not.toSetCookie(name);
+      else expect(res).toSetCookie(name, toMatchers(interpolate(attrs, vars)) as Record<string, unknown>);
+    }
+  }
   if (e?.duration !== undefined) {
     const want = interpolate(e.duration, vars);
     if (typeof want === "number") expect(res).toRespondWithin(want);

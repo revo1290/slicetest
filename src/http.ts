@@ -321,6 +321,47 @@ export class HttpClient {
   }
 }
 
+/** A `Set-Cookie` header's cookie and attributes, as `toSetCookie()` and YAML `expect.cookies` compare them. */
+export interface SetCookie {
+  name: string;
+  value: string;
+  httpOnly: boolean;
+  secure: boolean;
+  /** As sent, e.g. `Lax`; undefined when the attribute is missing. */
+  sameSite?: string;
+  path?: string;
+  domain?: string;
+  maxAge?: number;
+  expires?: string;
+  partitioned: boolean;
+}
+
+/** The cookies a response sets, by name (the last one wins when a name repeats). */
+export function setCookies(res: Pick<HttpResponse, "headers">): Record<string, SetCookie> {
+  const out: Record<string, SetCookie> = {};
+  for (const header of res.headers.getSetCookie()) {
+    const [pair, ...attrs] = header.split(";");
+    const eq = pair!.indexOf("=");
+    if (eq <= 0) continue;
+    const cookie: SetCookie = { name: pair!.slice(0, eq).trim(), value: pair!.slice(eq + 1).trim(), httpOnly: false, secure: false, partitioned: false };
+    for (const a of attrs) {
+      const i = a.indexOf("=");
+      const k = (i < 0 ? a : a.slice(0, i)).trim().toLowerCase();
+      const v = i < 0 ? "" : a.slice(i + 1).trim();
+      if (k === "httponly") cookie.httpOnly = true;
+      else if (k === "secure") cookie.secure = true;
+      else if (k === "partitioned") cookie.partitioned = true;
+      else if (k === "samesite") cookie.sameSite = v;
+      else if (k === "path") cookie.path = v;
+      else if (k === "domain") cookie.domain = v;
+      else if (k === "max-age") cookie.maxAge = Number(v);
+      else if (k === "expires") cookie.expires = v;
+    }
+    Object.defineProperty(out, cookie.name, { value: cookie, enumerable: true, writable: true, configurable: true });
+  }
+  return out;
+}
+
 /** RFC 6265 5.1.4: the request path's directory, e.g. "/auth" for "/auth/login". */
 function defaultCookiePath(requestPath: string) {
   const slash = requestPath.lastIndexOf("/");

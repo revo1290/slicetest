@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { Db, type Where } from "./db.js";
-import type { HttpResponse } from "./http.js";
+import { setCookies, type HttpResponse, type SetCookie } from "./http.js";
 import { describeGraphQL } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
 import { Stub, subset, type MatchOptions, type RecordedCall } from "./stub.js";
@@ -30,6 +30,12 @@ interface SlicetestMatchers<R = unknown> {
   toMatchSchema(schema: object | string): R;
   /** The response has this status, a status of this class (`"2xx"`) or one of a list (`[200, 204]`); the failure message shows the response body. */
   toHaveStatus(status: number | `${1 | 2 | 3 | 4 | 5}xx` | (number | `${1 | 2 | 3 | 4 | 5}xx`)[]): R;
+  /**
+   * The response sets cookie `name`, with these attributes as a subset (`value`, `httpOnly`,
+   * `secure`, `sameSite`, `path`, `domain`, `maxAge`, `expires`, `partitioned`):
+   * `expect(res).toSetCookie("sid", { httpOnly: true, secure: true, sameSite: "Lax" })`.
+   */
+  toSetCookie(name: string, attributes?: Record<string, unknown>): R;
   /** The response arrived within `ms` milliseconds (measured from sending the request to reading the whole body). */
   toRespondWithin(ms: number): R;
   /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`. */
@@ -220,6 +226,27 @@ expect.extend({
       },
       actual: received?.status,
       expected: status,
+    };
+  },
+
+  toSetCookie(received: HttpResponse, name: string, attributes: Record<string, unknown> = {}) {
+    if (!received || typeof received !== "object" || !(received.headers instanceof Headers)) {
+      throw new TypeError(`slicetest: toSetCookie expects a response from http, got ${this.utils.stringify(received)}`);
+    }
+    const cookies = setCookies(received);
+    const cookie = Object.hasOwn(cookies, name) ? cookies[name] : undefined;
+    const sameSite = (v: unknown) => (typeof v === "string" ? v.toLowerCase() : v);
+    // SameSite values are case-insensitive: "Lax" and "lax" are the same attribute.
+    const want = "sameSite" in attributes && typeof attributes.sameSite === "string" ? { ...attributes, sameSite: sameSite(attributes.sameSite) } : attributes;
+    const pass = !!cookie && subset(want, { ...cookie, sameSite: sameSite(cookie.sameSite) });
+    const describe = (c: SetCookie): string => `${c.name}=${c.value.length > 40 ? `${c.value.slice(0, 40)}…` : c.value} ${JSON.stringify(Object.fromEntries(Object.entries(c as unknown as Record<string, unknown>).filter(([k, v]) => k !== "name" && k !== "value" && v !== undefined && v !== false)))}`;
+    return {
+      pass,
+      message: () => {
+        const head = `expected ${received.method} ${received.url} ${this.isNot ? "not " : ""}to set cookie ${name}${Object.keys(attributes).length ? ` with ${this.utils.stringify(attributes, 10, { min: true })}` : ""}`;
+        const all = Object.values(cookies);
+        return `${head}\n${all.length ? `Cookies it set:\n${all.map((c) => `  ${describe(c)}`).join("\n")}` : "It set no cookies."}`;
+      },
     };
   },
 

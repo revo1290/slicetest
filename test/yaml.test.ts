@@ -35,6 +35,7 @@ test.each([
   ["scenarios:\n  - name: a\n    steps:\n      - log: \"(\"\n", "`log` must be a regular expression"],
   ["scenarios:\n  - name: a\n    steps:\n      - db: t\n        within: 0\n", "`within` must be a positive number of milliseconds"],
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { duration: 0 }\n", "`expect.duration` is a number of milliseconds (at most)"],
+  ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { cookies: { sid: true } }\n", "`expect.cookies` maps cookie names to attributes"],
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 100\n        concurrency: 2\n", "can't be combined with `concurrency`"],
 ])("rejects %j", (text, message) => {
   expect(() => parse(text)).toThrow(message);

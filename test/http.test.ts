@@ -16,6 +16,7 @@ beforeAll(async () => {
     if (req.url === "/keep") return res.writeHead(307, { location: "/echo" }).end();
     if (req.url === "/away") return res.writeHead(302, { location: "https://example.com/" }).end();
     if (req.url === "/auth/token") return res.writeHead(204, { "set-cookie": ["refresh=r1; Path=/auth/refresh; HttpOnly", "csrf=c1"] }).end();
+    if (req.url === "/secure-login") return res.writeHead(204, { "set-cookie": ["sid=s3cr3t; Path=/; HttpOnly; Secure; SameSite=lax; Max-Age=3600", "theme=dark"] }).end();
     if (req.url === "/stale") return res.writeHead(204, { "set-cookie": "late=1; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT" }).end();
     if (req.url === "/slow") return void setTimeout(() => res.writeHead(200).end("late"), 500);
     if (req.url === "/logout") return res.writeHead(204, { "set-cookie": "sid=; Max-Age=0; Path=/" }).end();
@@ -193,4 +194,19 @@ test("toRespondWithin checks the response time", async () => {
   expect(slow).not.toRespondWithin(400);
   expect(() => expect(slow).toRespondWithin(400)).toThrow(/expected GET \/slow to respond within 400ms, it took \d+ms/);
   expect(() => expect(fast).toRespondWithin(0)).toThrow("toRespondWithin needs a positive number of milliseconds, got 0");
+});
+
+test("toSetCookie checks a cookie the response sets and its attributes", async () => {
+  const res = await new HttpClient(baseUrl).post("/secure-login");
+
+  expect(res).toSetCookie("sid", { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: 3600 });
+  expect(res).toSetCookie("sid", { value: expect.stringMatching(/^s3/) });
+  expect(res).toSetCookie("theme");
+  expect(res).not.toSetCookie("theme", { httpOnly: true });
+  expect(res).not.toSetCookie("tracking");
+  expect(() => expect(res).toSetCookie("theme", { httpOnly: true, sameSite: "Strict" })).toThrow(
+    'expected POST /secure-login to set cookie theme with {"httpOnly": true, "sameSite": "Strict"}\nCookies it set:\n  sid=s3cr3t {"httpOnly":true,"secure":true,"path":"/","sameSite":"lax","maxAge":3600}\n  theme=dark {}',
+  );
+  const plain = await new HttpClient(baseUrl).get("/x");
+  expect(() => expect(plain).toSetCookie("sid")).toThrow("It set no cookies.");
 });

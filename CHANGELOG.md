@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Cookie attributes: `expect(res).toSetCookie("sid", { httpOnly: true, secure: true, sameSite: "Lax" })` and YAML `expect: { cookies: { sid: { httpOnly: true }, tracking: null } }` check the cookies a response sets and their attributes (`value`, `httpOnly`, `secure`, `sameSite`, `path`, `domain`, `maxAge`, `expires`, `partitioned`; `null` for a cookie it must not set). The failure lists every cookie the response did set.
 - Response-time budgets: `expect(res).toRespondWithin(300)` and YAML `expect: { duration: 300 }` (or a matcher, `duration: { $lt: 300 }`) fail a request the app answered too slowly, naming the time it took. Unlike a load test, they run on every scenario against the real database, so a missing index or an N+1 shows up as a failed budget.
 - `toHaveStatus()` and YAML `expect.status` take a class (`"2xx"`) or a list (`[200, 204]`, `["2xx", 304]`), for endpoints whose exact success code doesn't matter or differs between implementations. A numeric string (`"201"`) counts as the code. `toHaveStatus()` on something that isn't a response now says so instead of throwing a `TypeError` about `text`.
 - `npx slicetest` takes `-u` / `--update` to rewrite `snapshot: true` snapshots that no longer match (before, YAML-only projects had no way to update them), `--reporter` (`junit`, `json`, `tap`, `dot`, `verbose`, …, repeatable) with `--output-file` for CI test reports, and `--shard <i>/<n>` to split the suite across CI jobs.

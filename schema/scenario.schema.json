@@ -676,6 +676,16 @@
                   "description": "Subset of the response JSON"
                 },
                 "text": {},
+                "cookies": {
+                  "type": "object",
+                  "description": "Cookies the response sets, by name: attributes as a subset ({ httpOnly: true, sameSite: Lax, value: ... }), or null for one it must not set",
+                  "additionalProperties": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  }
+                },
                 "duration": {
                   "description": "The response arrived within this many milliseconds, or a matcher on the time: { $lt: 200 }",
                   "type": [
@@ -935,6 +945,16 @@
                   "description": "Subset of the response JSON"
                 },
                 "text": {},
+                "cookies": {
+                  "type": "object",
+                  "description": "Cookies the response sets, by name: attributes as a subset ({ httpOnly: true, sameSite: Lax, value: ... }), or null for one it must not set",
+                  "additionalProperties": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  }
+                },
                 "duration": {
                   "description": "The response arrived within this many milliseconds, or a matcher on the time: { $lt: 200 }",
                   "type": [
