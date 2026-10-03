@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
+
+Checks that reach further into what an app answers (status classes, response-time budgets, cookie attributes, server-sent events), a CLI that fits any CI (`-u`, JUnit and other reporters, shards), SQL migrations from Go and Rust tools applied correctly, and recordings safe to commit. Plus fixes found along the way, several of which let a broken scenario pass.
 
 - Stub `query` conditions take a list for a repeated parameter (`query: { ids: ["1", "2"] }` matches `?ids=1&ids=2`, in order); before, only the first value could be checked. A repeated parameter in a route's path (`/tags?t=a&t=b`) means the same.
 - YAML matcher `$closeTo`: `{ $closeTo: 0.3 }` matches a number within ±0.005 (so `0.1 + 0.2` passes), `{ $closeTo: [10, 0.5] }` sets the tolerance. Decimal strings from `numeric` columns compare too.
