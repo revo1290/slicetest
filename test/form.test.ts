@@ -121,3 +121,11 @@ test("an image button sends the click position", () => {
   const page = `<form method="post" action="/pay"><input name="amount" value="5"><input type="image" name="pay" src="pay.png" alt="Pay"></form>`;
   expect(String(formRequest(page, { button: "Pay" }).body)).toBe("amount=5&pay.x=0&pay.y=0");
 });
+
+test("controls in a disabled fieldset aren't sent, and its buttons can't be pressed", () => {
+  const page = `<form method="post" action="/a"><input name="keep" value="1">
+    <fieldset disabled><input name="locked" value="2"><fieldset><input name="nested" value="3"></fieldset><button name="b">Locked</button></fieldset>
+    <fieldset><input name="open" value="4"></fieldset><button>Go</button></form>`;
+  expect(String(formRequest(page, { button: "Go" }).body)).toBe("keep=1&open=4");
+  expect(() => formRequest(page, { button: "Locked" })).toThrow("is disabled");
+});

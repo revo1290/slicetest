@@ -78,7 +78,10 @@ export function parseForms(html: string): ParsedForm[] {
   let select: Control | undefined;
   let option: { attrs: Record<string, string>; start: number } | undefined;
 
+  // Controls inside a disabled <fieldset> are disabled too (and not submitted).
+  const fieldsets: boolean[] = [];
   const add = (control: Control) => {
+    if (fieldsets.includes(true)) control.attrs.disabled ??= "";
     const formId = control.attrs.form;
     if (formId !== undefined) orphans.push({ formId, control });
     else current?.controls.push(control);
@@ -98,6 +101,11 @@ export function parseForms(html: string): ParsedForm[] {
     if (!closing && RAW_TEXT.has(tag)) {
       const end = html.toLowerCase().indexOf(`</${tag}`, TAG.lastIndex);
       TAG.lastIndex = end < 0 ? html.length : end;
+      continue;
+    }
+    if (tag === "fieldset") {
+      if (closing) fieldsets.pop();
+      else fieldsets.push("disabled" in parseAttrs(m[3] ?? ""));
       continue;
     }
     if (tag === "form") {
