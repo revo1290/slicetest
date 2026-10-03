@@ -182,6 +182,8 @@ export type ChangeSpec = { inserted?: number | unknown[]; updated?: number | unk
 export interface ChangesStep {
   changes: Record<string, ChangeSpec>;
   within?: number;
+  /** Columns or tables to leave out: `updated_at`, `orders.synced_at`, `sessions.*`. */
+  ignore?: string[];
 }
 
 /** Wait until the app (or `from:` a service) prints a line matching `log` (a regex) during the scenario. */
@@ -230,7 +232,7 @@ const KINDS = {
   sql: ["params", "expect", "capture", "within"],
   db: ["where", "orderBy", "expect", "capture", "within"],
   received: ["call", "graphql", "when", "times", "within"],
-  changes: ["within"],
+  changes: ["within", "ignore"],
   log: ["from", "within"],
   checkpoint: [],
   set: [],
@@ -369,6 +371,7 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     if (!allowed.has(key)) fail(at(key), `unknown key "${key}" in a ${kind} step (allowed: ${[...allowed].join(", ")})`);
   }
   if (kind === "changes") {
+    if (raw.ignore !== undefined && !(Array.isArray(raw.ignore) && raw.ignore.every((c) => typeof c === "string" && c))) fail(at("ignore"), "`ignore` must be a list of columns or tables, e.g. [updated_at, sessions.*]");
     const tables = raw.changes;
     if (!tables || typeof tables !== "object" || Array.isArray(tables)) fail(at(kind), "`changes:` must map table names to { inserted, updated, deleted }");
     for (const [table, spec] of Object.entries(tables as object)) {

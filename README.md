@@ -243,7 +243,7 @@ expect(await db.changes()).toEqual({
 });
 ```
 
-`toEqual` fails if the app wrote to a table you didn't list, which catches unexpected side effects. Each entry in `updated` has `key`, `before`, `after` and `changed`. Tables without a primary key report an update as one deleted row plus one inserted row. `bigint` columns (bigserial ids, `count(*)`) come back as numbers when they fit safely.
+`toEqual` fails if the app wrote to a table you didn't list, which catches unexpected side effects. Values the app sets on every write would make that brittle, so leave them out: `db.changes({ ignore: ["updated_at", "orders.synced_at", "sessions.*"] })` drops a column in every table, a column in one table, or a whole table, and an update that only touched ignored columns isn't reported. `db: { ignoreChanges: [...] }` in the config does the same for every `changes()`, YAML `changes` step (which also takes `ignore:`), `trace()` snapshot and failure output. Each entry in `updated` has `key`, `before`, `after` and `changed`. Tables without a primary key report an update as one deleted row plus one inserted row. `bigint` columns (bigserial ids, `count(*)`) come back as numbers when they fit safely.
 
 #### `db.queries()` — the SQL the app ran, from any language
 
@@ -724,6 +724,7 @@ Tags select scenarios across files: `npx slicetest --tag smoke` (repeat `--tag` 
 | `db.seed` | none | SQL file re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |
 | `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |
+| `db.ignoreChanges` | `[]` | Columns (`updated_at`, `orders.synced_at`) and tables (`sessions.*`) left out of `db.changes()`, `trace()` and the failure output. |
 | `db.neon` | `false` | For Neon's serverless driver over HTTP: `{{db.url}}` is a Neon-style URL and slicetest answers the driver's queries from the test database ([Neon](#neon-and-vercel-postgres)). |
 | `db.queries` | `false` | Point the app at a proxy that records its SQL (Postgres, MySQL), for [`db.queries()`](#dbqueries--the-sql-the-app-ran-from-any-language). |
 | `db.url` | `$SLICETEST_DATABASE_URL`, else a container | Use an existing Postgres server (e.g. a CI service container) instead of Testcontainers. |
@@ -800,7 +801,7 @@ scenarios:
 | `sql: <query>` | `params`, `expect: { rows, count }`, `capture` |
 | `received: <stub>` | `call: METHOD /path` or `graphql: <operation>`, `when`, `times` (exact; default at least once) |
 | `log: <regex>` | `from` (a service; default the app), `within` (ms, default 5000). Waits for a matching line printed during the scenario. |
-| `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. |
+| `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. `ignore: [updated_at, sessions.*]` leaves out columns and tables. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
 | `set: { name: value }` | Defines variables for later steps, e.g. `{ orderId: "{{$uuid}}", expires: "{{$now+1d}}" }`. |
 | `mail: { to, from, subject, text, html }` | `times` (exact; default at least one), `within` (ms, default 5000), `capture` from the last match (`subject`, `text`, `links.0`). Waits for mail the app sends. `{}` matches any message. |

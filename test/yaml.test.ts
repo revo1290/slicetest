@@ -186,3 +186,13 @@ test("a reply file excludes body, sse and GraphQL answers", () => {
   expect(parseScenarioFile(src("{ file: replies/a.json, status: 201 }"), "s.scenario.yaml").scenarios[0]!.steps[0]).toMatchObject({ reply: { file: "replies/a.json", status: 201 } });
   expect(() => parseScenarioFile(src("{ file: a.json, body: x }"), "s.scenario.yaml")).toThrow("a reply has `file` instead of `body`");
 });
+
+test("ignored() reads columns, table.column and table.*", async () => {
+  const { ignored } = await import("../src/db.js");
+  const list = ["updated_at", "orders.synced_at", "sessions.*", "billing.invoices.paid_at"];
+  expect(ignored(list, "orders")).toEqual(new Set(["updated_at", "synced_at"]));
+  expect(ignored(list, "users")).toEqual(new Set(["updated_at"]));
+  expect(ignored(list, "sessions")).toBe("*");
+  expect(ignored(list, "billing.invoices")).toEqual(new Set(["updated_at", "paid_at"]));
+  expect(ignored(["invoices.*"], "billing.invoices")).toBe("*");
+});

@@ -40,3 +40,19 @@ scenarios:
       - db: posts
         where: { title: "{{other}}" }
         expect: { count: 0 }
+
+  - name: a changes step can ignore columns
+    steps:
+      - insert: authors
+        rows: [{ name: ada }]
+      - checkpoint: true
+      - request: POST /posts
+        json: { author: ada, title: Ignored }
+      - sql: UPDATE posts SET published = 1
+      - changes:
+          posts: { inserted: [{ title: Ignored }] }
+        ignore: [published]
+      - sql: UPDATE authors SET name = 'grace'
+      - changes:
+          posts: { inserted: 1 }
+        ignore: [published, authors.*]

@@ -91,3 +91,8 @@ test("app.scope and workers are validated", () => {
   expect(() => resolveOptions({ ...valid, workers: 0 }, "/")).toThrow("workers must be a positive whole number, got 0");
   expect(resolveOptions({ app: { command: "x", scope: "worker" }, workers: 2 }, "/")).toMatchObject({ app: { scope: "worker" }, workers: 2 });
 });
+
+test("db.ignoreChanges is a list of columns or tables", () => {
+  expect(resolveOptions({ ...valid, db: { ignoreChanges: ["updated_at", "sessions.*"] } }, "/").db.ignoreChanges).toEqual(["updated_at", "sessions.*"]);
+  expect(() => resolveOptions({ ...valid, db: { ignoreChanges: "updated_at" as never } }, "/")).toThrow("db.ignoreChanges must be a list of columns or tables");
+});

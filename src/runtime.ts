@@ -130,6 +130,7 @@ export class Runtime {
         ? await Db.connect(await engine.driver(url), url, {
             schemas: opts.db.schemas,
             keep: opts.db.keep,
+            ignoreChanges: opts.db.ignoreChanges,
             seedFile: opts.db.seed && path.resolve(opts.root, opts.db.seed),
           })
         : noDatabase();

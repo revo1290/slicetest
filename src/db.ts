@@ -51,6 +51,11 @@ export interface TableChanges<T extends Row = Row> {
   deleted: T[];
 }
 
+export interface ChangesOptions {
+  /** Columns or tables to leave out: `updated_at` (in every table), `orders.synced_at`, `sessions.*`. Added to `db.ignoreChanges`. */
+  ignore?: string[];
+}
+
 /** Changed tables only, keyed by table name (`schema.table` outside `public`). */
 export type Changes = Record<string, TableChanges>;
 
@@ -71,7 +76,7 @@ export class Db {
   private constructor(
     driver: Driver,
     readonly url: string,
-    private readonly opts: { schemas: string[]; keep: string[] },
+    private readonly opts: { schemas: string[]; keep: string[]; ignoreChanges?: string[] },
   ) {
     this.#driver = driver;
     this.#factory = new Factory(
@@ -80,7 +85,7 @@ export class Db {
     );
   }
 
-  static async connect(driver: Driver, url: string, opts: { schemas: string[]; keep: string[]; seedFile?: string }) {
+  static async connect(driver: Driver, url: string, opts: { schemas: string[]; keep: string[]; ignoreChanges?: string[]; seedFile?: string }) {
     const db = new Db(driver, url, opts);
     if (opts.seedFile) db.#seed = await readFile(opts.seedFile, "utf8");
     return db;
@@ -199,9 +204,9 @@ export class Db {
    * expect(await db.changes()).toEqual({ polls: { inserted: [expect.objectContaining({ title: "x" })], updated: [], deleted: [] } });
    * ```
    */
-  async changes(): Promise<Changes> {
+  async changes(opts: ChangesOptions = {}): Promise<Changes> {
     const base = this.#checkpoint === undefined || this.#checkpoint === "start" ? this.#start : this.#checkpoint;
-    return diff(this.#tables ?? [], base, await this.#snapshot());
+    return diff(this.#tables ?? [], base, await this.#snapshot(), [...(this.opts.ignoreChanges ?? []), ...(opts.ignore ?? [])]);
   }
 
   /** Make `changes()` report only what happens from now on. */
@@ -211,7 +216,7 @@ export class Db {
 
   /** Changes since the scenario started, regardless of checkpoints. Used for failure output. */
   async changesSinceStart(): Promise<Changes> {
-    return diff(this.#tables ?? [], this.#start, await this.#snapshot());
+    return diff(this.#tables ?? [], this.#start, await this.#snapshot(), this.opts.ignoreChanges ?? []);
   }
 
   /** Every tracked table's rows, in one round trip. */
@@ -254,11 +259,36 @@ export class Db {
   }
 }
 
-function diff(tables: Table[], before: Snapshot | undefined, after: Snapshot): Changes {
+/**
+ * What `ignore` leaves out of one table: `"*"` for the whole table, else the columns.
+ * `updated_at` is that column in every table, `orders.synced_at` in one, `sessions.*` the whole table
+ * (the last segment is the column, so `billing.invoices.*` works for other schemas).
+ */
+export function ignored(ignore: readonly string[], table: string): "*" | Set<string> {
+  const columns = new Set<string>();
+  for (const entry of ignore) {
+    const dot = entry.lastIndexOf(".");
+    if (dot === -1) {
+      columns.add(entry);
+      continue;
+    }
+    const t = entry.slice(0, dot);
+    if (t !== table && !(t === table.split(".").pop() && !t.includes("."))) continue;
+    const column = entry.slice(dot + 1);
+    if (column === "*") return "*";
+    columns.add(column);
+  }
+  return columns;
+}
+
+function diff(tables: Table[], before: Snapshot | undefined, after: Snapshot, ignore: readonly string[] = []): Changes {
   const out: Changes = {};
   for (const table of tables) {
-    const a = before?.get(table.name) ?? [];
-    const b = after.get(table.name) ?? [];
+    const skip = ignored(ignore, table.name);
+    if (skip === "*") continue;
+    const strip = (rows: Row[]) => (skip.size ? rows.map((r) => Object.fromEntries(Object.entries(r).filter(([c]) => !skip.has(c)))) : rows);
+    const a = strip(before?.get(table.name) ?? []);
+    const b = strip(after.get(table.name) ?? []);
     const changes = table.key.length > 0 ? diffByKey(a, b, table.key) : diffAsBags(a, b);
     if (changes.inserted.length || changes.updated.length || changes.deleted.length) out[table.name] = changes;
   }

@@ -59,3 +59,22 @@ scenario("http.submit picks the form by its button and says what's on the page o
   await expect(http.submit(page)).rejects.toThrow("the page has 2 forms");
   await expect(http.submit(res)).rejects.toThrow("(the page: POST /signup → 303, a redirect to /authors/1; request it with follow: true)");
 });
+
+scenario("db.changes({ ignore }) leaves out columns and whole tables", async ({ db }) => {
+  await db.insert("authors", { name: "ada" });
+  await db.insert("posts", { author_id: 1, title: "draft" });
+  await db.query("UPDATE posts SET published = 1 WHERE id = 1");
+
+  // The update only touched an ignored column, so the post reads as inserted with no later update.
+  expect(await db.changes({ ignore: ["published", "authors.*"] })).toEqual({
+    posts: { inserted: [{ id: 1, author_id: 1, title: "draft" }], updated: [], deleted: [] },
+  });
+  await db.checkpoint();
+  await db.query("UPDATE posts SET published = 0, title = 'final' WHERE id = 1");
+  expect((await db.changes({ ignore: ["posts.published"] })).posts!.updated).toEqual([
+    { key: { id: 1 }, before: { id: 1, author_id: 1, title: "draft" }, after: { id: 1, author_id: 1, title: "final" }, changed: ["title"] },
+  ]);
+  await db.checkpoint();
+  await db.query("UPDATE posts SET published = 1 WHERE id = 1");
+  expect(await db.changes({ ignore: ["published"] })).toEqual({});
+});

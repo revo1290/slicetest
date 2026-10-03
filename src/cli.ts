@@ -51,14 +51,14 @@ Options:
 
 Config (paths are relative to the config file):
   app:      { command, env, cwd, ready: { path } | { log }, readyTimeout }
-  db:       { migrate: { atlas: { dir } } | { sql } | { command, inputs }, engine, seed, url, image, schemas, keep, reuse, queries }
+  db:       { migrate: { atlas: { dir } } | { sql } | { command, inputs }, engine, seed, url, image, schemas, keep, ignoreChanges, reuse, queries }
   stubs:    [name | { name, openapi, autoReply, upstream, recordings }]
   services: { name: { command, env, cwd, ready } }
   containers: { name: { image, port, env, command, ready: { log }, reset } }
   mail:     true    SMTP server at {{mail.host}} / {{mail.port}}
   auth:     true | { audience, claims }   OpenID issuer at {{auth.issuer}} / {{auth.jwks}}
   openapi:  file | { spec, minCoverage }
-  http:     { headers, query }
+  http:     { headers, query, timeout }
   offline:  true    refuse calls to hosts no stub answers
   strictStubs: true fail scenarios with stub routes the app never called
   include:  [globs]  default ["**/*.scenario.{yaml,yml}"]

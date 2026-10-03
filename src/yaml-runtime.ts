@@ -148,7 +148,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
   }
 
   if ("changes" in step) {
-    const actual = await ctx.db.changes();
+    const actual = await ctx.db.changes({ ignore: step.ignore });
     const expected = interpolate(step.changes, vars) as Record<string, ChangeSpec>;
     const unexpected = Object.keys(actual).filter((t) => !(t in expected));
     if (unexpected.length) {

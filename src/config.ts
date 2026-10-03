@@ -169,6 +169,12 @@ export interface DbOptions {
   /** Extra tables kept across resets, in addition to known migration bookkeeping tables. */
   keep?: string[];
   /**
+   * Columns and tables `db.changes()`, YAML `changes` steps, `trace()` and the failure output leave out:
+   * `updated_at` (that column in every table), `orders.synced_at`, `sessions.*` (a whole table).
+   * For values the app sets on every write, so they don't fail a `toEqual` or a snapshot.
+   */
+  ignoreChanges?: string[];
+  /**
    * Keep the Postgres container running between runs and cache the migrated
    * template by the contents of the migrations, so a run with unchanged
    * migrations skips both container start-up and migrating.
@@ -348,6 +354,9 @@ function validate(opts: SlicetestOptions) {
   const dbOpts = opts.db === false ? undefined : opts.db;
   const engine = dbOpts?.engine;
   if (engine !== undefined && engine !== "postgres" && engine !== "mysql" && engine !== "sqlite") fail(`db.engine must be "postgres", "mysql" or "sqlite", got ${JSON.stringify(engine)}`);
+  if (dbOpts?.ignoreChanges !== undefined && !(Array.isArray(dbOpts.ignoreChanges) && dbOpts.ignoreChanges.every((c) => typeof c === "string" && c && !c.startsWith(".")))) {
+    fail(`db.ignoreChanges must be a list of columns or tables, e.g. [updated_at, orders.synced_at, sessions.*], got ${JSON.stringify(dbOpts.ignoreChanges)}`);
+  }
   if (dbOpts?.queries !== undefined && typeof dbOpts!.queries !== "boolean") fail(`db.queries must be true or false, got ${JSON.stringify(dbOpts!.queries)}`);
   if (dbOpts?.neon !== undefined && typeof dbOpts.neon !== "boolean") fail(`db.neon must be true or false, got ${JSON.stringify(dbOpts.neon)}`);
   if (dbOpts?.neon && (engine === "mysql" || engine === "sqlite")) fail("db.neon is Neon's protocol for Postgres; it doesn't apply to " + engine);
