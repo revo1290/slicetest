@@ -14,6 +14,7 @@
 
 Fixes:
 
+- A stub reply that threw (a `reply((call) => …)` function, a YAML reply template with a misspelt `{{call.json.amont}}`, a failing recording) answered the app with a 500 / 502 and nothing else, so a scenario expecting the app to handle an upstream error passed while the stub itself was broken. The scenario now fails with the error and where it was thrown, and the failure output lists it.
 - An `http` `timeout` that ran out while the body was still arriving (a stream that never ends, an app stalling halfway) failed with fetch's bare `The operation was aborted due to timeout`, and the request was missing from the failure output. It now names the request, its status and content type, and is listed with the requests to the app.
 - Misspelt config keys were ignored without a word (`stub: [slack]`, `strictstubs: true`, `app.readytimeout`, `db.migrations`), so the setting silently didn't apply. Unknown keys at the top level and in `app`, `db`, stubs, `services` and `containers` now fail the run, naming the key and the one it was probably meant to be (`unknown key stub; did you mean "stubs"?`).
 - Recorded stubs and `slicetest import` stored credentials sent in the query or the body as they were (`?appid=…`, `?key=…`, an OAuth `client_secret`, a JSON `password`), into a file meant to be committed, and a replay only matched with that same real key, not the dummy one tests run with. Such values are now stored as `[redacted]` and match any value; existing recordings with the raw values still replay.

@@ -160,6 +160,8 @@ export class Stub {
   /** Appended to the 501 answer for a call nothing could answer. */
   #hint?: string;
   #chaos?: { opts: ChaosOptions; seed: number; random: () => number; calls: number };
+  /** Reply functions (and fallbacks) that threw: the app got a 500 / 502, the scenario must fail with the error. */
+  #errors: { call: RecordedCall; error: unknown }[] = [];
   url = "";
 
   private constructor(readonly name: string) {
@@ -327,6 +329,11 @@ export class Stub {
     );
   }
 
+  /** Calls whose reply function or fallback threw, with the error; the app got a 500 (502 for a fallback). */
+  handlerErrors() {
+    return this.#errors;
+  }
+
   unmatched() {
     return this.#calls.filter((c) => !c.matched);
   }
@@ -383,6 +390,7 @@ export class Stub {
     this.#routes = [];
     this.#calls = [];
     this.#chaos = undefined;
+    this.#errors = [];
   }
 
   /**
@@ -445,6 +453,7 @@ export class Stub {
       try {
         out = await this.#fallback?.(call);
       } catch (e) {
+        this.#errors.push({ call, error: e });
         res.writeHead(502, { "content-type": "text/plain" }).end((e as Error).message);
         return;
       }
@@ -470,6 +479,7 @@ export class Stub {
     try {
       this.#send(call, res, typeof route.respond === "function" ? await route.respond(call) : route.respond);
     } catch (e) {
+      this.#errors.push({ call, error: e });
       res.writeHead(500).end(`slicetest: stub handler threw: ${e}`);
     }
   }

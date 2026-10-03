@@ -318,3 +318,14 @@ test("a list in a query condition matches a repeated parameter's values in order
   expect(stub.calls("GET", "/items", { query: { ids: ["1", "22"] } })).toHaveLength(1);
   expect(stub.explain(stub.unmatched()[0]!)).toContain('query ids: expected ["1", /^\\d+$/], got ["1"]');
 });
+
+test("a reply function that throws answers 500 and is kept for the scenario's failure", async () => {
+  stub.on("POST", "/charge").reply(() => {
+    throw new TypeError("Cannot read properties of undefined (reading 'amount')");
+  });
+
+  expect((await fetch(`${stub.url}/charge`, { method: "POST" })).status).toBe(500);
+  expect(stub.handlerErrors().map((e) => [e.call.path, (e.error as Error).message])).toEqual([["/charge", "Cannot read properties of undefined (reading 'amount')"]]);
+  stub.reset();
+  expect(stub.handlerErrors()).toEqual([]);
+});

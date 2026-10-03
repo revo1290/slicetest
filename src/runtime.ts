@@ -297,6 +297,8 @@ export class Runtime {
     await Promise.all(this.#processes().map((p) => p.settle()));
     this.#assertAlive();
     if (this.interceptor?.blocked.size) throw new Error(blockedHint([...this.interceptor.blocked]));
+    const thrown = this.#handlerErrors();
+    if (thrown.length > 0) throw new Error(`slicetest: a stub's reply threw, so the app got an error response instead of the reply:\n${thrown.join("\n")}`);
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) {
       throw new Error(`slicetest: the app called stubbed services with no matching route:\n${unmatched.join("\n")}`);
@@ -344,6 +346,15 @@ export class Runtime {
       out.push(...problems.map((c) => `stub ${name} reply (the real service wouldn't answer this way): ${c}`));
     }
     return out;
+  }
+
+  #handlerErrors() {
+    return [...this.stubs.values()].flatMap((s) =>
+      s.handlerErrors().map(({ call, error }) => {
+        const where = (error as Error)?.stack?.split("\n").find((l) => /^\s+at /.test(l) && !l.includes("node_modules") && !l.includes("node:"))?.trim();
+        return `  ${s.name}: ${call.method} ${call.path}: ${error instanceof Error ? error.message : String(error)}${where ? `\n    ${where}` : ""}`;
+      }),
+    );
   }
 
   #unmatched() {
@@ -398,6 +409,8 @@ export class Runtime {
       const exit = p.exited;
       if (exit) sections.push(`the ${p.label} exited (code ${exit.code}, signal ${exit.signal}); it will be restarted for the next scenario`);
     }
+    const thrown = this.#handlerErrors();
+    if (thrown.length > 0) sections.push(`stub replies that threw:\n${thrown.join("\n")}`);
     const unmatched = this.#unmatched();
     if (unmatched.length > 0) sections.push(`stub calls with no matching route:\n${unmatched.join("\n")}`);
     const unused = this.#unusedRoutes();
