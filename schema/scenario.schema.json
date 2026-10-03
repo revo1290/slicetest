@@ -739,6 +739,11 @@
               "type": "integer",
               "minimum": 1,
               "description": "With `within`: milliseconds between attempts. Default 200"
+            },
+            "timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Fail when the app hasn't answered within this many milliseconds (overrides http.timeout)"
             }
           },
           "not": {

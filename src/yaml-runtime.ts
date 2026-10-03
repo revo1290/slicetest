@@ -234,6 +234,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
       headers: step.auth ? { ...ctx.auth.header(step.auth === true ? {} : (interpolate(step.auth, vars) as Record<string, unknown>)), ...headers } : headers,
       query: interpolate(step.query, vars) as Record<string, string> | undefined,
       follow: step.follow,
+      ...(step.timeout !== undefined ? { timeout: step.timeout } : {}),
     };
     const gql = step.graphql === undefined ? undefined : (interpolate(typeof step.graphql === "string" ? { query: step.graphql } : step.graphql, vars) as Record<string, unknown>);
     let body =

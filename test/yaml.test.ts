@@ -203,3 +203,9 @@ test("order steps need two calls in the <stub> METHOD /path form", () => {
   expect(() => parseScenarioFile(src('["a GET /x"]'), "s.scenario.yaml")).toThrow("lists at least two calls");
   expect(() => parseScenarioFile(src('["a GET /x", "POST /y"]'), "s.scenario.yaml")).toThrow('"POST /y" should be "<stub> METHOD /path"');
 });
+
+test("a request step takes a timeout in ms", () => {
+  const src = (t: string) => `scenarios:\n  - name: s\n    steps:\n      - request: GET /slow\n        timeout: ${t}\n`;
+  expect(parseScenarioFile(src("500"), "s.scenario.yaml").scenarios[0]!.steps[0]).toMatchObject({ timeout: 500 });
+  expect(() => parseScenarioFile(src("soon"), "s.scenario.yaml")).toThrow("`timeout` must be a positive number of milliseconds");
+});

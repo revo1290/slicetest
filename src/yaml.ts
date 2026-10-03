@@ -95,6 +95,8 @@ export interface RequestStep {
   within?: number;
   /** With `within`: ms between attempts. Default 200. */
   every?: number;
+  /** Fail when the app hasn't answered within this many ms (overrides `http.timeout`). */
+  timeout?: number;
   /** `queries`: at most this many SQL statements (not counting BEGIN/COMMIT), with `db.queries` on. */
   /** `schema`: a JSON Schema for the response JSON, inline or `file#/pointer` relative to the scenario file. */
   expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number; schema?: string | object };
@@ -244,7 +246,7 @@ export interface MailStep {
 
 const KINDS = {
   stub: ["on", "graphql", "when", "reply", "sequence", "networkError", "times", "delay", "optional"],
-  request: ["headers", "query", "json", "form", "multipart", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture", "within", "every"],
+  request: ["headers", "query", "json", "form", "multipart", "body", "graphql", "follow", "auth", "webhook", "concurrency", "expect", "capture", "within", "every", "timeout"],
   submit: ["form", "fields", "headers", "follow", "expect", "capture"],
   insert: ["rows", "capture"],
   sql: ["params", "expect", "capture", "within"],
@@ -544,6 +546,7 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       }
       if (raw.auth !== undefined && raw.auth !== true && !(raw.auth && typeof raw.auth === "object" && !Array.isArray(raw.auth))) fail(at("auth"), "`auth` must be true or the token's claims, e.g. { sub: u1, roles: [admin] }");
       if (raw.concurrency !== undefined && !(Number.isInteger(raw.concurrency) && (raw.concurrency as number) >= 1)) fail(at("concurrency"), "`concurrency` must be a positive whole number");
+      if (raw.timeout !== undefined && !(typeof raw.timeout === "number" && raw.timeout > 0)) fail(at("timeout"), "`timeout` must be a positive number of milliseconds");
       if (raw.every !== undefined && !(typeof raw.every === "number" && raw.every > 0)) fail(at("every"), "`every` must be a positive number of milliseconds");
       if (raw.every !== undefined && raw.within === undefined) fail(at("every"), "`every` sets the pause between attempts of a `within` step; add `within: <ms>`");
       if (raw.within !== undefined && raw.concurrency !== undefined) fail(at("within"), "`within` repeats one request until it passes; it can't be combined with `concurrency`");
