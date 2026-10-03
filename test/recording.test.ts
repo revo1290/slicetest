@@ -87,6 +87,39 @@ test("replay answers from the recordings, in order for identical requests, and e
   }
 });
 
+test("credentials in the query and body are recorded redacted, and replay for any key", async () => {
+  const recorder = await Recorder.load("svc", path.join(dir, "secrets.yaml"), upstreamUrl, true);
+  const stub = await stubWith(recorder);
+  try {
+    await fetch(`${stub.url}/forecast?city=kyoto&appid=real-key-123`);
+    await fetch(`${stub.url}/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials&client_secret=s3cr3t" });
+    await fetch(`${stub.url}/login`, { method: "POST", body: JSON.stringify({ user: { name: "a", password: "hunter2" } }) });
+    expect(seen.at(-3)!.url).toBe("/forecast?city=kyoto&appid=real-key-123");
+    expect(seen.at(-2)!.body).toBe("grant_type=client_credentials&client_secret=s3cr3t");
+    expect(recorder.added().map((r) => r.request)).toEqual([
+      { method: "GET", path: "/forecast", query: { appid: "[redacted]", city: "kyoto" } },
+      { method: "POST", path: "/token", body: "grant_type=client_credentials&client_secret=[redacted]" },
+      { method: "POST", path: "/login", json: { user: { name: "a", password: "[redacted]" } } },
+    ]);
+  } finally {
+    await stub.close();
+  }
+
+  const file = path.join(dir, "secrets-replay.yaml");
+  await mergeRecordings(file, upstreamUrl, recorder.added());
+  expect(await readFile(file, "utf8")).not.toMatch(/real-key-123|s3cr3t|hunter2/);
+  const replay = await stubWith(await Recorder.load("svc", file, upstreamUrl, false));
+  try {
+    const before = seen.length;
+    expect((await fetch(`${replay.url}/forecast?city=kyoto&appid=test-key`)).status).toBe(200);
+    expect((await fetch(`${replay.url}/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials&client_secret=dummy" })).status).toBe(200);
+    expect((await fetch(`${replay.url}/forecast?city=nara&appid=test-key`)).status).toBe(501);
+    expect(seen.length).toBe(before);
+  } finally {
+    await replay.close();
+  }
+});
+
 test("merging skips exact duplicates and writes a commented YAML list", async () => {
   const file = path.join(dir, "c.yaml");
   const e = { request: { method: "GET", path: "/x" }, response: { status: 204 } };

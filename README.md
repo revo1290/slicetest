@@ -465,7 +465,7 @@ Record once, with real credentials in the app's environment:
 SLICETEST_RECORD=github npx vitest     # or SLICETEST_RECORD=1 for every stub with an upstream
 ```
 
-Calls no route matches are forwarded to `upstream` (under its path prefix, headers included) and the answers are written to `recordings/github.yaml` (`recordings:` changes the path). Later runs replay them without touching the network. A request is identified by method, path, query and body (JSON key order doesn't matter); identical requests replay their recordings in the order they were made. Only `content-type`, `location`, `retry-after`, `link` and `etag` response headers are kept, and request headers are never stored, so tokens stay out of the file; bodies are stored as sent, so review the file before committing it.
+Calls no route matches are forwarded to `upstream` (under its path prefix, headers included) and the answers are written to `recordings/github.yaml` (`recordings:` changes the path). Later runs replay them without touching the network. A request is identified by method, path, query and body (JSON key order doesn't matter); identical requests replay their recordings in the order they were made. Only `content-type`, `location`, `retry-after`, `link` and `etag` response headers are kept, and request headers are never stored, so tokens stay out of the file. Credentials sent in the query or the body (`api_key`, `key`, `appid`, `access_token`, `client_secret`, `password`, signatures, …) are stored as `[redacted]` and match any value on replay, so the test environment's dummy key replays what the real key recorded. Other values are stored as sent, so review the file before committing it.
 
 #### From a HAR file: `npx slicetest import`
 

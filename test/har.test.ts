@@ -54,7 +54,7 @@ test("importHar writes the stub's recordings file, which the stub then replays",
   expect(result.others).toEqual([["https://cdn.example.com", 2], ["https://api.example.com", 1]]);
   const yaml = await readFile(target.file, "utf8");
   expect(yaml).toMatch(/^# Imported by slicetest from session\.har \(https:\/\/api\.example\.com\/v2\)\./);
-  expect(yaml).not.toContain("secret");
+  expect(yaml).not.toContain("secret=1");
   expect(yaml).toContain("body: hello");
 
   const recorder = await Recorder.load("api", target.file, target.upstream, false);

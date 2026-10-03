@@ -103,15 +103,46 @@ export class Recorder {
 
 function requestOf(call: RecordedCall): Recording["request"] {
   const query = Object.fromEntries([...call.query.entries()].sort(([a], [b]) => a.localeCompare(b)));
-  return {
+  return redactRequest({
     method: call.method,
     path: call.path,
     ...(Object.keys(query).length ? { query } : {}),
     ...(call.json !== undefined ? { json: call.json } : call.body ? { body: call.body } : {}),
-  };
+  });
 }
 
-function keyOf(r: Recording["request"]) {
+/** Credentials sent in a query, a form or JSON body: `api_key`, `key`, `access_token`, `client_secret`, `password`, `appid`, signatures. */
+const SECRET = /^(api[-_]?key|apikey|key|(access|refresh|id|auth)[-_]?token|token|client[-_]?secret|app[-_]?secret|secret|password|passwd|appid|signature|sig|x-amz-(signature|credential|security-token))$/i;
+export const REDACTED = "[redacted]";
+const FORM_BODY = /^[^\s=&]+=[^\s&]*(&[^\s=&]+=[^\s&]*)*$/;
+
+/**
+ * A request with credential values replaced by `[redacted]`, so recordings can be committed and
+ * replay whatever key the test environment uses. Applied to recordings and to calls alike before
+ * they are compared.
+ */
+export function redactRequest(r: Recording["request"]): Recording["request"] {
+  const out = { ...r };
+  if (r.query) out.query = Object.fromEntries(Object.entries(r.query).map(([k, v]) => [k, SECRET.test(k) ? REDACTED : v]));
+  if (r.json !== undefined) out.json = redactJson(r.json);
+  if (r.body && FORM_BODY.test(r.body)) {
+    const form = new URLSearchParams(r.body);
+    if ([...form.keys()].some((k) => SECRET.test(k))) {
+      out.body = [...form].map(([k, v]) => `${encodeURIComponent(k)}=${SECRET.test(k) ? REDACTED : encodeURIComponent(v)}`).join("&");
+    }
+  }
+  return out;
+}
+
+function redactJson(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(redactJson);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === "string" && SECRET.test(k) ? REDACTED : redactJson(x)]));
+  return v;
+}
+
+function keyOf(request: Recording["request"]) {
+  // Recordings made before redaction still match: both sides are compared redacted.
+  const r = redactRequest(request);
   return JSON.stringify([r.method.toUpperCase(), r.path, sortKeys(r.query ?? {}), sortKeys(r.json ?? null), r.body ?? ""]);
 }
 
@@ -154,6 +185,6 @@ export async function mergeRecordings(file: string, upstream: string, added: Rec
   const entries = await readRecordings(file);
   for (const e of added) if (!entries.some((x) => isDeepStrictEqual(x, e))) entries.push(e);
   await mkdir(path.dirname(file), { recursive: true });
-  const header = `# ${source}. Review before committing: request bodies are stored as sent.\n`;
+  const header = `# ${source}. Review before committing: credentials in queries and bodies (api_key, access_token, client_secret, password, …) are replaced by ${REDACTED}, but other values are stored as sent.\n`;
   await writeFile(file, header + YAML.stringify(entries, { lineWidth: 0 }));
 }

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { mergeRecordings, type Recording } from "./recording.js";
+import { mergeRecordings, redactRequest, type Recording } from "./recording.js";
 
 /**
  * `slicetest import session.har`: turn a HAR file (saved from the browser's
@@ -49,12 +49,12 @@ export function toRecording(entry: HarEntry, upstream: string): Recording | "els
   const query = Object.fromEntries([...url.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b)));
   const sent = entry.request.postData?.text;
   const json = parse(sent);
-  const request: Recording["request"] = {
+  const request: Recording["request"] = redactRequest({
     method,
     path: url.pathname.slice(prefix.length) || "/",
     ...(Object.keys(query).length ? { query } : {}),
     ...(json !== undefined ? { json } : sent ? { body: sent } : {}),
-  };
+  });
 
   const content = entry.response.content ?? {};
   let text = content.text ?? "";
