@@ -5,7 +5,8 @@
 Fixes:
 
 - A header given to a request in another case than the client's default (`authorization` after `with({ headers: { Authorization } })`, `content-type` over a default `Content-Type`) was sent joined with it (`Bearer a, Bearer b`) instead of replacing it. Header names are now compared without case, also for `http.webhook()` headers.
-- `ArrayBuffer` and `DataView` bodies were sent as the JSON `{}`; they are now sent as bytes, like `Uint8Array`.
+- `ArrayBuffer` and `DataView` request bodies and stub replies were sent as the JSON `{}`; they are now sent as bytes, like `Uint8Array`.
+- A form body the app sent to a stub with a `__proto__[x]` or `constructor[prototype][x]` field set `x` on `Object.prototype` of the test worker. Such keys are now kept as plain fields of `call.form`.
 
 ## 0.8.0
 

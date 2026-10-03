@@ -271,3 +271,26 @@ test("multipart bodies are read into form, with files as filename, type, size an
   });
   expect(stub.explain(stub.unmatched()[0]!)).toBe("closest route POST /files: form.file.size: expected 3, got 4");
 });
+
+test("form bodies with __proto__ or constructor keys stay plain fields and leave Object.prototype alone", async () => {
+  const { parseForm } = await import("../src/stub.js");
+
+  const form = parseForm("__proto__[polluted]=1&constructor[prototype][p2]=2&a[b]=3");
+
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  expect(({} as Record<string, unknown>).p2).toBeUndefined();
+  expect(form["__proto__[polluted]"]).toBe("1");
+  expect(form["constructor[prototype][p2]"]).toBe("2");
+  expect(form.a).toEqual({ b: "3" });
+});
+
+test("replies with an ArrayBuffer or DataView body send the bytes", async () => {
+  const bytes = new TextEncoder().encode("%PDF");
+  stub.on("GET", "/a").reply(200, bytes.buffer, { "content-type": "application/pdf" });
+  stub.on("GET", "/d").reply(200, new DataView(bytes.buffer, 1, 2));
+
+  expect(await (await fetch(`${stub.url}/a`)).text()).toBe("%PDF");
+  const d = await fetch(`${stub.url}/d`);
+  expect(await d.text()).toBe("PD");
+  expect(d.headers.get("content-type")).toBeNull();
+});

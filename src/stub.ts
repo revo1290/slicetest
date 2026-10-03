@@ -56,7 +56,7 @@ export interface ChaosOptions {
 export interface StubResponse {
   status?: number;
   headers?: Record<string, string>;
-  /** Objects are sent as JSON. */
+  /** Strings and bytes (`Uint8Array`, `ArrayBuffer`) are sent as they are; anything else as JSON. */
   body?: unknown;
 }
 
@@ -471,6 +471,10 @@ export class Stub {
   }
 
   #send(call: RecordedCall, res: http.ServerResponse, out: StubResponse) {
+    if (out.body instanceof ArrayBuffer || (ArrayBuffer.isView(out.body) && !(out.body instanceof Uint8Array))) {
+      const view = out.body as ArrayBuffer | ArrayBufferView;
+      out = { ...out, body: view instanceof ArrayBuffer ? new Uint8Array(view) : new Uint8Array(view.buffer, view.byteOffset, view.byteLength) };
+    }
     const raw = out.body === undefined || typeof out.body === "string" || out.body instanceof Uint8Array;
     const headers = { ...out.headers };
     if (!raw && !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) {
@@ -668,6 +672,9 @@ function isForm(contentType: string | undefined) {
   return !!contentType && contentType.split(";")[0]!.trim().toLowerCase() === "application/x-www-form-urlencoded";
 }
 
+/** Keys kept as plain fields rather than nested into, so a body can't reach `Object.prototype`. */
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 /**
  * A form body as nested fields, the way Rack, PHP and Stripe read bracket keys: `a[b]=1` is
  * `{ a: { b: "1" } }`, `a[]=1&a[]=2` and `a[0]=1&a[1]=2` are arrays, and a plain key sent
@@ -677,12 +684,13 @@ export function parseForm(body: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of new URLSearchParams(body)) {
     const m = /^([^[\]]+)((?:\[[^\]]*\])*)$/.exec(key);
-    if (!m || !m[2]) {
-      const prev = out[key];
-      out[key] = prev === undefined ? value : Array.isArray(prev) ? [...prev, value] : [prev, value];
+    const path = m?.[2] ? [m[1]!, ...[...m[2].matchAll(/\[([^\]]*)\]/g)].map((x) => x[1]!)] : undefined;
+    // `__proto__[x]=1` is sent by whatever the app forwards; it must not reach Object.prototype.
+    if (!path || path.some((seg) => UNSAFE_KEYS.has(seg))) {
+      const prev = Object.hasOwn(out, key) ? out[key] : undefined;
+      Object.defineProperty(out, key, { value: prev === undefined ? value : Array.isArray(prev) ? [...prev, value] : [prev, value], enumerable: true, writable: true, configurable: true });
       continue;
     }
-    const path = [m[1]!, ...[...m[2].matchAll(/\[([^\]]*)\]/g)].map((x) => x[1]!)];
     let node: Record<string, unknown> | unknown[] = out;
     for (let i = 0; i < path.length; i++) {
       const seg = path[i]!;
