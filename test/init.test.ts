@@ -42,6 +42,17 @@ test.each([
     { app: { command: "go run ." }, db: { migrate: { atlas: { dir: "file://migrations" } } } },
   ],
   ["plain SQL migrations", { "go.mod": "module x", "migrations/001.sql": "" }, { db: { migrate: { sql: "migrations" } } }],
+  [
+    "Go with the server in cmd/ and golang-migrate in db/migrations",
+    { "go.mod": "module example.com/shop\n", "cmd/worker/main.go": "package main\n", "cmd/shop/main.go": "package main\n", "internal/x.go": "package x\n", "db/migrations/1_a.up.sql": "", "db/migrations/1_a.down.sql": "" },
+    { app: { command: "go run ./cmd/shop", build: "go build ./...", readyTimeout: 60_000 }, db: { migrate: { sql: "db/migrations" } } },
+  ],
+  ["Go with main.go at the root", { "go.mod": "module x", "main.go": "// x\npackage main\n", "cmd/tool/main.go": "package main\n" }, { app: { command: "go run ." } }],
+  [
+    "Rust + Diesel",
+    { "Cargo.toml": "[package]\nname = \"api\"\n", "migrations/2024-01-01-000000_users/up.sql": "" },
+    { app: { command: "cargo run -q", build: "cargo build -q", readyTimeout: 120_000 }, db: { migrate: { sql: "migrations" } } },
+  ],
 ])("detects %s", async (_, files, expected) => {
   const { config } = await detect(await project(files));
   expect(config).toMatchObject(expected);
@@ -431,4 +442,13 @@ test("Phoenix runs in prod, where runtime.exs reads PORT and DATABASE_URL, and m
   });
   expect(config.app.env!.SECRET_KEY_BASE!.length).toBeGreaterThanOrEqual(64);
   expect(() => resolveOptions(config as never, "/")).not.toThrow();
+});
+
+test("Go without a main package to pick and a Rust workspace say what to set", async () => {
+  const go = await detect(await project({ "go.mod": "module x", "cmd/a/main.go": "package main\n", "cmd/b/main.go": "package main\n" }));
+  expect(go.config.app.command).toBe("go run .");
+  expect(go.notes[0]).toContain("no main package at the root or in cmd/*/: set the package in app.command (`go run ./cmd/server`)");
+
+  const rust = await detect(await project({ "Cargo.toml": '[workspace]\nmembers = ["api"]\n' }));
+  expect(rust.notes[0]).toContain("Rust workspace (Cargo.toml): add `-p <crate>` to app.command");
 });

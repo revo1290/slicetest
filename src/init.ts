@@ -87,6 +87,36 @@ function runnable(dir: string) {
   }
 }
 
+/** Where plain SQL migrations usually live (golang-migrate, goose, sqlx, Diesel, dbmate). */
+const SQL_MIGRATION_DIRS = ["migrations", "db/migrations", "sql/migrations", "database/migrations"];
+
+/** `.sql` files, or Diesel's directories with an `up.sql`. */
+function hasSqlMigrations(dir: string) {
+  if (!existsSync(dir)) return false;
+  return readdirSync(dir, { withFileTypes: true }).some((e) => (e.isFile() && e.name.endsWith(".sql")) || (e.isDirectory() && existsSync(path.join(dir, e.name, "up.sql"))));
+}
+
+/**
+ * The Go package to run: `.` when the root is package main, else the one command in `cmd/*`
+ * (or the one named server, api, app, web or like the module). Undefined when there is none.
+ */
+function goMain(root: string, goMod: string): string | undefined {
+  const isMain = (dir: string) => {
+    try {
+      return readdirSync(dir).some((f) => f.endsWith(".go") && !f.endsWith("_test.go") && /^\s*package\s+main\b/m.test(readFileSync(path.join(dir, f), "utf8")));
+    } catch {
+      return false;
+    }
+  };
+  if (isMain(root)) return ".";
+  const cmd = path.join(root, "cmd");
+  if (!existsSync(cmd)) return undefined;
+  const mains = readdirSync(cmd, { withFileTypes: true }).filter((e) => e.isDirectory() && isMain(path.join(cmd, e.name))).map((e) => e.name).sort();
+  const module = /^module\s+(\S+)/m.exec(goMod)?.[1]?.split("/").pop();
+  const pick = mains.length === 1 ? mains[0] : ["server", "api", "app", "web", "http", module].find((n) => n && mains.includes(n));
+  return pick ? `./cmd/${pick}` : undefined;
+}
+
 export async function detect(root: string): Promise<Detected> {
   const notes: string[] = [];
   // The app may live in a subdirectory (backend/, server/, …); everything about the app is read there.
@@ -231,18 +261,36 @@ export async function detect(root: string): Promise<Detected> {
       notes.push(`app: ${gradle ? "Gradle" : "Maven"} project. Check the command; the app must listen on the port in {{app.port}}`);
     }
   } else if (has("go.mod")) {
-    command = "go run .";
-    notes.push("app: Go (go.mod). It must listen on $PORT.");
+    const main = goMain(appRoot, await read("go.mod"));
+    // Built once up front, so the workers' `go run` find everything compiled instead of compiling at once.
+    build = "go build ./...";
+    command = `go run ${main ?? "."}`;
+    readyTimeout = 60_000;
+    notes.push(
+      main && main !== "."
+        ? `app: Go (go.mod), the main package in ${main.slice(2)}/. It must listen on $PORT.`
+        : main
+          ? "app: Go (go.mod). It must listen on $PORT."
+          : "app: Go (go.mod), but no main package at the root or in cmd/*/: set the package in app.command (`go run ./cmd/server`). It must listen on $PORT.",
+    );
   } else if (has("Cargo.toml")) {
-    command = "cargo run";
-    notes.push("app: Rust (Cargo.toml). It must listen on $PORT.");
+    const cargo = await read("Cargo.toml");
+    // Compiled once before the workers start; `cargo run` then only checks that nothing changed.
+    build = "cargo build -q";
+    command = "cargo run -q";
+    readyTimeout = 120_000;
+    notes.push(
+      /^\[workspace\]/m.test(cargo) && !/^\[package\]/m.test(cargo)
+        ? "app: Rust workspace (Cargo.toml): add `-p <crate>` to app.command for the server's crate. It must listen on $PORT."
+        : "app: Rust (Cargo.toml), built once with `cargo build`. It must listen on $PORT.",
+    );
   } else {
     notes.push("app: couldn't tell how to start the app. Set app.command.");
   }
 
   // --- migrations ---
   let migrate: MigrateOptions | undefined;
-  const migrationsSql = has("migrations") && (await readdir(path.join(appRoot, "migrations"))).some((f) => f.endsWith(".sql"));
+  const migrationsDir = SQL_MIGRATION_DIRS.find((d) => hasSqlMigrations(path.join(appRoot, d)));
   const atlas = await findAtlas(root, appDir);
   if (atlas) {
     migrate = { atlas: { dir: `file://${atlas}` } };
@@ -287,9 +335,9 @@ export async function detect(root: string): Promise<Detected> {
   } else if (deps.knex) {
     migrate = { command: "npx knex migrate:latest", inputs: ["migrations"] };
     notes.push("db: Knex migrations");
-  } else if (migrationsSql) {
-    migrate = { sql: "migrations" };
-    notes.push("db: plain SQL files in migrations/, applied in name order");
+  } else if (migrationsDir) {
+    migrate = { sql: migrationsDir };
+    notes.push(`db: SQL migrations in ${migrationsDir}/, applied in version order (down migrations left out)`);
   } else if (has("schema.sql")) {
     migrate = { sql: "schema.sql" };
     notes.push("db: schema.sql");

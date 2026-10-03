@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -6,7 +6,10 @@ import { applySqlFiles, sqlMigrationFiles, upSection } from "../src/sql-migratio
 
 async function dir(files: Record<string, string>) {
   const d = await mkdtemp(path.join(os.tmpdir(), "slicetest-sql-"));
-  for (const [name, text] of Object.entries(files)) await writeFile(path.join(d, name), text);
+  for (const [name, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(d, name)), { recursive: true });
+    await writeFile(path.join(d, name), text);
+  }
   return d;
 }
 
@@ -23,6 +26,18 @@ test("applies up migrations in version order, leaving out rollback files", async
 
   expect((await sqlMigrationFiles(d)).map((f) => path.basename(f))).toEqual(["000001_users.up.sql", "000002_posts.UP.sql", "V2__b.sql", "V10__c.sql"]);
   expect(await sqlMigrationFiles(path.join(d, "U2__b.sql"))).toEqual([path.join(d, "U2__b.sql")]);
+});
+
+test("Diesel's migration directories apply their up.sql", async () => {
+  const d = await dir({
+    "2024-02-01-000000_posts/up.sql": "",
+    "2024-02-01-000000_posts/down.sql": "",
+    "2024-01-01-000000_users/up.sql": "",
+    "2024-01-01-000000_users/down.sql": "",
+    "notes/readme.txt": "",
+  });
+
+  expect((await sqlMigrationFiles(d)).map((f) => path.relative(d, f).replace(/\\/g, "/"))).toEqual(["2024-01-01-000000_users/up.sql", "2024-02-01-000000_posts/up.sql"]);
 });
 
 test("goose and dbmate files run without their down section", () => {

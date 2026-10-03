@@ -5,6 +5,7 @@
 - `toHaveStatus()` and YAML `expect.status` take a class (`"2xx"`) or a list (`[200, 204]`, `["2xx", 304]`), for endpoints whose exact success code doesn't matter or differs between implementations. A numeric string (`"201"`) counts as the code. `toHaveStatus()` on something that isn't a response now says so instead of throwing a `TypeError` about `text`.
 - `npx slicetest` takes `-u` / `--update` to rewrite `snapshot: true` snapshots that no longer match (before, YAML-only projects had no way to update them), `--reporter` (`junit`, `json`, `tap`, `dot`, `verbose`, …, repeatable) with `--output-file` for CI test reports, and `--shard <i>/<n>` to split the suite across CI jobs.
 - A query in a stub route's path (`stub("maps").on("GET", "/geocode?country=jp")`, also `calls()`, `toHaveReceived()` and YAML stubs) is a condition on those parameters. Before, such a route never matched, since the path is compared without the query.
+- `slicetest init` for Go finds the main package in `cmd/<name>/` (the only one, or the one named `server`, `api`, `app`, `web` or like the module) instead of always `go run .`, and for Go and Rust builds once before the workers start (`go build ./...`, `cargo build -q`) with a longer ready timeout, so workers don't all compile at once. SQL migrations are also found in `db/migrations/` and `sql/migrations/`, and Diesel's `<version>_<name>/up.sql` directories are applied by `migrate: { sql }`.
 
 Fixes:
 

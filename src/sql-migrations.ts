@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -5,16 +6,18 @@ import path from "node:path";
 const byVersion = new Intl.Collator("en", { numeric: true }).compare;
 
 /**
- * Files `migrate: { sql }` applies, in order: the file itself, or a directory's `.sql` files sorted
- * by name with numbers compared as numbers. Rollback files are left out: golang-migrate / sqlx /
- * Diesel `*.down.sql` and Flyway undo migrations (`U2__…`).
+ * Files `migrate: { sql }` applies, in order: the file itself, or a directory's `.sql` files (and
+ * Diesel's `<version>_<name>/up.sql`) sorted by name with numbers compared as numbers. Rollback
+ * files are left out: golang-migrate / sqlx `*.down.sql`, Diesel's `down.sql` and Flyway undo
+ * migrations (`U2__…`).
  */
 export async function sqlMigrationFiles(target: string): Promise<string[]> {
   if (!(await stat(target)).isDirectory()) return [target];
-  return (await readdir(target))
-    .filter((f) => f.toLowerCase().endsWith(".sql") && !/\.down\.sql$/i.test(f) && !/^U\d+(\.\d+)*__/.test(f))
-    .sort(byVersion)
-    .map((f) => path.join(target, f));
+  const entries = await readdir(target, { withFileTypes: true });
+  const files = entries.filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".sql") && !/\.down\.sql$/i.test(e.name) && !/^U\d+(\.\d+)*__/.test(e.name)).map((e) => e.name);
+  // Diesel: one directory per migration, holding up.sql and down.sql.
+  const dirs = entries.filter((e) => e.isDirectory() && existsSync(path.join(target, e.name, "up.sql"))).map((e) => path.join(e.name, "up.sql"));
+  return [...files, ...dirs].sort(byVersion).map((f) => path.join(target, f));
 }
 
 /** Where a migration's rollback section starts in goose (`-- +goose Down`) and dbmate (`-- migrate:down`) files. */
