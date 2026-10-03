@@ -171,3 +171,15 @@ test("ArrayBuffer and other binary views are sent as bytes, not as JSON", async 
   expect((await client.post("/b", bytes.buffer)).json).toMatchObject({ body: "raw", type: null });
   expect((await client.post("/b", new DataView(bytes.buffer))).json).toMatchObject({ body: "raw", type: null });
 });
+
+test("toHaveStatus takes a class or a list of statuses", async () => {
+  const res = await new HttpClient(baseUrl).get("/x");
+
+  expect(res).toHaveStatus("2xx");
+  expect(res).toHaveStatus([201, 200]);
+  expect(res).toHaveStatus(["3xx", "2xx"]);
+  expect(res).not.toHaveStatus("4xx");
+  expect(() => expect(res).toHaveStatus([201, "4xx"])).toThrow("expected GET /x to respond one of 201, 4xx, got 200");
+  expect(() => expect(res).toHaveStatus("20x" as never)).toThrow('a status is a code (201), a class ("2xx") or a list of them, got "20x"');
+  expect(() => expect(undefined).toHaveStatus(200)).toThrow("toHaveStatus expects a response from http, got undefined");
+});

@@ -99,7 +99,7 @@ export interface RequestStep {
   timeout?: number;
   /** `queries`: at most this many SQL statements (not counting BEGIN/COMMIT), with `db.queries` on. */
   /** `schema`: a JSON Schema for the response JSON, inline or `file#/pointer` relative to the scenario file. */
-  expect?: { status?: number; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number; schema?: string | object };
+  expect?: { status?: number | string | (number | string)[]; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number; schema?: string | object };
   capture?: Record<string, string>;
 }
 
@@ -116,7 +116,7 @@ export interface SubmitStep {
   fields?: Record<string, string | number | boolean | (string | number)[] | FilePart>;
   headers?: Record<string, string>;
   follow?: boolean;
-  expect?: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object };
+  expect?: { status?: number | string | (number | string)[]; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object };
   capture?: Record<string, string>;
 }
 

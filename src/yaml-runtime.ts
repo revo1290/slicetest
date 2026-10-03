@@ -3,7 +3,7 @@ import { recordYamlFailure } from "./ci.js";
 import "./provided.js";
 import { formatChanges } from "./db.js";
 import "./matchers.js";
-import type { OrderedCall } from "./matchers.js";
+import type { ExpectedStatus, OrderedCall } from "./matchers.js";
 import type { ScenarioContext } from "./runtime.js";
 import { scenario } from "./scenario.js";
 import type { HttpResponse } from "./http.js";
@@ -651,8 +651,8 @@ function interpolateTitle(name: string, row: Record<string, unknown>, index: num
   });
 }
 
-function verifyResponse(res: HttpResponse, e: { status?: number; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
-  if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as number);
+function verifyResponse(res: HttpResponse, e: { status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
+  if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as never);
   if (e?.headers !== undefined) {
     const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
     check(Object.fromEntries(res.headers), expected, vars, "response headers");

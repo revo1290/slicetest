@@ -28,8 +28,8 @@ interface SlicetestMatchers<R = unknown> {
    * relative to the working directory with an optional pointer, `openapi.yaml#/components/schemas/Poll`.
    */
   toMatchSchema(schema: object | string): R;
-  /** The response has this status; the failure message shows the response body. */
-  toHaveStatus(status: number): R;
+  /** The response has this status, a status of this class (`"2xx"`) or one of a list (`[200, 204]`); the failure message shows the response body. */
+  toHaveStatus(status: number | `${1 | 2 | 3 | 4 | 5}xx` | (number | `${1 | 2 | 3 | 4 | 5}xx`)[]): R;
   /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`. */
   toHaveStatuses(counts: Record<number, number>): R;
   /** Async: the table has at least one row matching `where` (`count` for an exact number). */
@@ -56,6 +56,25 @@ function describeCalls(calls: RecordedCall[]) {
 
 function assertStub(received: unknown): asserts received is Stub {
   if (!(received instanceof Stub)) throw new TypeError("slicetest: expected a stub, e.g. expect(stub(\"slack\"))");
+}
+
+/** A status code, a class (`"2xx"`), or a list of either: `[200, 204]`, `["2xx", 304]`. */
+export type ExpectedStatus = number | string | (number | string)[];
+
+export function statusMatches(expected: ExpectedStatus, actual: number): boolean {
+  if (Array.isArray(expected)) {
+    if (expected.length === 0) throw new TypeError("slicetest: toHaveStatus needs at least one status in the list");
+    return expected.some((e) => statusMatches(e, actual));
+  }
+  if (typeof expected === "number") return expected === actual;
+  const s = String(expected).trim().toLowerCase();
+  if (/^\d{3}$/.test(s)) return Number(s) === actual;
+  if (/^[1-5]xx$/.test(s)) return Math.floor(actual / 100) === Number(s[0]);
+  throw new TypeError(`slicetest: a status is a code (201), a class ("2xx") or a list of them, got ${JSON.stringify(expected)}`);
+}
+
+function describeStatus(expected: ExpectedStatus): string {
+  return Array.isArray(expected) ? `one of ${expected.join(", ")}` : String(expected);
 }
 
 export function statusCounts(responses: HttpResponse[]) {
@@ -183,14 +202,17 @@ expect.extend({
     };
   },
 
-  toHaveStatus(received: HttpResponse, status: number) {
-    const pass = received?.status === status;
+  toHaveStatus(received: HttpResponse, status: ExpectedStatus) {
+    if (!received || typeof received !== "object" || typeof received.status !== "number") {
+      throw new TypeError(`slicetest: toHaveStatus expects a response from http, got ${this.utils.stringify(received)}`);
+    }
+    const pass = statusMatches(status, received.status);
     return {
       pass,
       message: () => {
         const body = received.text.length > 1000 ? `${received.text.slice(0, 1000)}…` : received.text;
         return (
-          `expected ${received.method} ${received.url} ${this.isNot ? "not " : ""}to respond ${status}, got ${received.status}\n` +
+          `expected ${received.method} ${received.url} ${this.isNot ? "not " : ""}to respond ${describeStatus(status)}, got ${received.status}\n` +
           `Response body:\n  ${body || "(empty)"}`
         );
       },

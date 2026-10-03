@@ -656,10 +656,18 @@
               "additionalProperties": false,
               "properties": {
                 "status": {
+                  "description": "A code (201), a class (\"2xx\") or a list of them ([200, 204]).",
                   "type": [
                     "integer",
-                    "string"
-                  ]
+                    "string",
+                    "array"
+                  ],
+                  "items": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  }
                 },
                 "headers": {
                   "type": "object"
@@ -899,10 +907,18 @@
               "additionalProperties": false,
               "properties": {
                 "status": {
+                  "description": "A code (201), a class (\"2xx\") or a list of them ([200, 204]).",
                   "type": [
                     "integer",
-                    "string"
-                  ]
+                    "string",
+                    "array"
+                  ],
+                  "items": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  }
                 },
                 "headers": {
                   "type": "object"
