@@ -35,6 +35,12 @@ test.each([
   [{ ...valid, auth: { claims: ["admin"] } }, "auth.claims must be a mapping"],
   [{ ...valid, db: { engine: "sqlite", queries: true } }, "db.queries needs a database server"],
   [{ ...valid, db: { engine: "oracle" } }, 'db.engine must be "postgres", "mysql" or "sqlite", got "oracle"'],
+  [{ ...valid, stub: ["slack"] }, 'unknown key stub; did you mean "stubs"?'],
+  [{ ...valid, strictstubs: true }, 'unknown key strictstubs; did you mean "strictStubs"?'],
+  [{ ...valid, servers: {} }, 'unknown key servers; did you mean "services"?'],
+  [{ ...valid, database: {} }, "unknown key database (expected app, db, stubs, openapi, http, services, containers, mail, offline, strictStubs, workers, auth, include)"],
+  [{ app: { command: "x", readytimeout: 5 } }, 'unknown key app.readytimeout; did you mean "readyTimeout"?'],
+  [{ ...valid, db: { migrations: { sql: "a.sql" } } }, 'unknown key db.migrations; did you mean "migrate"?'],
 ])("rejects %j", (opts, message) => {
   expect(() => resolveOptions(opts as SlicetestOptions, "/")).toThrow(message);
 });

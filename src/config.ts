@@ -309,10 +309,45 @@ function resolveDb(db: DbOptions): ResolvedOptions["db"] {
   };
 }
 
+const TOP_LEVEL_KEYS = ["app", "db", "stubs", "openapi", "http", "services", "containers", "mail", "offline", "strictStubs", "workers", "auth", "include"] as const satisfies readonly (keyof SlicetestOptions | "include")[];
+const APP_KEYS = ["command", "build", "cwd", "env", "ready", "readyTimeout", "scope", "baseEnv"] as const;
+const DB_KEYS = ["engine", "image", "url", "migrate", "seed", "schemas", "keep", "ignoreChanges", "reuse", "queries", "neon"] as const satisfies readonly (keyof DbOptions)[];
+
+function editDistance(a: string, b: string) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j]!;
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length]!;
+}
+
 function validate(opts: SlicetestOptions) {
   const fail = (msg: string) => {
     throw new Error(`slicetest: invalid config: ${msg}`);
   };
+  // A misspelt key (`stub:`, `strictstubs:`) would otherwise be ignored without a word; YAML configs have no type checker.
+  const checkKeys = (value: unknown, allowed: readonly string[], where: string) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    for (const key of Object.keys(value)) {
+      if (allowed.includes(key) || key === "$schema") continue;
+      // Close in spelling, or sharing the first four letters (`servers` / `services`, `migrations` / `migrate`).
+      const near = allowed
+        .map((k) => ({ k, d: editDistance(k.toLowerCase(), key.toLowerCase()) }))
+        .filter(({ k, d }) => d <= Math.max(2, Math.floor(key.length / 3)) || (key.length >= 4 && k.toLowerCase().startsWith(key.slice(0, 4).toLowerCase())))
+        .sort((a, b) => a.d - b.d)[0];
+      const hint = near ? `; did you mean "${near.k}"?` : ` (expected ${allowed.join(", ")})`;
+      fail(`unknown key ${where}${key}${hint}`);
+    }
+  };
+  checkKeys(opts, TOP_LEVEL_KEYS, "");
+  checkKeys(opts?.app, APP_KEYS, "app.");
+  if (opts?.db) checkKeys(opts.db, DB_KEYS, "db.");
   if (!opts?.app || typeof opts.app.command !== "string" || !opts.app.command.trim()) {
     fail("app.command is required, e.g. { app: { command: \"node server.js\" } }");
   }

@@ -13,6 +13,7 @@
 
 Fixes:
 
+- Misspelt config keys were ignored without a word (`stub: [slack]`, `strictstubs: true`, `app.readytimeout`, `db.migrations`), so the setting silently didn't apply. Unknown keys at the top level, in `app` and in `db` now fail the run, naming the key and the one it was probably meant to be (`unknown key stub; did you mean "stubs"?`).
 - Recorded stubs and `slicetest import` stored credentials sent in the query or the body as they were (`?appid=…`, `?key=…`, an OAuth `client_secret`, a JSON `password`), into a file meant to be committed, and a replay only matched with that same real key, not the dummy one tests run with. Such values are now stored as `[redacted]` and match any value; existing recordings with the raw values still replay.
 - `submit` sent a select's disabled placeholder (`<option disabled>Choose a plan</option>`, or one also marked `selected`) and options of a disabled `<optgroup>`; browsers select the first option that isn't disabled and never send disabled ones. A single select with several options marked `selected` sent them all instead of the last one.
 - OpenAPI `servers` URLs with variables (`https://{region}.api.example.com/{version}`) gave a base path of `/%7Bversion%7D`, so requests under `/v1/…` weren't found in the spec: contract checks, coverage and `autoReply` treated them as undocumented. Variables are now filled in with their `enum` values and default.
