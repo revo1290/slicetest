@@ -1,4 +1,4 @@
-import { formRequest, type SubmitOptions } from "./form.js";
+import { encodeForm, formRequest, type SubmitOptions } from "./form.js";
 import { lookupHost } from "./intercept.js";
 import { timeline } from "./timeline.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
@@ -64,9 +64,13 @@ export class HttpClient {
     return new HttpClient(this.baseUrl, merge(this.defaults, opts), this.#session);
   }
 
-  /** Wrap fields to be sent as `application/x-www-form-urlencoded`. */
-  form(fields: Record<string, string | number | boolean>) {
-    return new URLSearchParams(Object.entries(fields).map(([k, v]) => [k, String(v)]));
+  /**
+   * Wrap fields to be sent as `application/x-www-form-urlencoded`. A list repeats the key (`to=a&to=b`,
+   * as an HTML form sends it), and nested objects use bracket keys (`metadata[order]=7`,
+   * `items[0][price]=p_1`), as Rails, PHP and Stripe read them. `null` / `undefined` are left out.
+   */
+  form(fields: Record<string, unknown>) {
+    return encodeForm(fields);
   }
 
   get(path: string, opts?: RequestOptions) {

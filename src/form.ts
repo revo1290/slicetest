@@ -283,3 +283,19 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
   }
   return { method, action, body };
 }
+
+/** Fields as `application/x-www-form-urlencoded`: lists repeat the key, nested objects use bracket keys (`metadata[order]`). */
+export function encodeForm(fields: Record<string, unknown>) {
+  const out = new URLSearchParams();
+  const add = (key: string, v: unknown) => {
+    if (v === null || v === undefined) return;
+    if (Array.isArray(v)) {
+      const nested = v.some((x) => x !== null && typeof x === "object");
+      v.forEach((x, i) => add(nested ? `${key}[${i}]` : key, x));
+    } else if (typeof v === "object" && !(v instanceof Date)) {
+      for (const [k, x] of Object.entries(v)) add(`${key}[${k}]`, x);
+    } else out.append(key, v instanceof Date ? v.toISOString() : String(v));
+  };
+  for (const [k, v] of Object.entries(fields)) add(k, v);
+  return out;
+}

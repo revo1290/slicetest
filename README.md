@@ -175,6 +175,7 @@ res.status; res.headers; res.text; res.json; res.durationMs;
 
 await http.get("/polls", { query: { page: 2 }, headers: { accept: "text/html" } });
 await http.post("/login", http.form({ user: "a", pass: "b" }));  // urlencoded; FormData, Blob and bytes also work
+await http.post("/orders", http.form({ items: [{ sku: "a" }], tags: ["x", "y"] })); // items[0][sku]=a&tags=x&tags=y
 await http.get("/old-path", { follow: true });                    // redirects are NOT followed by default
 await http.submit(await http.get("/signup"), { button: "Sign up", fields: { email: "a@b.test" } }); // a form, as a browser sends it
 await http.graphql("query Poll($id: ID!) { poll(id: $id) { title } }", { id: 1 });  // POST /graphql ({ path } for another)

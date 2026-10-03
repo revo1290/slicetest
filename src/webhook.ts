@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
+import { encodeForm } from "./form.js";
 
 /** A custom HMAC scheme: `header: prefix + hmac(secret, body)`. */
 export interface HmacScheme {
@@ -121,6 +122,6 @@ export function webhookBody(payload: unknown, provider?: WebhookProvider): { bod
   if (typeof payload === "string") return { body: payload, type: provider === "twilio" ? form : "application/json" };
   if (payload instanceof URLSearchParams) return { body: payload.toString(), type: form };
   // Twilio posts its parameters as a form.
-  if (provider === "twilio" && payload && typeof payload === "object") return { body: new URLSearchParams(Object.entries(payload).map(([k, v]) => [k, String(v)])).toString(), type: form };
+  if (provider === "twilio" && payload && typeof payload === "object") return { body: encodeForm(payload as Record<string, unknown>).toString(), type: form };
   return { body: JSON.stringify(payload ?? {}), type: "application/json" };
 }

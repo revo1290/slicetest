@@ -138,3 +138,20 @@ test("timeout fails the request by name; a refused connection says the app isn't
   await new Promise((r) => closed.close(r));
   await expect(new HttpClient(`http://127.0.0.1:${port}`).post("/polls", {})).rejects.toThrow("slicetest: POST /polls: connection refused: the app isn't listening");
 });
+
+test("form() repeats keys for lists and uses bracket keys for nested objects, as the stubs read them", async () => {
+  const { parseForm } = await import("../src/stub.js");
+  const fields = { amount: 2000, to: ["a", "b"], metadata: { order: 7 }, items: [{ price: "p_1" }, { price: "p_2" }], note: null, at: new Date(0) };
+  const body = new HttpClient(baseUrl).form(fields);
+
+  expect(decodeURIComponent(String(body))).toBe(
+    "amount=2000&to=a&to=b&metadata[order]=7&items[0][price]=p_1&items[1][price]=p_2&at=1970-01-01T00:00:00.000Z",
+  );
+  expect(parseForm(String(body))).toEqual({
+    amount: "2000",
+    to: ["a", "b"],
+    metadata: { order: "7" },
+    items: [{ price: "p_1" }, { price: "p_2" }],
+    at: "1970-01-01T00:00:00.000Z",
+  });
+});
