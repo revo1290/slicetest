@@ -210,3 +210,15 @@ test("toSetCookie checks a cookie the response sets and its attributes", async (
   const plain = await new HttpClient(baseUrl).get("/x");
   expect(() => expect(plain).toSetCookie("sid")).toThrow("It set no cookies.");
 });
+
+test("text/event-stream responses come with their events", async () => {
+  const { parseEvents } = await import("../src/http.js");
+
+  expect(parseEvents(": ping\n\nevent: message_start\ndata: {\"id\":\"m1\"}\nid: 1\n\ndata: line 1\ndata: line 2\n\ndata: [DONE]\r\n\r\nevent: empty\n\n")).toEqual([
+    { event: "message_start", data: { id: "m1" }, id: "1" },
+    { data: "line 1\nline 2", id: "1" },
+    { data: "[DONE]", id: "1" },
+  ]);
+  const res = await new HttpClient(baseUrl).get("/x");
+  expect(res.events).toBeUndefined();
+});

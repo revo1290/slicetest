@@ -13,6 +13,48 @@ export interface HttpResponse {
   json: any;
   /** Wall-clock time of the request in milliseconds. */
   durationMs: number;
+  /** The events of a `text/event-stream` response (data parsed as JSON when it is JSON); undefined for other responses. */
+  events?: ServerEvent[];
+}
+
+/** One server-sent event of a response. */
+export interface ServerEvent {
+  /** The `event:` field; undefined for unnamed (`message`) events. */
+  event?: string;
+  /** The `data:` lines joined by newlines, parsed as JSON when they are JSON (`[DONE]` stays a string). */
+  data: any;
+  id?: string;
+}
+
+/** Events of a `text/event-stream` body, as the HTML spec's parser dispatches them. */
+export function parseEvents(text: string): ServerEvent[] {
+  const out: ServerEvent[] = [];
+  let data: string[] = [];
+  let event: string | undefined;
+  let id: string | undefined;
+  for (const line of `${text}\n`.split(/\r\n|\r|\n/)) {
+    if (line === "") {
+      if (data.length) {
+        const raw = data.join("\n");
+        let parsed: unknown = raw;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {}
+        out.push({ ...(event ? { event } : {}), data: parsed, ...(id !== undefined ? { id } : {}) });
+      }
+      data = [];
+      event = undefined;
+      continue;
+    }
+    if (line.startsWith(":")) continue;
+    const colon = line.indexOf(":");
+    const field = colon < 0 ? line : line.slice(0, colon);
+    const value = colon < 0 ? "" : line.slice(colon + 1).replace(/^ /, "");
+    if (field === "data") data.push(value);
+    else if (field === "event") event = value;
+    else if (field === "id" && !value.includes("\0")) id = value;
+  }
+  return out;
 }
 
 type QueryValue = string | number | boolean;
@@ -237,6 +279,7 @@ export class HttpClient {
       text,
       json,
       durationMs: Math.round(performance.now() - started),
+      ...(/^text\/event-stream\b/i.test(res.headers.get("content-type") ?? "") ? { events: parseEvents(text) } : {}),
     };
     timeline.set(out, { start: started, end: performance.now() });
     this.#record(out);

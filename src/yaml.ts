@@ -99,7 +99,7 @@ export interface RequestStep {
   timeout?: number;
   /** `queries`: at most this many SQL statements (not counting BEGIN/COMMIT), with `db.queries` on. */
   /** `schema`: a JSON Schema for the response JSON, inline or `file#/pointer` relative to the scenario file. */
-  expect?: { cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: number | string | (number | string)[]; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number; schema?: string | object };
+  expect?: { events?: Record<string, unknown>[]; cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: number | string | (number | string)[]; statuses?: Record<string, number>; headers?: Record<string, unknown>; json?: unknown; text?: unknown; queries?: number; schema?: string | object };
   capture?: Record<string, string>;
 }
 
@@ -116,7 +116,7 @@ export interface SubmitStep {
   fields?: Record<string, string | number | boolean | (string | number)[] | FilePart>;
   headers?: Record<string, string>;
   follow?: boolean;
-  expect?: { cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: number | string | (number | string)[]; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object };
+  expect?: { events?: Record<string, unknown>[]; cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: number | string | (number | string)[]; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object };
   capture?: Record<string, string>;
 }
 
@@ -266,8 +266,8 @@ const KINDS = {
 type Kind = keyof typeof KINDS;
 
 const EXPECT_KEYS: Record<string, string[]> = {
-  request: ["status", "statuses", "headers", "json", "text", "queries", "schema", "duration", "cookies"],
-  submit: ["status", "headers", "json", "text", "schema", "duration", "cookies"],
+  request: ["status", "statuses", "headers", "json", "text", "queries", "schema", "duration", "cookies", "events"],
+  submit: ["status", "headers", "json", "text", "schema", "duration", "cookies", "events"],
   sql: ["rows", "count"],
   db: ["rows", "count"],
 };
@@ -461,6 +461,10 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
     if (raw[key] !== undefined && !pattern.test(String(raw[key]))) fail(at(key), `\`${key}\` must look like "POST /path", got "${raw[key]}"`);
   };
   if (raw.within !== undefined && (typeof raw.within !== "number" || raw.within <= 0)) fail(at("within"), "`within` must be a positive number of milliseconds");
+  const events = (raw.expect as Record<string, unknown> | undefined)?.events;
+  if (events !== undefined && !(Array.isArray(events) && events.every((e) => e && typeof e === "object" && !Array.isArray(e)))) {
+    fail(at("expect"), "`expect.events` is a list of events, each a subset of { event, data, id }: [{ event: message_stop }]");
+  }
   const cookies = (raw.expect as Record<string, unknown> | undefined)?.cookies;
   if (cookies !== undefined && (!cookies || typeof cookies !== "object" || Array.isArray(cookies) || Object.values(cookies).some((c) => c !== null && (typeof c !== "object" || Array.isArray(c))))) {
     fail(at("expect"), "`expect.cookies` maps cookie names to attributes ({ sid: { httpOnly: true } }), {} for any value, or null for a cookie that must not be set");

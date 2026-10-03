@@ -222,7 +222,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
       follow: step.follow,
     });
     verifyResponse(res, step.expect, vars, base);
-    capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers) }, vars);
+    capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers), events: res.events }, vars);
     return;
   }
 
@@ -281,7 +281,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
       }
     }
     verify(res);
-    capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers) }, vars);
+    capture(step.capture, { status: res.status, json: res.json, text: res.text, headers: Object.fromEntries(res.headers), events: res.events }, vars);
     return;
   }
 
@@ -657,7 +657,7 @@ function interpolateTitle(name: string, row: Record<string, unknown>, index: num
   });
 }
 
-function verifyResponse(res: HttpResponse, e: { cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
+function verifyResponse(res: HttpResponse, e: { events?: Record<string, unknown>[]; cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
   if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as never);
   if (e?.headers !== undefined) {
     const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
@@ -665,6 +665,21 @@ function verifyResponse(res: HttpResponse, e: { cookies?: Record<string, Record<
   }
   if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
   if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
+  if (e?.events !== undefined) {
+    if (!res.events) throw new Error(`${res.method} ${res.url}: expected server-sent events, but the response is ${res.headers.get("content-type") ?? "without a content type"}, not text/event-stream`);
+    const wanted = toMatchers(interpolate(e.events, vars)) as unknown[];
+    let at = 0;
+    for (const [i, want] of wanted.entries()) {
+      const found = res.events.findIndex((ev, j) => j >= at && subsetEquals(want, ev));
+      if (found < 0) {
+        const shown = res.events.slice(0, 20).map((ev, j) => `  ${j}: ${JSON.stringify(ev).slice(0, 200)}`).join("\n");
+        throw new Error(
+          `${res.method} ${res.url}: expected event ${i + 1} of ${wanted.length}, ${JSON.stringify(e.events[i])}, ${at > 0 ? `after event ${at - 1}` : "in the stream"}; ${res.events.length} event(s) arrived:\n${shown || "  (none)"}${res.events.length > 20 ? "\n  …" : ""}`,
+        );
+      }
+      at = found + 1;
+    }
+  }
   if (e?.cookies !== undefined) {
     for (const [name, attrs] of Object.entries(e.cookies)) {
       if (attrs === null) expect(res).not.toSetCookie(name);

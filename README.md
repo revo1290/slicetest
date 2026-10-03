@@ -489,6 +489,7 @@ expect(res).toHaveStatus(201);                                   // failure show
 expect(res).toHaveStatus("2xx");                                 // a class, or a list: [200, 204], ["2xx", 304]
 expect(res).toRespondWithin(300);                                // a response-time budget, in ms
 expect(res).toSetCookie("sid", { httpOnly: true, secure: true, sameSite: "Lax" }); // a cookie and its attributes
+expect(res.events).toContainEqual({ event: "message_stop", data: {} }); // text/event-stream responses are parsed into events
 expect(responses).toHaveStatuses({ 201: 1, 409: 9 });            // an array, e.g. from http.concurrently()
 expect(stub("slack")).toHaveReceived("POST", "/hook", { json: { text: "hi" } });
 expect(stub("slack")).toHaveReceivedTimes(1, "POST", "/hook");
@@ -798,7 +799,7 @@ scenarios:
 | Step | Keys |
 |---|---|
 | `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, form, body, variables }`, one of `reply: { status, headers, body }` (`{ file }` for a fixture file, `{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.form.amount}}`, `{{call.variables.id}}`. |
-| `submit: <button>` | `form`, `fields` (`{ file: path }` for a file input), `headers`, `follow`, `expect: { status, headers, json, text }` (`status` may be a class, `2xx`, or a list, `[200, 204]`; `duration: 300` fails a response slower than 300 ms, `duration: { $lt: 300 }` takes matchers; `cookies: { sid: { httpOnly: true, sameSite: Lax }, tracking: null }` checks the cookies it sets and their attributes, `null` for one it must not set), `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
+| `submit: <button>` | `form`, `fields` (`{ file: path }` for a file input), `headers`, `follow`, `expect: { status, headers, json, text }` (`status` may be a class, `2xx`, or a list, `[200, 204]`; `duration: 300` fails a response slower than 300 ms, `duration: { $lt: 300 }` takes matchers; `cookies: { sid: { httpOnly: true, sameSite: Lax }, tracking: null }` checks the cookies it sets and their attributes, `null` for one it must not set; `events: [{ event: message_start }, { data: "[DONE]" }]` checks a `text/event-stream` response's events in order, others allowed between), `capture` (also from `events.0.data.id`). Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `multipart` / `body` / `graphql: { query, variables, operationName }`, `expect.schema` (a JSON Schema, or `../openapi.yaml#/components/schemas/Poll` relative to the file), `follow`, `expect: { status, headers, json, text }`, `capture`. `timeout: <ms>` fails it, by name, when the app doesn't answer in time. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
 | `request` with `auth` | `auth: true` or the claims: sends a bearer token from the `auth` issuer |

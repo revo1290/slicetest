@@ -676,6 +676,13 @@
                   "description": "Subset of the response JSON"
                 },
                 "text": {},
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  },
+                  "description": "Server-sent events of a text/event-stream response that must come in this order, others allowed between: [{ event: message_start }, { data: \"[DONE]\" }]. Each is a subset of { event, data, id }"
+                },
                 "cookies": {
                   "type": "object",
                   "description": "Cookies the response sets, by name: attributes as a subset ({ httpOnly: true, sameSite: Lax, value: ... }), or null for one it must not set",
@@ -945,6 +952,13 @@
                   "description": "Subset of the response JSON"
                 },
                 "text": {},
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  },
+                  "description": "Server-sent events of a text/event-stream response that must come in this order, others allowed between: [{ event: message_start }, { data: \"[DONE]\" }]. Each is a subset of { event, data, id }"
+                },
                 "cookies": {
                   "type": "object",
                   "description": "Cookies the response sets, by name: attributes as a subset ({ httpOnly: true, sameSite: Lax, value: ... }), or null for one it must not set",
