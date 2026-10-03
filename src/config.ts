@@ -311,6 +311,8 @@ function resolveDb(db: DbOptions): ResolvedOptions["db"] {
 
 const TOP_LEVEL_KEYS = ["app", "db", "stubs", "openapi", "http", "services", "containers", "mail", "offline", "strictStubs", "workers", "auth", "include"] as const satisfies readonly (keyof SlicetestOptions | "include")[];
 const APP_KEYS = ["command", "build", "cwd", "env", "ready", "readyTimeout", "scope", "baseEnv"] as const;
+const STUB_KEYS = ["name", "openapi", "autoReply", "upstream", "recordings", "hosts"] as const satisfies readonly (keyof StubOptions)[];
+const CONTAINER_KEYS = ["image", "port", "env", "command", "ready", "reset"] as const satisfies readonly (keyof ContainerOptions)[];
 const DB_KEYS = ["engine", "image", "url", "migrate", "seed", "schemas", "keep", "ignoreChanges", "reuse", "queries", "neon"] as const satisfies readonly (keyof DbOptions)[];
 
 function editDistance(a: string, b: string) {
@@ -348,6 +350,9 @@ function validate(opts: SlicetestOptions) {
   checkKeys(opts, TOP_LEVEL_KEYS, "");
   checkKeys(opts?.app, APP_KEYS, "app.");
   if (opts?.db) checkKeys(opts.db, DB_KEYS, "db.");
+  for (const stub of opts?.stubs ?? []) if (typeof stub === "object" && stub) checkKeys(stub, STUB_KEYS, `stubs.${stub.name ?? "?"}.`);
+  for (const [name, service] of Object.entries(opts?.services ?? {})) checkKeys(service, APP_KEYS, `services.${name}.`);
+  for (const [name, container] of Object.entries(opts?.containers ?? {})) checkKeys(container, CONTAINER_KEYS, `containers.${name}.`);
   if (!opts?.app || typeof opts.app.command !== "string" || !opts.app.command.trim()) {
     fail("app.command is required, e.g. { app: { command: \"node server.js\" } }");
   }

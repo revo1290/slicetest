@@ -41,6 +41,9 @@ test.each([
   [{ ...valid, database: {} }, "unknown key database (expected app, db, stubs, openapi, http, services, containers, mail, offline, strictStubs, workers, auth, include)"],
   [{ app: { command: "x", readytimeout: 5 } }, 'unknown key app.readytimeout; did you mean "readyTimeout"?'],
   [{ ...valid, db: { migrations: { sql: "a.sql" } } }, 'unknown key db.migrations; did you mean "migrate"?'],
+  [{ ...valid, stubs: [{ name: "gh", host: ["api.github.com"] }] }, 'unknown key stubs.gh.host; did you mean "hosts"?'],
+  [{ ...valid, services: { worker: { command: "x", enviroment: {} } } }, "unknown key services.worker.enviroment"],
+  [{ ...valid, containers: { cache: { image: "redis", port: 6379, ports: [1] } } }, 'unknown key containers.cache.ports; did you mean "port"?'],
 ])("rejects %j", (opts, message) => {
   expect(() => resolveOptions(opts as SlicetestOptions, "/")).toThrow(message);
 });
