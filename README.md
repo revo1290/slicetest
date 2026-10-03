@@ -791,7 +791,21 @@ scenarios:
 
 - `request:` also takes a captured URL of the app, e.g. `GET {{link}}` after capturing a link from a mail.
 - `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.
-- Expected `json`, `rows` and `headers` are subsets: extra keys are fine. `{ $type: number }`, `{ $regex: "^ch_" }`, `{ $contains: "..." }` and `{ $any: true }` match loosely.
+- Expected `json`, `rows` and `headers` are subsets: extra keys are fine. Values match loosely with:
+
+  | Matcher | Matches |
+  |---|---|
+  | `{ $type: number }` | `string`, `number`, `integer`, `boolean`, `array`, `object`, `null` |
+  | `{ $regex: "^ch_" }` | a string the pattern finds |
+  | `{ $contains: "ok" }` | a string with that substring, or a list with a matching item (`{ $contains: { sku: a } }`) |
+  | `{ $gte: 1, $lt: 10 }` | numbers, or strings such as ISO dates (`{ $gte: "2026-01-01" }`); also `$gt`, `$lte` |
+  | `{ $len: 3 }` | a string or list of that length; `{ $len: { $gte: 1 } }` |
+  | `{ $oneOf: [paid, pending] }` | any of the values (or matchers) |
+  | `{ $not: "" }` | anything the value or matcher doesn't match |
+  | `{ $format: uuid }` | `uuid`, `email`, `date`, `date-time`, `uri`, `integer` (a string of digits) |
+  | `{ $any: true }` | anything but `null` / missing |
+
+  Several `$` keys in one mapping must all hold.
 - A file-level `setup:` list runs at the start of every scenario. `skip`, `only` and `timeout` work per scenario.
 - A file-level `define:` names step lists that `use:` steps run, like functions: `params` are given with `with:` and are `{{variables}}` inside, and what the steps capture is visible after the `use` (see below).
 - Mistakes are reported with the file and line before anything runs (`polls.scenario.yaml:12: unknown key "stauts" in expect`). A failing step reports its file, line and step number. The JSON Schema in `schema/` gives editors completion and inline errors.

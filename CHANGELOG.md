@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- YAML matchers for values that change between runs or only need a range: `$gt`, `$gte`, `$lt`, `$lte` (numbers, or strings such as ISO dates), `$len` (a count or a matcher), `$oneOf`, `$not`, `$format` (`uuid`, `email`, `date`, `date-time`, `uri`, `integer`) and `$type: integer`. `$contains` also finds an item in a list. Several `$` keys in one mapping must all hold (`{ $gte: 1, $lt: 10 }`). They work in `expect`, `rows`, `changes` and stub `when` conditions.
 - Stubs read form-encoded bodies: `call.form` has the fields of an `application/x-www-form-urlencoded` request (Stripe, Twilio, OAuth token endpoints), with bracket keys nested as those providers read them (`metadata[order]`, `items[0][price]`, `expand[]`). `form` conditions in `on()`, `calls()` and `toHaveReceived()` match a subset, comparing numbers and booleans with the strings sent; an unmatched call names the field that differed. YAML: `when.form`, `{{call.form.x}}`.
 
 ## 0.7.0

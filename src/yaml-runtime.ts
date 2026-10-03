@@ -395,31 +395,104 @@ const TYPES: Record<string, unknown> = {
   object: expect.any(Object),
 };
 
+const FORMATS: Record<string, RegExp> = {
+  uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  date: /^\d{4}-\d{2}-\d{2}$/,
+  "date-time": /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/i,
+  uri: /^[a-z][a-z0-9+.-]*:\/\/\S+$/i,
+  integer: /^-?\d+$/,
+};
+
+const MATCHERS = ["$type", "$regex", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$len", "$not", "$oneOf", "$format"];
+
+/** An asymmetric matcher Vitest's `toEqual` / `toMatchObject` call, with a readable name in diffs. */
+function matcher(name: string, test: (v: unknown) => boolean) {
+  return { asymmetricMatch: test, toAsymmetricMatcher: () => name, toString: () => name };
+}
+
+/** Numbers compare as numbers; strings (ISO dates, versions) compare as strings; anything else never matches. */
+function compare(op: string, arg: unknown, check: (c: number) => boolean) {
+  if (typeof arg !== "number" && typeof arg !== "string") throw new Error(`${op} takes a number or a string, got ${JSON.stringify(arg)}`);
+  return matcher(`${op} ${JSON.stringify(arg)}`, (v) => {
+    if (typeof arg === "number") return typeof v === "number" && check(v - arg);
+    return typeof v === "string" && check(v < arg ? -1 : v > arg ? 1 : 0);
+  });
+}
+
+function equalsMatcher(expected: unknown, actual: unknown) {
+  return isAsymmetric(expected) ? (expected as { asymmetricMatch(v: unknown): boolean }).asymmetricMatch(actual) : subsetEquals(expected, actual);
+}
+
+/** `expected` contained in `actual`, with matchers anywhere: the rules of expected JSON. */
+function subsetEquals(expected: unknown, actual: unknown): boolean {
+  if (isAsymmetric(expected)) return (expected as { asymmetricMatch(v: unknown): boolean }).asymmetricMatch(actual);
+  if (Array.isArray(expected)) return Array.isArray(actual) && actual.length === expected.length && expected.every((e, i) => subsetEquals(e, actual[i]));
+  if (expected && typeof expected === "object") {
+    return !!actual && typeof actual === "object" && Object.entries(expected).every(([k, v]) => k in actual && subsetEquals(v, (actual as Record<string, unknown>)[k]));
+  }
+  return Object.is(expected, actual) || expected === actual;
+}
+
+function single(key: string, arg: unknown): unknown {
+  switch (key) {
+    case "$type":
+      if (arg === "null") return null;
+      if (arg === "integer") return matcher("$type integer", (v) => Number.isInteger(v));
+      if (typeof arg === "string" && arg in TYPES) return TYPES[arg];
+      throw new Error(`$type must be one of ${Object.keys(TYPES).join(", ")}, integer, null`);
+    case "$regex":
+      return expect.stringMatching(new RegExp(String(arg)));
+    case "$contains":
+      return matcher(`$contains ${JSON.stringify(arg)}`, (v) =>
+        typeof v === "string" ? v.includes(String(arg)) : Array.isArray(v) ? v.some((item) => equalsMatcher(toMatchers(arg), item)) : false,
+      );
+    case "$any":
+      return expect.anything();
+    case "$gt":
+      return compare(key, arg, (c) => c > 0);
+    case "$gte":
+      return compare(key, arg, (c) => c >= 0);
+    case "$lt":
+      return compare(key, arg, (c) => c < 0);
+    case "$lte":
+      return compare(key, arg, (c) => c <= 0);
+    case "$len": {
+      const want = toMatchers(arg);
+      return matcher(`$len ${JSON.stringify(arg)}`, (v) => (typeof v === "string" || Array.isArray(v)) && equalsMatcher(want, v.length));
+    }
+    case "$not": {
+      const want = toMatchers(arg);
+      return matcher(`$not ${JSON.stringify(arg)}`, (v) => !equalsMatcher(want, v));
+    }
+    case "$oneOf": {
+      if (!Array.isArray(arg)) throw new Error(`$oneOf takes a list, got ${JSON.stringify(arg)}`);
+      const options = arg.map(toMatchers);
+      return matcher(`$oneOf ${JSON.stringify(arg)}`, (v) => options.some((o) => equalsMatcher(o, v)));
+    }
+    case "$format": {
+      const re = FORMATS[String(arg)];
+      if (!re) throw new Error(`$format must be one of ${Object.keys(FORMATS).join(", ")}`);
+      return matcher(`$format ${arg}`, (v) => typeof v === "string" && re.test(v));
+    }
+    default:
+      throw new Error(`unknown matcher ${key} (expected one of ${MATCHERS.join(", ")})`);
+  }
+}
+
 /**
- * `{ $type: number }`, `{ $regex: "^ch_" }`, `{ $contains: "x" }` and
- * `{ $any: true }` become Vitest asymmetric matchers.
+ * `{ $type: number }`, `{ $regex: "^ch_" }`, `{ $contains: "x" }`, `{ $any: true }`,
+ * `{ $gte: 1, $lt: 10 }`, `{ $len: 3 }`, `{ $not: … }`, `{ $oneOf: [...] }` and
+ * `{ $format: uuid }` become Vitest asymmetric matchers. Several `$` keys must all hold.
  */
 export function toMatchers(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toMatchers);
   if (!value || typeof value !== "object" || isAsymmetric(value)) return value;
   const keys = Object.keys(value);
-  if (keys.length === 1 && keys[0]!.startsWith("$")) {
-    const [key] = keys as [string];
-    const arg = (value as Record<string, unknown>)[key];
-    switch (key) {
-      case "$type":
-        if (arg === "null") return null;
-        if (typeof arg === "string" && arg in TYPES) return TYPES[arg];
-        throw new Error(`$type must be one of ${Object.keys(TYPES).join(", ")}, null`);
-      case "$regex":
-        return expect.stringMatching(new RegExp(String(arg)));
-      case "$contains":
-        return expect.stringContaining(String(arg));
-      case "$any":
-        return expect.anything();
-      default:
-        throw new Error(`unknown matcher ${key} (expected $type, $regex, $contains, $any)`);
-    }
+  if (keys.length > 0 && keys.every((k) => k.startsWith("$"))) {
+    const parts = keys.map((k) => single(k, (value as Record<string, unknown>)[k]));
+    if (parts.length === 1) return parts[0];
+    return matcher(keys.map((k) => `${k} ${JSON.stringify((value as Record<string, unknown>)[k])}`).join(", "), (v) => parts.every((p) => equalsMatcher(p, v)));
   }
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, toMatchers(v)]));
 }

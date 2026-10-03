@@ -78,6 +78,42 @@ test("$-objects become asymmetric matchers", () => {
   expect(() => toMatchers({ $typo: 1 })).toThrow("unknown matcher $typo");
 });
 
+test("comparison, length, negation, alternatives and formats match loosely", () => {
+  const m = toMatchers({
+    total: { $gte: 1, $lt: 10 },
+    price: { $gt: 0 },
+    created: { $gte: "2026-01-01", $format: "date-time" },
+    items: { $len: { $gte: 2 } },
+    tags: { $contains: "new" },
+    lines: { $contains: { sku: "a" } },
+    status: { $oneOf: ["paid", "pending"] },
+    error: { $not: { $any: true } },
+    id: { $format: "uuid" },
+    count: { $type: "integer" },
+    name: { $not: "" },
+  });
+  const ok = {
+    total: 3,
+    price: 0.5,
+    created: "2026-10-03T09:00:00Z",
+    items: [1, 2],
+    tags: ["new", "sale"],
+    lines: [{ sku: "b", n: 1 }, { sku: "a", n: 2 }],
+    status: "pending",
+    error: null,
+    id: "3f1c2a5e-8d4b-4c1e-9a7f-0123456789ab",
+    count: 4,
+    name: "x",
+  };
+  expect(ok).toEqual(m);
+  for (const [k, bad] of Object.entries({ total: 10, price: "1", created: "2025-12-31T00:00:00Z", items: [1], tags: ["old"], lines: [{ sku: "b" }], status: "void", error: "boom", id: "nope", count: 1.5, name: "" })) {
+    expect({ ...ok, [k]: bad }, k).not.toEqual(m);
+  }
+  expect(() => toMatchers({ $gte: true })).toThrow("$gte takes a number or a string");
+  expect(() => toMatchers({ $oneOf: "a" })).toThrow("$oneOf takes a list");
+  expect(() => toMatchers({ $format: "ipv9" })).toThrow("$format must be one of");
+});
+
 const USES = (use: string) => `
 define:
   login:
