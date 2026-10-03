@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Fixes:
+
+- A header given to a request in another case than the client's default (`authorization` after `with({ headers: { Authorization } })`, `content-type` over a default `Content-Type`) was sent joined with it (`Bearer a, Bearer b`) instead of replacing it. Header names are now compared without case, also for `http.webhook()` headers.
+- `ArrayBuffer` and `DataView` bodies were sent as the JSON `{}`; they are now sent as bytes, like `Uint8Array`.
+
 ## 0.8.0
 
 Scenarios that reach more of what real apps send and receive (form-encoded and multipart bodies, file uploads, polling, more webhook senders), say more with less YAML (range and format matchers, built-in values, reply files, call order, ignored columns), and are easier to select and inspect (tags, `slicetest list`, partial-run coverage). Plus fixes found along the way.
