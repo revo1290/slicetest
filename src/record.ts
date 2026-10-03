@@ -6,7 +6,7 @@ import path from "node:path";
 import { stringify } from "yaml";
 import type { Changes } from "./db.js";
 import type { ScenarioContext } from "./runtime.js";
-import type { RecordedCall } from "./stub.js";
+import { parseForm, type RecordedCall } from "./stub.js";
 import { mask } from "./trace.js";
 
 /**
@@ -153,7 +153,8 @@ export function buildScenario(exchanges: Exchange[], calls: Record<string, Recor
     const step: Record<string, unknown> = { request: `${method} ${pathOnly}` };
     if (x.body) {
       if (/json/i.test(x.contentType ?? "")) step.json = parse(reqBody, "application/json");
-      else if (/x-www-form-urlencoded/i.test(x.contentType ?? "")) step.form = Object.fromEntries(new URLSearchParams(reqBody));
+      // Nested and repeated fields survive: `form:` is encoded back the same way on replay.
+      else if (/x-www-form-urlencoded/i.test(x.contentType ?? "")) step.form = parseForm(reqBody);
       else step.body = reqBody;
     }
     const expectation: Record<string, unknown> = { status: x.status };

@@ -58,3 +58,13 @@ test("calls no stub answered are listed for the user instead of recorded", () =>
   expect(yaml).toContain("# - These calls got no answer while recording (register a route, or give the stub an upstream / autoReply): crm: POST /contacts");
   expect(parse(yaml).scenarios[0].steps.some((s: Record<string, unknown>) => "stub" in s)).toBe(false);
 });
+
+test("a form request keeps repeated and bracketed fields, and replays as the same body", async () => {
+  const { encodeForm } = await import("../src/form.js");
+  const body = "to=a&to=b&metadata%5Border%5D=7&items%5B0%5D%5Bsku%5D=s1&note=hi";
+  const exchange: Exchange = { method: "POST", path: "/send", contentType: "application/x-www-form-urlencoded", body, status: 204, responseType: undefined, response: "" };
+  const step = parse(buildScenario([exchange], {}, {}).yaml).scenarios[0].steps[0];
+
+  expect(step.form).toEqual({ to: ["a", "b"], metadata: { order: "7" }, items: [{ sku: "s1" }], note: "hi" });
+  expect(String(encodeForm(step.form))).toBe(body);
+});

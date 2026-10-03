@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix: `slicetest record` turned a form request's repeated fields (`to=a&to=b`) into the last value only. Recorded `form:` steps now keep repeated and bracketed fields (`metadata[order]`), and replay as the same body.
 - Fix: `http.form()`, YAML `form:` and Twilio webhook bodies sent nested values as `[object Object]` and lists as `a,b`. Lists now repeat the key (`tags=x&tags=y`, as HTML forms do) and nested objects use bracket keys (`metadata[order]=7`, `items[0][sku]=a`), as Rails, PHP and Stripe read them and as stubs parse them into `call.form`. `null` is left out, dates are sent as ISO strings.
 - `npx slicetest list`: the YAML scenarios with their file, line, tags, `each` rows and step count, marking which ones `--tag`, `-t` and file filters select and which are skipped, without starting anything. Files with mistakes are listed with their line (exit code 1). `--json` for CI scripts and coding agents.
 - Fix: `submit` sent the fields of a `<fieldset disabled>` and let its buttons be pressed; browsers treat them as disabled.
