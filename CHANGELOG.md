@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix: `openapi.minCoverage` failed any run filtered by file, `-t` or tags, since those cover only part of the spec, and such a run overwrote the coverage `gen --uncovered` reads. Partial runs (fewer files than the project has, a name filter, `--tag`, a shard) now print their coverage marked as partial, without failing or touching the cache.
 - Call order across stubs: `expect(stub).toHaveReceivedInOrder([["stripe", "POST", "/v1/charges"], ["mail", "POST", "/send", { json }]])` and the YAML `order:` step check that calls came in that sequence (others may come between), and on failure mark the entry that didn't follow and list the calls in the order they arrived.
 - `db.changes({ ignore })`, YAML `changes` + `ignore:`, and `db.ignoreChanges` in the config: leave out columns the app sets on every write (`updated_at`), a column of one table (`orders.synced_at`) or a whole table (`sessions.*`). An update that only touched ignored columns isn't reported. The config setting also applies to `trace()` snapshots and the failure output.
 - Tags: `scenario(name, fn, { tags: ["smoke"] })` and YAML `tags: [smoke]`, selected with `npx slicetest --tag smoke` (several `--tag`s for any of them, `--tag '!slow'` to leave some out) or `SLICETEST_TAGS=smoke,!slow` under Vitest. Left-out scenarios show as skipped. The third argument of `scenario()` takes `{ timeout, tags }` as well as a timeout.

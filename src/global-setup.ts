@@ -43,7 +43,7 @@ export default async function setup(project: TestProject) {
     try {
       await database?.teardown();
     } finally {
-      if (coverageDir) await reportCoverage(opts, coverageDir);
+      if (coverageDir) await reportCoverage(opts, coverageDir, await partialRun(project));
       if (usageDir) await reportUsage(opts, usageDir);
       if (recordDir) await saveRecordings(opts, recordDir);
       if (ciDir) await reportToGitHub(ciDir);
@@ -101,7 +101,26 @@ async function startDatabase(opts: ResolvedOptions, builds: Promise<void>) {
   };
 }
 
-async function reportCoverage(opts: ResolvedOptions, dir: string) {
+/**
+ * Why this run covers only part of the suite (a file or name filter, tags, a shard), or undefined for a full run.
+ * Coverage then says little about the suite, so `minCoverage` isn't enforced and the cache for `gen --uncovered` is kept.
+ */
+export async function partialRun(project: TestProject): Promise<string | undefined> {
+  try {
+    const config = project.vitest.config as { testNamePattern?: RegExp; shard?: unknown };
+    if (config.testNamePattern) return `only scenarios matching ${config.testNamePattern}`;
+    if (process.env.SLICETEST_TAGS) return `only tags ${process.env.SLICETEST_TAGS}`;
+    if (config.shard) return "one shard";
+    const all = (await project.globTestFiles()).testFiles.length;
+    const ran = project.vitest.state.getFiles().filter((f) => f.projectName === project.name).length;
+    if (ran > 0 && ran < all) return `${ran} of ${all} files`;
+  } catch {
+    // An API this Vitest version lacks: treat the run as complete, as before.
+  }
+  return undefined;
+}
+
+async function reportCoverage(opts: ResolvedOptions, dir: string, partial?: string) {
   try {
     const hits = new Set<string>();
     for (const file of await readdir(dir)) {
@@ -114,11 +133,11 @@ async function reportCoverage(opts: ResolvedOptions, dir: string) {
     const report = formatCoverage(spec, hits);
     // For `slicetest gen --uncovered`.
     const cache = coverageCacheFile(opts.root);
-    await mkdir(path.dirname(cache), { recursive: true }).then(() => writeFile(cache, JSON.stringify([...hits]))).catch(() => {});
-    console.log(`\n${report.text}\n`);
+    if (!partial) await mkdir(path.dirname(cache), { recursive: true }).then(() => writeFile(cache, JSON.stringify([...hits]))).catch(() => {});
+    console.log(`\n${report.text}${partial ? `\n(partial run: ${partial}; openapi.minCoverage is checked on full runs)` : ""}\n`);
     await appendSummary(report.markdown);
     const min = opts.openapi.minCoverage;
-    if (min !== undefined && report.percent < min) {
+    if (min !== undefined && report.percent < min && !partial) {
       // Not thrown: Vitest reports teardown errors as a crash. The failing exit code is what CI needs.
       const message = `OpenAPI coverage ${report.percent}% is below openapi.minCoverage (${min}%)`;
       console.error(`slicetest: ${message}\n`);

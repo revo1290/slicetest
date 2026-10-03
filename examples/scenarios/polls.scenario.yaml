@@ -2,6 +2,7 @@
 # The YAML version of polls.test.ts. Runs against both the Node and the Python app.
 scenarios:
   - name: 投票を作るとDBに保存され、Slackに通知される（YAML）
+    tags: [smoke]
     steps:
       - stub: slack
         on: POST /hook

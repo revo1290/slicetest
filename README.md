@@ -345,7 +345,7 @@ slicetest: OpenAPI coverage (openapi.yaml): 8/9 documented responses (89%)
   POST   /polls/{id}/votes  204 ✓  400 ✓  404 ✓
 ```
 
-To fail the run below a threshold, use `openapi: { spec: "openapi.yaml", minCoverage: 100 }`. Filtered runs (`-t`, a single file) count too, so you may want `minCoverage: process.env.CI ? 100 : undefined`.
+To fail the run below a threshold, use `openapi: { spec: "openapi.yaml", minCoverage: 100 }`. It is checked on full runs only: a run filtered by file, `-t`, `--tag` or a shard still prints the coverage it saw, marked as partial, without failing, and doesn't replace what `gen --uncovered` reads.
 
 The example apps in `examples/` run every scenario against `examples/openapi.yaml` with `minCoverage: 100`, and their Slack calls against `examples/slack.openapi.yaml`.
 
