@@ -26,6 +26,8 @@ export interface YamlScenario {
   skip?: boolean;
   only?: boolean;
   timeout?: number;
+  /** Labels to select scenarios by (`npx slicetest --tag smoke`). */
+  tags?: string[];
   steps: Step[];
 }
 
@@ -252,7 +254,7 @@ const WEBHOOK_PROVIDERS: readonly string[] = PROVIDERS;
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];
 const RESPONSE_KEYS = ["status", "headers", "body", "file", "sse", "data", "errors"];
-const SCENARIO_KEYS = ["name", "steps", "each", "skip", "only", "timeout"];
+const SCENARIO_KEYS = ["name", "steps", "each", "skip", "only", "timeout", "tags"];
 const CALL = /^([A-Za-z]+|\*)\s+(\/\S*)$/;
 /** A request may also go to a captured URL of the app, e.g. a link from a mail: `GET {{link}}`. */
 const REQUEST = /^[A-Za-z]+\s+(\/\S*|\{\{[^}]+\}\}\S*)$/;
@@ -333,6 +335,9 @@ export function parseScenarioFile(text: string, file: string): YamlFile {
         fail(node.get("each", true), "`each` must be a list of mappings");
       }
       if (raw.timeout !== undefined && typeof raw.timeout !== "number") fail(node, "`timeout` must be a number of milliseconds");
+      if (raw.tags !== undefined && !(Array.isArray(raw.tags) && raw.tags.every((t) => typeof t === "string" && /^[^\s,!]+$/.test(t)))) {
+        fail(node.get("tags", true), "`tags` must be a list of words without spaces, commas or `!`, e.g. [smoke, payments]");
+      }
       return {
         name: raw.name as string,
         line: lineOf(node),
@@ -340,6 +345,7 @@ export function parseScenarioFile(text: string, file: string): YamlFile {
         skip: raw.skip === true,
         only: raw.only === true,
         timeout: raw.timeout as number | undefined,
+        tags: raw.tags as string[] | undefined,
         steps: stepsOf(node.get("steps", true), `scenario "${raw.name}": steps`),
       };
     }),

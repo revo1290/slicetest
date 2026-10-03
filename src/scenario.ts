@@ -12,9 +12,29 @@ export function setRuntime(runtime: Runtime | undefined) {
 
 type Body = (ctx: ScenarioContext) => Promise<void> | void;
 
+export interface ScenarioOptions {
+  timeout?: number;
+  /** Labels to select scenarios by: `npx slicetest --tag smoke`, or `SLICETEST_TAGS=smoke,!slow` with Vitest. */
+  tags?: string[];
+}
+
+/**
+ * Whether a scenario with `tags` runs under `filter` (`SLICETEST_TAGS`): comma- or space-separated tags,
+ * any of which it must have, and `!tag`s it must not have. No filter runs everything.
+ */
+export function tagsSelected(tags: readonly string[] = [], filter = process.env.SLICETEST_TAGS) {
+  const terms = (filter ?? "").split(/[\s,]+/).filter(Boolean);
+  const excluded = terms.filter((t) => t.startsWith("!")).map((t) => t.slice(1));
+  const wanted = terms.filter((t) => !t.startsWith("!"));
+  if (tags.some((t) => excluded.includes(t))) return false;
+  return wanted.length === 0 || tags.some((t) => wanted.includes(t));
+}
+
 function define(register: typeof test | typeof test.only | typeof test.skip) {
-  return (name: string, body: Body, timeout?: number) =>
-    register(
+  return (name: string, body: Body, options?: number | ScenarioOptions) => {
+    const { timeout, tags } = typeof options === "number" ? { timeout: options, tags: undefined } : (options ?? {});
+    // Scenarios the tag filter leaves out show as skipped, so the filter is visible in the summary.
+    return (tagsSelected(tags) ? register : test.skip)(
       name,
       async ({ onTestFailed, task }) => {
         const runtime = slot[KEY];
@@ -38,6 +58,7 @@ function define(register: typeof test | typeof test.only | typeof test.skip) {
       },
       timeout,
     );
+  };
 }
 
 /**
@@ -50,10 +71,10 @@ export const scenario = Object.assign(define(test), {
   todo: (name: string) => test.todo(name),
   /** Same scenario for each row: `scenario.each(rows)("name %s", async (row, ctx) => ...)`. */
   each<T>(rows: readonly T[]) {
-    return (name: string, body: (row: T, ctx: ScenarioContext) => Promise<void> | void, timeout?: number) => {
+    return (name: string, body: (row: T, ctx: ScenarioContext) => Promise<void> | void, options?: number | ScenarioOptions) => {
       rows.forEach((row, i) => {
         const title = format(name, row, i);
-        define(test)(title, (ctx) => body(row, ctx), timeout);
+        define(test)(title, (ctx) => body(row, ctx), options);
       });
     };
   },

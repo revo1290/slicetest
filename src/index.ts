@@ -1,4 +1,5 @@
 export { scenario } from "./scenario.js";
+export type { ScenarioOptions } from "./scenario.js";
 export { mask } from "./trace.js";
 export type { Trace, MaskOptions } from "./trace.js";
 export type { ScenarioContext } from "./runtime.js";

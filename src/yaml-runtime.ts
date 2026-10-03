@@ -28,7 +28,7 @@ export function defineYamlScenarios(doc: YamlFile) {
       register(title, (ctx) => {
         seq = 0;
         return runSteps(doc, sc, [...doc.setup, ...sc.steps], ctx, { ...row });
-      }, sc.timeout);
+      }, { timeout: sc.timeout, tags: sc.tags });
     });
   }
 }

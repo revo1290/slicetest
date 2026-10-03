@@ -86,6 +86,14 @@
             "items": {
               "$ref": "#/$defs/step"
             }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[^\\s,!]+$"
+            },
+            "description": "Labels to select scenarios by: npx slicetest --tag smoke (or !slow to leave some out)"
           }
         }
       }

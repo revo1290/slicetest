@@ -35,6 +35,8 @@ Options:
   -c, --config <file>  Config file (default: ${CONFIG_NAMES.join(" / ")} in the current directory)
   -w, --watch          Re-run on changes
   -t, --name <pattern> Only run scenarios whose name matches
+      --tag <tag>      Only run scenarios with this tag (repeat for any of several;
+                       !tag leaves those out), like SLICETEST_TAGS=smoke,!slow
       --spec <file>    gen: OpenAPI file (default: \`openapi\` from the config)
       --out <dir>      gen: where to write scenarios (default: scenarios)
                        record: the scenario file (default: scenarios/recorded-<time>.scenario.yaml)
@@ -74,6 +76,7 @@ export async function main(argv = process.argv.slice(2)) {
       config: { type: "string", short: "c" },
       watch: { type: "boolean", short: "w" },
       name: { type: "string", short: "t" },
+      tag: { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
       force: { type: "boolean" },
       spec: { type: "string" },
@@ -167,6 +170,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   // Workers inherit the environment; a relative directory is taken from where the command runs.
   if (values.diagrams) process.env.SLICETEST_DIAGRAMS = path.resolve(values.diagrams);
+  if (values.tag?.length) process.env.SLICETEST_TAGS = values.tag.join(",");
   const { startVitest, version } = await import("vitest/node");
   if (Number.parseInt(version, 10) < 4) {
     process.stderr.write(`slicetest: needs Vitest 4 or later, and this project has Vitest ${version}. Upgrade it (npm i -D vitest@latest), or run slicetest from a folder with its own package.json.\n`);

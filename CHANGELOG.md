@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tags: `scenario(name, fn, { tags: ["smoke"] })` and YAML `tags: [smoke]`, selected with `npx slicetest --tag smoke` (several `--tag`s for any of them, `--tag '!slow'` to leave some out) or `SLICETEST_TAGS=smoke,!slow` under Vitest. Left-out scenarios show as skipped. The third argument of `scenario()` takes `{ timeout, tags }` as well as a timeout.
 - `http` requests that get no response fail with the request's method and path and what to look at (`POST /polls: connection refused: the app isn't listening (it may have crashed …)`) instead of fetch's bare `fetch failed`. New `timeout` request option (also `http: { timeout }` in the config) fails a request the app doesn't answer in time, naming it, before the test's own timeout. A list in `query` repeats the parameter.
 - Webhook providers `line` (LINE Messaging API), `paddle` (Paddle Billing), `linear`, `gitlab`, `zoom` and `twitch` (EventSub), for `http.webhook()`, `signWebhook()` and YAML `webhook:`.
 - Polling: a YAML `request` step with `within: <ms>` is sent again (every 200 ms, or `every: <ms>`) until its `expect` passes, for jobs the app answers `202` and finishes in the background. `capture` takes the passing response.

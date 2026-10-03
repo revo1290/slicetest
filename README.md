@@ -695,6 +695,7 @@ sequenceDiagram
 
 ```ts
 scenario("name", async ({ http, db, stub, app, service, container, trace, diagram }) => { ... }, timeoutMs?);
+scenario("refunds a charge", async (ctx) => { ... }, { tags: ["payments", "slow"], timeout: 10_000 });
 scenario.only / scenario.skip / scenario.todo
 scenario.each([{ choice: "a", status: 204 }, { choice: "x", status: 400 }])(
   "voting $choice returns $status",
@@ -703,6 +704,8 @@ scenario.each([{ choice: "a", status: 204 }, { choice: "x", status: 400 }])(
 ```
 
 Scenarios in one file share an app and a database, so they always run one at a time; `.concurrent` is rejected.
+
+Tags select scenarios across files: `npx slicetest --tag smoke` (repeat `--tag` for any of several, `--tag '!slow'` to leave some out), or `SLICETEST_TAGS=smoke,!slow npx vitest` with your own Vitest config. Scenarios a filter leaves out are reported as skipped. In YAML, `tags: [smoke, payments]` on a scenario.
 
 ### Configuration reference
 
@@ -836,7 +839,7 @@ scenarios:
   | `{ $any: true }` | anything but `null` / missing |
 
   Several `$` keys in one mapping must all hold.
-- A file-level `setup:` list runs at the start of every scenario. `skip`, `only` and `timeout` work per scenario.
+- A file-level `setup:` list runs at the start of every scenario. `skip`, `only`, `timeout` and `tags` work per scenario.
 - A file-level `define:` names step lists that `use:` steps run, like functions: `params` are given with `with:` and are `{{variables}}` inside, and what the steps capture is visible after the `use` (see below).
 - Mistakes are reported with the file and line before anything runs (`polls.scenario.yaml:12: unknown key "stauts" in expect`). A failing step reports its file, line and step number. The JSON Schema in `schema/` gives editors completion and inline errors.
 
