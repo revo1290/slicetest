@@ -122,7 +122,7 @@ export class HttpClient {
   webhook(path: string, payload: unknown, opts: WebhookOptions) {
     const { body, type } = webhookBody(payload, opts.provider);
     const url = opts.url ?? new URL(path, this.baseUrl).href;
-    return this.request("POST", path, body, { headers: { "content-type": type, ...signWebhook(body, { ...opts, url }), ...opts.headers } });
+    return this.request("POST", path, body, { headers: mergeHeaders({ "content-type": type, ...signWebhook(body, { ...opts, url }) }, opts.headers) });
   }
 
   /**
@@ -151,7 +151,7 @@ export class HttpClient {
   }
 
   /**
-   * Strings, URLSearchParams, FormData, Blob and byte arrays are sent as-is; anything else is sent as JSON.
+   * Strings, URLSearchParams, FormData, Blob, ArrayBuffer and typed arrays are sent as-is; anything else is sent as JSON.
    * With `follow`, redirects are followed here rather than by fetch, so cookies set along the way are kept
    * (a login answering 302 + Set-Cookie) and nothing is sent outside the app: a redirect elsewhere is returned.
    */
@@ -203,7 +203,8 @@ export class HttpClient {
       body instanceof URLSearchParams ||
       body instanceof FormData ||
       body instanceof Blob ||
-      body instanceof Uint8Array
+      body instanceof ArrayBuffer ||
+      ArrayBuffer.isView(body)
     ) {
       payload = body as BodyInit | undefined;
     } else {
@@ -345,9 +346,15 @@ function merge(a: RequestOptions, b: RequestOptions): RequestOptions {
   return {
     ...a,
     ...b,
-    headers: { ...a.headers, ...b.headers },
+    headers: mergeHeaders(a.headers, b.headers),
     query: { ...a.query, ...b.query },
   };
+}
+
+/** Header names are case-insensitive: a later `authorization` replaces an earlier `Authorization` rather than joining it. */
+function mergeHeaders(a: Record<string, string> = {}, b: Record<string, string> = {}) {
+  const names = new Set(Object.keys(b).map((k) => k.toLowerCase()));
+  return { ...Object.fromEntries(Object.entries(a).filter(([k]) => !names.has(k.toLowerCase()))), ...b };
 }
 
 /** One line per request, for failure output. */

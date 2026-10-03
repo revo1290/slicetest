@@ -155,3 +155,19 @@ test("form() repeats keys for lists and uses bracket keys for nested objects, as
     at: "1970-01-01T00:00:00.000Z",
   });
 });
+
+test("a header given again in another case replaces the default instead of joining it", async () => {
+  const api = new HttpClient(baseUrl).with({ headers: { Authorization: "Bearer a", "Content-Type": "text/plain" } });
+
+  const res = await api.post("/h", "x", { headers: { authorization: "Bearer b", "content-type": "application/xml" } });
+
+  expect(res.json.type).toBe("application/xml");
+});
+
+test("ArrayBuffer and other binary views are sent as bytes, not as JSON", async () => {
+  const client = new HttpClient(baseUrl);
+  const bytes = new TextEncoder().encode("raw");
+
+  expect((await client.post("/b", bytes.buffer)).json).toMatchObject({ body: "raw", type: null });
+  expect((await client.post("/b", new DataView(bytes.buffer))).json).toMatchObject({ body: "raw", type: null });
+});
