@@ -15,6 +15,7 @@ import type { Admin, Engine } from "./drivers/index.js";
 import { coverageCacheFile } from "./gen.js";
 import { appSpecFile, formatCoverage, formatUsage, OpenApiSpec } from "./openapi.js";
 import { mergeRecordings, type Recording } from "./recording.js";
+import { applySqlFiles, sqlMigrationFiles } from "./sql-migrations.js";
 import "./provided.js";
 
 const exec = promisify(execFile);
@@ -300,13 +301,10 @@ async function applyMigrations(opts: ResolvedOptions, engine: Engine, url: strin
     const dir = atlasDirUrl(m.atlas.dir, opts.root);
     return run("atlas", ["migrate", "apply", "--url", engine.atlasUrl(url), "--dir", dir], opts.root);
   } else if ("sql" in m) {
-    const target = path.resolve(opts.root, m.sql);
-    const files = (await stat(target)).isDirectory()
-      ? (await readdir(target)).filter((f) => f.endsWith(".sql")).sort().map((f) => path.join(target, f))
-      : [target];
+    const files = await sqlMigrationFiles(path.resolve(opts.root, m.sql));
     const driver = await engine.driver(url);
     try {
-      for (const file of files) await driver.exec(await readFile(file, "utf8"));
+      await applySqlFiles(files, (sql) => driver.exec(sql), opts.root);
     } finally {
       await driver.close();
     }
