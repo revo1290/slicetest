@@ -553,11 +553,17 @@ function matcher(name: string, test: (v: unknown) => boolean) {
   return { asymmetricMatch: test, toAsymmetricMatcher: () => name, toString: () => name };
 }
 
-/** Numbers compare as numbers; strings (ISO dates, versions) compare as strings; anything else never matches. */
+/** A decimal as Postgres `numeric` and MySQL `DECIMAL` columns come back, to keep their precision: `"12.50"`. */
+const DECIMAL = /^-?\d+(\.\d+)?$/;
+
+/**
+ * Numbers compare as numbers, also with decimal strings from `numeric` / `DECIMAL` columns; strings
+ * (ISO dates, versions) compare as strings; anything else never matches.
+ */
 function compare(op: string, arg: unknown, holds: (c: number) => boolean) {
   if (typeof arg !== "number" && typeof arg !== "string") throw new Error(`${op} takes a number or a string, got ${JSON.stringify(arg)}`);
   return matcher(`${op} ${JSON.stringify(arg)}`, (v) => {
-    if (typeof arg === "number") return typeof v === "number" && holds(v - arg);
+    if (typeof arg === "number") return (typeof v === "number" || (typeof v === "string" && DECIMAL.test(v))) && holds(Number(v) - arg);
     return typeof v === "string" && holds(v < arg ? -1 : v > arg ? 1 : 0);
   });
 }

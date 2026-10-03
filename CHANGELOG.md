@@ -8,6 +8,8 @@
 
 Fixes:
 
+- YAML `$gt` / `$gte` / `$lt` / `$lte` with a number never matched a Postgres `numeric` or MySQL `DECIMAL` column, which come back as strings (`"12.50"`) to keep their precision. Decimal strings now compare as numbers.
+
 - A header given to a request in another case than the client's default (`authorization` after `with({ headers: { Authorization } })`, `content-type` over a default `Content-Type`) was sent joined with it (`Bearer a, Bearer b`) instead of replacing it. Header names are now compared without case, also for `http.webhook()` headers.
 - `ArrayBuffer` and `DataView` request bodies and stub replies were sent as the JSON `{}`; they are now sent as bytes, like `Uint8Array`.
 - A form body the app sent to a stub with a `__proto__[x]` or `constructor[prototype][x]` field set `x` on `Object.prototype` of the test worker. Such keys are now kept as plain fields of `call.form`.

@@ -137,9 +137,13 @@ test("comparison, length, negation, alternatives and formats match loosely", () 
     name: "x",
   };
   expect(ok).toEqual(m);
-  for (const [k, bad] of Object.entries({ total: 10, price: "1", created: "2025-12-31T00:00:00Z", items: [1], tags: ["old"], lines: [{ sku: "b" }], status: "void", error: "boom", id: "nope", count: 1.5, name: "" })) {
+  for (const [k, bad] of Object.entries({ total: 10, price: "abc", created: "2025-12-31T00:00:00Z", items: [1], tags: ["old"], lines: [{ sku: "b" }], status: "void", error: "boom", id: "nope", count: 1.5, name: "" })) {
     expect({ ...ok, [k]: bad }, k).not.toEqual(m);
   }
+  // Decimal columns come back as strings: "12.50" still compares as a number, "1e3" and "" don't.
+  expect({ ...ok, price: "12.50", total: "3" }).toEqual(m);
+  expect({ ...ok, price: "-0.5" }).not.toEqual(m);
+  expect({ ...ok, price: "1e3" }).not.toEqual(m);
   expect(() => toMatchers({ $gte: true })).toThrow("$gte takes a number or a string");
   expect(() => toMatchers({ $oneOf: "a" })).toThrow("$oneOf takes a list");
   expect(() => toMatchers({ $format: "ipv9" })).toThrow("$format must be one of");
