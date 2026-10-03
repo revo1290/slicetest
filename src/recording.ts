@@ -113,6 +113,8 @@ function requestOf(call: RecordedCall): Recording["request"] {
 
 /** Credentials sent in a query, a form or JSON body: `api_key`, `key`, `access_token`, `client_secret`, `password`, `appid`, signatures. */
 const SECRET = /^(api[-_]?key|apikey|key|(access|refresh|id|auth)[-_]?token|token|client[-_]?secret|app[-_]?secret|secret|password|passwd|appid|signature|sig|x-amz-(signature|credential|security-token))$/i;
+/** In bodies, a bare `key` is usually data (a KV store's key, a record's key) that tells requests apart, not a credential. */
+const bodySecret = (k: string) => SECRET.test(k) && k.toLowerCase() !== "key";
 export const REDACTED = "[redacted]";
 const FORM_BODY = /^[^\s=&]+=[^\s&]*(&[^\s=&]+=[^\s&]*)*$/;
 
@@ -127,8 +129,8 @@ export function redactRequest(r: Recording["request"]): Recording["request"] {
   if (r.json !== undefined) out.json = redactJson(r.json);
   if (r.body && FORM_BODY.test(r.body)) {
     const form = new URLSearchParams(r.body);
-    if ([...form.keys()].some((k) => SECRET.test(k))) {
-      out.body = [...form].map(([k, v]) => `${encodeURIComponent(k)}=${SECRET.test(k) ? REDACTED : encodeURIComponent(v)}`).join("&");
+    if ([...form.keys()].some(bodySecret)) {
+      out.body = [...form].map(([k, v]) => `${encodeURIComponent(k)}=${bodySecret(k) ? REDACTED : encodeURIComponent(v)}`).join("&");
     }
   }
   return out;
@@ -136,7 +138,7 @@ export function redactRequest(r: Recording["request"]): Recording["request"] {
 
 function redactJson(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(redactJson);
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === "string" && SECRET.test(k) ? REDACTED : redactJson(x)]));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === "string" && bodySecret(k) ? REDACTED : redactJson(x)]));
   return v;
 }
 

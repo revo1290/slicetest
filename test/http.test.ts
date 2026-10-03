@@ -202,6 +202,7 @@ test("toSetCookie checks a cookie the response sets and its attributes", async (
 
   expect(res).toSetCookie("sid", { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: 3600 });
   expect(res).toSetCookie("sid", { value: expect.stringMatching(/^s3/) });
+  expect(res).toSetCookie("sid", { sameSite: expect.stringMatching(/^lax$/) });
   expect(res).toSetCookie("theme");
   expect(res).not.toSetCookie("theme", { httpOnly: true });
   expect(res).not.toSetCookie("tracking");

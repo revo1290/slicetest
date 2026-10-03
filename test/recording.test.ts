@@ -93,13 +93,13 @@ test("credentials in the query and body are recorded redacted, and replay for an
   try {
     await fetch(`${stub.url}/forecast?city=kyoto&appid=real-key-123`);
     await fetch(`${stub.url}/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials&client_secret=s3cr3t" });
-    await fetch(`${stub.url}/login`, { method: "POST", body: JSON.stringify({ user: { name: "a", password: "hunter2" } }) });
+    await fetch(`${stub.url}/login`, { method: "POST", body: JSON.stringify({ user: { name: "a", password: "hunter2" }, key: "user:1" }) });
     expect(seen.at(-3)!.url).toBe("/forecast?city=kyoto&appid=real-key-123");
     expect(seen.at(-2)!.body).toBe("grant_type=client_credentials&client_secret=s3cr3t");
     expect(recorder.added().map((r) => r.request)).toEqual([
       { method: "GET", path: "/forecast", query: { appid: "[redacted]", city: "kyoto" } },
       { method: "POST", path: "/token", body: "grant_type=client_credentials&client_secret=[redacted]" },
-      { method: "POST", path: "/login", json: { user: { name: "a", password: "[redacted]" } } },
+      { method: "POST", path: "/login", json: { user: { name: "a", password: "[redacted]" }, key: "user:1" } },
     ]);
   } finally {
     await stub.close();

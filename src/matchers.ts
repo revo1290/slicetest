@@ -235,10 +235,10 @@ expect.extend({
     }
     const cookies = setCookies(received);
     const cookie = Object.hasOwn(cookies, name) ? cookies[name] : undefined;
-    const sameSite = (v: unknown) => (typeof v === "string" ? v.toLowerCase() : v);
-    // SameSite values are case-insensitive: "Lax" and "lax" are the same attribute.
-    const want = "sameSite" in attributes && typeof attributes.sameSite === "string" ? { ...attributes, sameSite: sameSite(attributes.sameSite) } : attributes;
-    const pass = !!cookie && subset(want, { ...cookie, sameSite: sameSite(cookie.sameSite) });
+    // SameSite values are case-insensitive: "Lax" and "lax" are the same attribute. A matcher sees the value as sent.
+    const plain = typeof attributes.sameSite === "string";
+    const want = plain ? { ...attributes, sameSite: (attributes.sameSite as string).toLowerCase() } : attributes;
+    const pass = !!cookie && subset(want, plain ? { ...cookie, sameSite: cookie.sameSite?.toLowerCase() } : cookie);
     const describe = (c: SetCookie): string => `${c.name}=${c.value.length > 40 ? `${c.value.slice(0, 40)}…` : c.value} ${JSON.stringify(Object.fromEntries(Object.entries(c as unknown as Record<string, unknown>).filter(([k, v]) => k !== "name" && k !== "value" && v !== undefined && v !== false)))}`;
     return {
       pass,

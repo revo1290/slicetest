@@ -272,7 +272,7 @@ export class HttpClient {
     } catch (e) {
       // The timeout also covers the body: a stream that never ends, or an app that stalls halfway.
       const type = res.headers.get("content-type");
-      const failed: HttpResponse = { method, url: url.pathname + url.search, status: res.status, headers: res.headers, text: "", json: undefined, durationMs: Math.round(performance.now() - started) };
+      const failed: HttpResponse = { method, url: stub ? url.href : url.pathname + url.search, status: res.status, headers: res.headers, text: "", json: undefined, durationMs: Math.round(performance.now() - started) };
       timeline.set(failed, { start: started, end: performance.now() });
       this.#record(failed);
       const why =
