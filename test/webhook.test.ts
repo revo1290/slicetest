@@ -40,3 +40,22 @@ test("custom schemes and unknown providers", () => {
   });
   expect(() => signWebhook("x", { provider: "paypal" as never, secret: "k" })).toThrow("unknown webhook provider");
 });
+
+test("LINE, Paddle, Linear, GitLab, Zoom and Twitch sign the way their SDKs verify", () => {
+  const body = '{"events":[]}';
+  const mac = (algo: string, data: string, enc: "hex" | "base64" = "hex") => createHmac(algo, "s3cret").update(data).digest(enc);
+  const sign = (provider: string, o: object = {}) => signWebhook(body, { provider: provider as "line", secret: "s3cret", timestamp: 1700000000, ...o });
+
+  expect(sign("line")).toEqual({ "x-line-signature": mac("sha256", body, "base64") });
+  expect(sign("paddle")).toEqual({ "paddle-signature": `ts=1700000000;h1=${mac("sha256", `1700000000:${body}`)}` });
+  expect(sign("linear", { event: "Issue" })).toMatchObject({ "linear-signature": mac("sha256", body), "linear-event": "Issue" });
+  expect(sign("gitlab", { event: "Merge Request Hook" })).toMatchObject({ "x-gitlab-token": "s3cret", "x-gitlab-event": "Merge Request Hook" });
+  expect(sign("gitlab", { invalidSignature: true })["x-gitlab-token"]).not.toBe("s3cret");
+  expect(sign("zoom")).toEqual({ "x-zm-request-timestamp": "1700000000", "x-zm-signature": `v0=${mac("sha256", `v0:1700000000:${body}`)}` });
+  expect(sign("twitch", { id: "m-1" })).toEqual({
+    "twitch-eventsub-message-id": "m-1",
+    "twitch-eventsub-message-timestamp": "2023-11-14T22:13:20.000Z",
+    "twitch-eventsub-message-type": "notification",
+    "twitch-eventsub-message-signature": `sha256=${mac("sha256", `m-12023-11-14T22:13:20.000Z${body}`)}`,
+  });
+});

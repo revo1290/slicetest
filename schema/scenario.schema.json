@@ -580,7 +580,13 @@
                         "github",
                         "slack",
                         "shopify",
-                        "standard"
+                        "standard",
+                        "line",
+                        "paddle",
+                        "linear",
+                        "gitlab",
+                        "zoom",
+                        "twitch"
                       ]
                     },
                     {

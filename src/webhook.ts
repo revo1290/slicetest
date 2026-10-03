@@ -11,13 +11,13 @@ export interface HmacScheme {
   prefix?: string;
 }
 
-export type WebhookProvider = "stripe" | "github" | "slack" | "shopify" | "standard" | HmacScheme;
+export type WebhookProvider = "stripe" | "github" | "slack" | "shopify" | "standard" | "line" | "paddle" | "linear" | "gitlab" | "zoom" | "twitch" | HmacScheme;
 
 export interface WebhookOptions {
   provider: WebhookProvider;
   /** The signing secret the app is configured with. For `standard` (Svix), `whsec_<base64>` or the raw key. */
   secret: string;
-  /** Event type, sent where the provider puts it: `X-GitHub-Event`, `X-Shopify-Topic`. */
+  /** Event type, sent where the provider puts it: `X-GitHub-Event`, `X-Shopify-Topic`, `X-Gitlab-Event`, `Linear-Event`, `Twitch-Eventsub-Message-Type`. */
   event?: string;
   /** Unix seconds the signature is made for. Default: now. */
   timestamp?: number;
@@ -25,19 +25,24 @@ export interface WebhookOptions {
   stale?: boolean;
   /** Signed with a different secret: the app must refuse it. */
   invalidSignature?: boolean;
-  /** Message id for `standard` (`webhook-id`). Default: a random `msg_…`. */
+  /** Message id for `standard` (`webhook-id`, default a random `msg_…`) and `twitch`. */
   id?: string;
   /** Extra request headers. */
   headers?: Record<string, string>;
 }
+
+/** The providers `signWebhook` knows by name. */
+export const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard", "line", "paddle", "linear", "gitlab", "zoom", "twitch"] as const;
 
 const hmac = (algorithm: string, key: string | Buffer, data: string) => createHmac(algorithm, key).update(data);
 
 /**
  * The headers a provider sends with `body`, signed with `secret` the way its
  * SDK verifies them: Stripe's `Stripe-Signature`, GitHub's
- * `X-Hub-Signature-256`, Slack's `v0` signature, Shopify's base64 HMAC and
- * Standard Webhooks (Svix, Resend, Clerk, …).
+ * `X-Hub-Signature-256`, Slack's `v0` signature, Shopify's base64 HMAC,
+ * Standard Webhooks (Svix, Resend, Clerk, …), LINE's `X-Line-Signature`,
+ * Paddle Billing's `Paddle-Signature`, Linear, GitLab's token, Zoom's `v0`
+ * signature and Twitch EventSub.
  */
 export function signWebhook(body: string, opts: WebhookOptions): Record<string, string> {
   const now = Math.floor(Date.now() / 1000);
@@ -70,8 +75,32 @@ export function signWebhook(body: string, opts: WebhookOptions): Record<string, 
       const key = secret.startsWith("whsec_") ? Buffer.from(secret.slice(6), "base64") : Buffer.from(secret);
       return { "webhook-id": id, "webhook-timestamp": String(ts), "webhook-signature": `v1,${hmac("sha256", key, `${id}.${ts}.${body}`).digest("base64")}` };
     }
+    case "line":
+      return { "x-line-signature": hmac("sha256", secret, body).digest("base64") };
+    case "paddle":
+      return { "paddle-signature": `ts=${ts};h1=${hmac("sha256", secret, `${ts}:${body}`).digest("hex")}` };
+    case "linear":
+      return {
+        "linear-signature": hmac("sha256", secret, body).digest("hex"),
+        "linear-delivery": randomUUID(),
+        ...(opts.event ? { "linear-event": opts.event } : {}),
+      };
+    case "gitlab":
+      return { "x-gitlab-token": secret, "x-gitlab-event": opts.event ?? "Push Hook", "x-gitlab-event-uuid": randomUUID() };
+    case "zoom":
+      return { "x-zm-request-timestamp": String(ts), "x-zm-signature": `v0=${hmac("sha256", secret, `v0:${ts}:${body}`).digest("hex")}` };
+    case "twitch": {
+      const id = opts.id ?? randomUUID();
+      const at = new Date(ts * 1000).toISOString();
+      return {
+        "twitch-eventsub-message-id": id,
+        "twitch-eventsub-message-timestamp": at,
+        "twitch-eventsub-message-type": opts.event ?? "notification",
+        "twitch-eventsub-message-signature": `sha256=${hmac("sha256", secret, `${id}${at}${body}`).digest("hex")}`,
+      };
+    }
     default:
-      throw new Error(`slicetest: unknown webhook provider ${JSON.stringify(p)} (expected stripe, github, slack, shopify, standard or { header, prefix, encoding })`);
+      throw new Error(`slicetest: unknown webhook provider ${JSON.stringify(p)} (expected ${WEBHOOK_PROVIDERS.join(", ")} or { header, prefix, encoding })`);
   }
 }
 

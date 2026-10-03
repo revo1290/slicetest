@@ -18,6 +18,12 @@ function github(req, body) {
   return same(expected, req.headers["x-hub-signature-256"] ?? "") ? null : "bad signature";
 }
 
+// @line/bot-sdk's validateSignature: base64 HMAC-SHA256 of the body with the channel secret.
+function line(req, body) {
+  const expected = createHmac("sha256", process.env.LINE_CHANNEL_SECRET).update(body).digest("base64");
+  return same(expected, req.headers["x-line-signature"] ?? "") ? null : "bad signature";
+}
+
 http
   .createServer(async (req, res) => {
     const chunks = [];
@@ -27,12 +33,12 @@ http
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(json));
     };
-    const verifier = { "/webhooks/stripe": stripe, "/webhooks/github": github }[req.url];
+    const verifier = { "/webhooks/stripe": stripe, "/webhooks/github": github, "/webhooks/line": line }[req.url];
     if (req.method === "POST" && verifier) {
       const error = verifier(req, body);
       if (error) return send(400, { error });
       const event = JSON.parse(body);
-      events.push({ source: req.url.split("/")[2], type: event.type ?? req.headers["x-github-event"] });
+      events.push({ source: req.url.split("/")[2], type: event.type ?? event.events?.[0]?.type ?? req.headers["x-github-event"] });
       return send(200, { received: true });
     }
     if (req.url === "/events") return send(200, events.splice(0));

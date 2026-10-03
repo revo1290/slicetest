@@ -9,7 +9,7 @@ export default defineConfig({
     slicetest({
       app: {
         command: "node app.mjs",
-        env: { PORT: "{{app.port}}", STRIPE_WEBHOOK_SECRET: "whsec_test", GITHUB_WEBHOOK_SECRET: "gh-secret" },
+        env: { PORT: "{{app.port}}", STRIPE_WEBHOOK_SECRET: "whsec_test", GITHUB_WEBHOOK_SECRET: "gh-secret", LINE_CHANNEL_SECRET: "line-secret" },
         ready: { log: "app ready" },
       },
     }),

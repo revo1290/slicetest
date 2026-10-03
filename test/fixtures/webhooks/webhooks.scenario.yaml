@@ -13,3 +13,16 @@ scenarios:
       - request: GET /events
         expect:
           json: [{ source: stripe, type: checkout.session.completed }]
+
+  - name: a LINE Messaging API delivery is signed with the channel secret
+    steps:
+      - request: POST /webhooks/line
+        webhook: { provider: line, secret: line-secret }
+        json: { destination: U1, events: [{ type: message, message: { type: text, text: こんにちは } }] }
+        expect: { status: 200 }
+      - request: POST /webhooks/line
+        webhook: { provider: line, secret: line-secret, invalidSignature: true }
+        json: { events: [{ type: message }] }
+        expect: { status: 400 }
+      - request: GET /events
+        expect: { json: [{ source: line, type: message }] }

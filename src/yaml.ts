@@ -1,4 +1,5 @@
 import { isMap, isSeq, LineCounter, parseDocument, type Node } from "yaml";
+import { WEBHOOK_PROVIDERS as PROVIDERS } from "./webhook.js";
 
 /**
  * YAML scenarios: the same things a TypeScript scenario can do, written as
@@ -247,7 +248,7 @@ const EXPECT_KEYS: Record<string, string[]> = {
 };
 const CONDITION_KEYS = ["query", "headers", "json", "form", "body", "variables"];
 const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature"];
-const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard"];
+const WEBHOOK_PROVIDERS: readonly string[] = PROVIDERS;
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];
 const RESPONSE_KEYS = ["status", "headers", "body", "file", "sse", "data", "errors"];

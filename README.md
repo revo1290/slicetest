@@ -611,7 +611,23 @@ In YAML, `auth` on a `request` step sends `Authorization: Bearer` with those cla
 
 ### Webhooks: deliveries signed like the provider's
 
-`http.webhook()` posts a payload the way Stripe, GitHub, Slack, Shopify or any [Standard Webhooks](https://www.standardwebhooks.com/) sender (Svix, Resend, Clerk, …) delivers it, signed with the secret the app is configured with, so the app's real verification code runs. The signatures are checked against the providers' documented examples.
+`http.webhook()` posts a payload the way the provider delivers it, signed with the secret the app is configured with, so the app's real verification code runs:
+
+| `provider` | Sends |
+|---|---|
+| `stripe` | `Stripe-Signature: t=…,v1=…` |
+| `github` | `X-Hub-Signature-256`, `X-GitHub-Event` (`event`) |
+| `slack` | `X-Slack-Signature: v0=…`, `X-Slack-Request-Timestamp` |
+| `shopify` | `X-Shopify-Hmac-Sha256`, `X-Shopify-Topic` (`event`) |
+| `standard` | [Standard Webhooks](https://www.standardwebhooks.com/) (Svix, Resend, Clerk, …): `webhook-id`, `webhook-timestamp`, `webhook-signature` |
+| `line` | LINE Messaging API: `X-Line-Signature` (base64, with the channel secret) |
+| `paddle` | Paddle Billing: `Paddle-Signature: ts=…;h1=…` |
+| `linear` | `Linear-Signature`, `Linear-Event` (`event`) |
+| `gitlab` | `X-Gitlab-Token` (the secret token), `X-Gitlab-Event` (`event`, default `Push Hook`) |
+| `zoom` | `x-zm-signature: v0=…`, `x-zm-request-timestamp` |
+| `twitch` | EventSub: `Twitch-Eventsub-Message-Signature`, `-Id`, `-Timestamp`, `-Type` (`event`, default `notification`) |
+
+The signatures are checked against the providers' documented examples where they publish one.
 
 ```ts
 const stripe = { provider: "stripe", secret: "whsec_test" } as const;   // the same secret as in app.env
