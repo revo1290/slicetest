@@ -769,7 +769,7 @@ scenarios:
 
 | Step | Keys |
 |---|---|
-| `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, form, body, variables }`, one of `reply: { status, headers, body }` (`{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.form.amount}}`, `{{call.variables.id}}`. |
+| `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, form, body, variables }`, one of `reply: { status, headers, body }` (`{ file }` for a fixture file, `{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.form.amount}}`, `{{call.variables.id}}`. |
 | `submit: <button>` | `form`, `fields`, `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `multipart` / `body` / `graphql: { query, variables, operationName }`, `expect.schema` (a JSON Schema, or `../openapi.yaml#/components/schemas/Poll` relative to the file), `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |
@@ -790,6 +790,7 @@ scenarios:
 
 `db`, `sql`, `received` and `changes` steps take `within: <ms>` to retry until they pass, for effects the app applies asynchronously.
 
+- `reply: { file: replies/charge.json }` answers with a file relative to the scenario file: `.json` and `.yaml` are sent as JSON and may still use `{{call.*}}`, other files as they are (images, PDFs, CSV), with a content type from the extension unless `headers` set one. Large provider payloads stay out of the scenario.
 - `multipart:` sends `multipart/form-data`: plain values are fields, `{ file: fixtures/avatar.png }` uploads a file (relative to the scenario file, content type from its extension, or `type` / `filename`), `{ content: ..., filename: notes.json }` an inline one, and a list sends a field several times.
 - `request:` also takes a captured URL of the app, e.g. `GET {{link}}` after capturing a link from a mail.
 - `{{name}}` inserts a captured value or an `each` field. A string that is only `{{name}}` keeps the value's type, so `id: "{{pollId}}"` compares as a number.

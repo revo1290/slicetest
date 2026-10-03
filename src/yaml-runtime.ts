@@ -9,6 +9,7 @@ import type { HttpResponse } from "./http.js";
 import type { MailFilter } from "./mail.js";
 import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
 import { readFile } from "node:fs/promises";
+import { parse as parseYaml } from "yaml";
 import path from "node:path";
 import { graphqlErrors } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
@@ -176,8 +177,9 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
     if (step.delay !== undefined) route = route.delay(step.delay);
     if (step.optional) route = route.optional();
     // Replies are interpolated when a call arrives, so they can echo it: {{call.params.id}}, {{call.json.name}}, {{call.variables.id}}.
-    const answer = (template: unknown) => (call: RecordedCall) => {
-      const { sse: events, data, errors, ...response } = interpolate(template, { ...vars, call: callVars(call) }) as StubResponse & { sse?: ServerSentEvent[]; data?: unknown; errors?: (string | { message: string })[] };
+    const answer = (prepared: PreparedReply) => (call: RecordedCall) => {
+      const { sse: events, data, errors, ...response } = interpolate(prepared.template, { ...vars, call: callVars(call) }) as StubResponse & { sse?: ServerSentEvent[]; data?: unknown; errors?: (string | { message: string })[] };
+      if (prepared.bytes) return { ...response, body: prepared.bytes };
       if (data !== undefined || errors !== undefined) {
         return { status: 200, ...response, body: { ...(errors ? { errors: graphqlErrors(errors) } : {}), ...(data !== undefined ? { data } : {}) } };
       }
@@ -186,9 +188,9 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
     if (step.networkError) route.networkError();
     else if (step.sequence) {
       let n = 0;
-      const seq = step.sequence;
-      route.reply((call) => answer(seq[Math.min(n++, seq.length - 1)])(call));
-    } else route.reply(answer(step.reply ?? {}));
+      const seq = await Promise.all(step.sequence.map((r) => prepareReply(r, vars, base)));
+      route.reply((call) => answer(seq[Math.min(n++, seq.length - 1)]!)(call));
+    } else route.reply(answer(await prepareReply(step.reply ?? {}, vars, base)));
     return;
   }
 
@@ -350,6 +352,41 @@ function callVars(call: RecordedCall) {
     body: call.body,
     variables: call.graphql?.variables,
   };
+}
+
+interface PreparedReply {
+  /** Interpolated per call. */
+  template: unknown;
+  /** A binary file's content, sent as it is. */
+  bytes?: Uint8Array;
+}
+
+const TEXT_FILE = /^(text\/|application\/(xml|javascript)|image\/svg)/;
+
+/** A reply with `file:` read once: JSON and YAML become the body (still templated), other text as a string, the rest as bytes. */
+async function prepareReply(reply: Record<string, unknown>, vars: Vars, base = process.cwd()): Promise<PreparedReply> {
+  if (typeof reply.file !== "string") return { template: reply };
+  const { file: name, ...rest } = reply;
+  const file = path.resolve(base, interpolate(name, vars) as string);
+  const bytes = await readFile(file).catch(() => {
+    throw new Error(`reply file: can't read ${file}`);
+  });
+  const ext = path.extname(file).toLowerCase();
+  const headers = { ...(rest.headers as Record<string, string> | undefined) };
+  const hasType = Object.keys(headers).some((h) => h.toLowerCase() === "content-type");
+  if (ext === ".json" || ext === ".yaml" || ext === ".yml") {
+    let body: unknown;
+    try {
+      body = ext === ".json" ? JSON.parse(bytes.toString("utf8")) : parseYaml(bytes.toString("utf8"));
+    } catch (e) {
+      throw new Error(`reply file ${file}: ${(e as Error).message}`);
+    }
+    return { template: { ...rest, headers, body } };
+  }
+  const type = MIME[ext] ?? "application/octet-stream";
+  if (!hasType) headers["content-type"] = type;
+  if (TEXT_FILE.test(type)) return { template: { ...rest, headers, body: bytes.toString("utf8") } };
+  return { template: { ...rest, headers }, bytes: new Uint8Array(bytes) };
 }
 
 const MIME: Record<string, string> = {

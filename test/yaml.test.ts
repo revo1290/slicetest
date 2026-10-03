@@ -180,3 +180,9 @@ test("a definition that uses itself, through another, is rejected", () => {
   const text = "define:\n  a:\n    - use: b\n  b:\n    - use: a\nscenarios:\n  - name: x\n    steps:\n      - use: a\n";
   expect(() => parse(text)).toThrow('s.scenario.yaml:5: "a" uses itself (a → b → a)');
 });
+
+test("a reply file excludes body, sse and GraphQL answers", () => {
+  const src = (reply: string) => `scenarios:\n  - name: s\n    steps:\n      - stub: svc\n        on: GET /x\n        reply: ${reply}\n`;
+  expect(parseScenarioFile(src("{ file: replies/a.json, status: 201 }"), "s.scenario.yaml").scenarios[0]!.steps[0]).toMatchObject({ reply: { file: "replies/a.json", status: 201 } });
+  expect(() => parseScenarioFile(src("{ file: a.json, body: x }"), "s.scenario.yaml")).toThrow("a reply has `file` instead of `body`");
+});

@@ -26,6 +26,11 @@ const server = http.createServer(async (req, res) => {
       const r = await fetch("https://api.weather.test/v1/uploads", { method: "POST", body: out });
       return json(r.status, { stored: (await r.json()).count, names: form.getAll("files").map((f) => `${f.name} (${f.type}, ${f.size})`) });
     }
+    if (url.pathname === "/logo") {
+      const r = await fetch("https://api.weather.test/v1/logo.png");
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      return json(200, { type: r.headers.get("content-type"), size: bytes.length, first: [...bytes.slice(0, 4)] });
+    }
     if (url.pathname === "/feed") {
       const r = await fetch(`https://${url.searchParams.get("group")}.groups.test/ja.atom`);
       return json(200, { feed: await r.text() });

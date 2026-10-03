@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- YAML stub replies from files: `reply: { file: replies/charge.json }` (also in `sequence`), relative to the scenario file. JSON and YAML files are sent as JSON and still templated with `{{call.*}}`; images, PDFs and other files are sent as they are, with a content type from the extension.
 - Uploads: YAML `multipart:` on request steps sends `multipart/form-data`, with files read relative to the scenario file (`{ file: avatar.png }`) or given inline (`{ content, filename, type }`). Stubs read multipart bodies into `call.form`, files as `{ filename, type, size, text }`, so `form` conditions check what the app uploaded to a storage or document API.
 - Fix: a stub call whose `:param` segment isn't valid percent-encoding (`/files/100%zz`) had its connection dropped and was reported as unmatched; the segment is now passed as sent.
 - YAML built-in values: `{{$uuid}}`, `{{$seq}}` (per scenario, deterministic), `{{$now}}`, `{{$today}}`, `{{$timestamp}}` and `{{$timestampMs}}` with offsets (`{{$now+7d}}`, `{{$timestamp-30m}}`), and `{{env.NAME}}` for environment variables. A `set:` step names values for later steps (`set: { orderId: "{{$uuid}}" }`).

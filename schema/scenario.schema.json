@@ -153,6 +153,10 @@
                 "body": {
                   "description": "String, or anything else to send as JSON. May use {{call.params.x}}, {{call.json.x}}, {{call.query.x}}"
                 },
+                "file": {
+                  "type": "string",
+                  "description": "Answer with this file's content, relative to the scenario file: .json and .yaml are sent as JSON (and may use {{call.*}}), other files as they are, with a content type from the extension"
+                },
                 "sse": {
                   "type": "array",
                   "description": "A streamed reply (Server-Sent Events), instead of body: a list of { event, data, id }. Data that isn't a string is sent as JSON",
@@ -225,6 +229,30 @@
                       "sse",
                       "errors"
                     ]
+                  },
+                  {
+                    "required": [
+                      "file",
+                      "body"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "file",
+                      "sse"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "file",
+                      "data"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "file",
+                      "errors"
+                    ]
                   }
                 ]
               }
@@ -246,6 +274,10 @@
                   },
                   "body": {
                     "description": "String, or anything else to send as JSON. May use {{call.params.x}}, {{call.json.x}}, {{call.query.x}}"
+                  },
+                  "file": {
+                    "type": "string",
+                    "description": "Answer with this file's content, relative to the scenario file: .json and .yaml are sent as JSON (and may use {{call.*}}), other files as they are, with a content type from the extension"
                   },
                   "sse": {
                     "type": "array",
@@ -317,6 +349,30 @@
                     {
                       "required": [
                         "sse",
+                        "errors"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "file",
+                        "body"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "file",
+                        "sse"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "file",
+                        "data"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "file",
                         "errors"
                       ]
                     }

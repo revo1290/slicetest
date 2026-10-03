@@ -1,0 +1,1 @@
+{ "temp_c": 18.5, "city": "{{call.query.city}}" }

@@ -49,8 +49,9 @@ export interface StubStep {
   graphql?: string;
   when?: Conditions;
   /** `sse`: a streamed reply, a list of { event, data, id } (instead of `body`). */
-  reply?: { status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] } & GraphQLReply;
-  sequence?: ({ status?: number; headers?: Record<string, string>; body?: unknown; sse?: { event?: string; data: unknown; id?: string }[] } & GraphQLReply)[];
+  /** `file`: the body from a file relative to the scenario (.json / .yaml as JSON, with `{{call.*}}`; others as they are). */
+  reply?: { status?: number; headers?: Record<string, string>; body?: unknown; file?: string; sse?: { event?: string; data: unknown; id?: string }[] } & GraphQLReply;
+  sequence?: ({ status?: number; headers?: Record<string, string>; body?: unknown; file?: string; sse?: { event?: string; data: unknown; id?: string }[] } & GraphQLReply)[];
   networkError?: boolean;
   times?: number;
   delay?: number;
@@ -245,7 +246,7 @@ const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature"
 const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard"];
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];
 const CHANGE_KEYS = ["inserted", "updated", "deleted"];
-const RESPONSE_KEYS = ["status", "headers", "body", "sse", "data", "errors"];
+const RESPONSE_KEYS = ["status", "headers", "body", "file", "sse", "data", "errors"];
 const SCENARIO_KEYS = ["name", "steps", "each", "skip", "only", "timeout"];
 const CALL = /^([A-Za-z]+|\*)\s+(\/\S*)$/;
 /** A request may also go to a captured URL of the app, e.g. a link from a mail: `GET {{link}}`. */
@@ -433,7 +434,11 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
       keysOf("reply", RESPONSE_KEYS);
       for (const [where, r] of [["reply", raw.reply], ...((Array.isArray(raw.sequence) ? raw.sequence : []) as unknown[]).map((r) => ["sequence", r] as const)] as const) {
         if (!r || typeof r !== "object") continue;
-        const { body, sse, data, errors } = r as { body?: unknown; sse?: unknown; data?: unknown; errors?: unknown };
+        const { body, sse, data, errors, file } = r as { body?: unknown; sse?: unknown; data?: unknown; errors?: unknown; file?: unknown };
+        if (file !== undefined) {
+          if (typeof file !== "string" || !file) fail(at(where), "`file` is a path relative to the scenario file, e.g. fixtures/charge.json");
+          if (body !== undefined || sse !== undefined || data !== undefined || errors !== undefined) fail(at(where), "a reply has `file` instead of `body`, `sse`, `data` or `errors`");
+        }
         if (data !== undefined || errors !== undefined) {
           if (raw.graphql === undefined) fail(at(where), "`data` and `errors` answer a GraphQL operation: use them with `graphql: <operation>`, or send `body`");
           if (body !== undefined || sse !== undefined) fail(at(where), "a GraphQL reply has `data` / `errors`, not `body` or `sse`");

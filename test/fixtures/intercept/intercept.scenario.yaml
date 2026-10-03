@@ -69,3 +69,20 @@ scenarios:
         expect:
           status: 200
           json: { stored: 2, names: ["note.txt (text/plain, 18)", "meta.json (application/json, 7)"] }
+
+  - name: stub replies come from JSON and YAML files, still templated
+    steps:
+      - stub: weather
+        on: GET /v1/now
+        sequence:
+          - { file: replies/now.json }
+          - { file: replies/hot.yaml, headers: { x-source: yaml } }
+      - request: GET /weather?city=Osaka
+        expect: { json: { temperature: 18.5 } }
+      - request: GET /weather?city=Osaka
+        expect: { json: { temperature: 30 } }
+      - stub: weather
+        on: GET /v1/logo.png
+        reply: { file: replies/logo.png }
+      - request: GET /logo
+        expect: { json: { type: image/png, size: 10, first: [137, 80, 78, 71] } }
