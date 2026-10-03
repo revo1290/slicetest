@@ -412,11 +412,11 @@ function matcher(name: string, test: (v: unknown) => boolean) {
 }
 
 /** Numbers compare as numbers; strings (ISO dates, versions) compare as strings; anything else never matches. */
-function compare(op: string, arg: unknown, check: (c: number) => boolean) {
+function compare(op: string, arg: unknown, holds: (c: number) => boolean) {
   if (typeof arg !== "number" && typeof arg !== "string") throw new Error(`${op} takes a number or a string, got ${JSON.stringify(arg)}`);
   return matcher(`${op} ${JSON.stringify(arg)}`, (v) => {
-    if (typeof arg === "number") return typeof v === "number" && check(v - arg);
-    return typeof v === "string" && check(v < arg ? -1 : v > arg ? 1 : 0);
+    if (typeof arg === "number") return typeof v === "number" && holds(v - arg);
+    return typeof v === "string" && holds(v < arg ? -1 : v > arg ? 1 : 0);
   });
 }
 
