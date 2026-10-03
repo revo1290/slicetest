@@ -335,6 +335,7 @@ function callVars(call: RecordedCall) {
     query: Object.fromEntries(call.query),
     headers: call.headers,
     json: call.json,
+    form: call.form,
     body: call.body,
     variables: call.graphql?.variables,
   };

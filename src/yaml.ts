@@ -62,6 +62,8 @@ export interface Conditions {
   query?: Record<string, unknown>;
   headers?: Record<string, unknown>;
   json?: unknown;
+  /** Subset of a form-encoded body's fields, bracket keys nested (`metadata[order]` → `metadata: { order }`). */
+  form?: Record<string, unknown>;
   body?: unknown;
   /** Subset of a GraphQL request's variables (with `graphql`). */
   variables?: unknown;
@@ -230,7 +232,7 @@ const EXPECT_KEYS: Record<string, string[]> = {
   sql: ["rows", "count"],
   db: ["rows", "count"],
 };
-const CONDITION_KEYS = ["query", "headers", "json", "body", "variables"];
+const CONDITION_KEYS = ["query", "headers", "json", "form", "body", "variables"];
 const WEBHOOK_KEYS = ["provider", "secret", "event", "stale", "invalidSignature"];
 const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard"];
 const MAIL_KEYS = ["to", "from", "subject", "text", "html"];

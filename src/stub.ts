@@ -12,6 +12,12 @@ export interface RecordedCall {
   body: string;
   /** Parsed JSON body, or undefined when the body isn't JSON. */
   json: any;
+  /**
+   * Fields of an `application/x-www-form-urlencoded` body (Stripe, Twilio, OAuth token requests),
+   * with bracket keys nested as the providers read them: `metadata[order]=7&items[0][price]=p_1`
+   * is `{ metadata: { order: "7" }, items: [{ price: "p_1" }] }`. Undefined for other bodies.
+   */
+  form?: Record<string, unknown>;
   /** Values captured by `:name` segments of the matching route's path. */
   params: Record<string, string>;
   /** Whether a registered route answered this call. */
@@ -83,6 +89,8 @@ export interface MatchOptions {
   query?: Record<string, Matcher>;
   headers?: Record<string, Matcher>;
   json?: unknown;
+  /** Subset of a form-encoded body's fields (`call.form`). Numbers and booleans compare as the strings sent. */
+  form?: Record<string, unknown>;
   body?: Matcher;
   /** A GraphQL request for this operation (its name, or a RegExp), with `variables` as a subset. */
   graphql?: { operation?: string | RegExp; variables?: unknown };
@@ -401,6 +409,7 @@ export class Stub {
       headers: req.headers,
       body,
       json: parseJson(body),
+      form: isForm(req.headers["content-type"]) ? parseForm(body) : undefined,
       params: {},
       matched: false,
     };
@@ -511,6 +520,7 @@ function matchConditions(match: MatchOptions, call: RecordedCall) {
   }
   if (match.body !== undefined && !test(match.body, call.body)) return false;
   if (match.json !== undefined && !subset(match.json, call.json)) return false;
+  if (match.form !== undefined && !subset(formExpectation(match.form), call.form)) return false;
   if (match.graphql) {
     const g = call.graphql;
     if (!g) return false;
@@ -536,6 +546,11 @@ function conditionMismatch(match: MatchOptions, call: RecordedCall): string | un
   if (match.json !== undefined) {
     if (call.json === undefined) return `json: expected a JSON body, got ${call.body ? JSON.stringify(call.body.slice(0, 100)) : "an empty body"}`;
     const diff = difference(match.json, call.json, "json");
+    if (diff) return diff;
+  }
+  if (match.form !== undefined) {
+    if (call.form === undefined) return `form: expected a form-encoded body, got ${call.body ? `${call.headers["content-type"] ?? "no content type"}: ${JSON.stringify(call.body.slice(0, 100))}` : "an empty body"}`;
+    const diff = difference(formExpectation(match.form), call.form, "form");
     if (diff) return diff;
   }
   if (match.graphql) {
@@ -635,6 +650,56 @@ export function subset(expected: unknown, actual: unknown): boolean {
 
 function isAsymmetric(m: unknown): m is { asymmetricMatch(value: unknown): boolean } {
   return !!m && typeof m === "object" && typeof (m as { asymmetricMatch?: unknown }).asymmetricMatch === "function";
+}
+
+function isForm(contentType: string | undefined) {
+  return !!contentType && contentType.split(";")[0]!.trim().toLowerCase() === "application/x-www-form-urlencoded";
+}
+
+/**
+ * A form body as nested fields, the way Rack, PHP and Stripe read bracket keys: `a[b]=1` is
+ * `{ a: { b: "1" } }`, `a[]=1&a[]=2` and `a[0]=1&a[1]=2` are arrays, and a plain key sent
+ * twice (`to=1&to=2`) becomes an array too.
+ */
+export function parseForm(body: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of new URLSearchParams(body)) {
+    const m = /^([^[\]]+)((?:\[[^\]]*\])*)$/.exec(key);
+    if (!m || !m[2]) {
+      const prev = out[key];
+      out[key] = prev === undefined ? value : Array.isArray(prev) ? [...prev, value] : [prev, value];
+      continue;
+    }
+    const path = [m[1]!, ...[...m[2].matchAll(/\[([^\]]*)\]/g)].map((x) => x[1]!)];
+    let node: Record<string, unknown> | unknown[] = out;
+    for (let i = 0; i < path.length; i++) {
+      const seg = path[i]!;
+      const last = i === path.length - 1;
+      const nextIsIndex = !last && (path[i + 1] === "" || /^\d+$/.test(path[i + 1]!));
+      if (Array.isArray(node)) {
+        const index = seg === "" ? node.length : Number(seg);
+        if (last) node[index] = value;
+        else node = (node[index] ??= nextIsIndex ? [] : {}) as Record<string, unknown> | unknown[];
+      } else {
+        if (last) node[seg] = value;
+        else {
+          const child = node[seg];
+          node = (child && typeof child === "object" ? child : (node[seg] = nextIsIndex ? [] : {})) as Record<string, unknown> | unknown[];
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Form values arrive as strings: compare `amount: 2000` and `capture: true` with what was sent. */
+function formExpectation(expected: unknown): unknown {
+  if (typeof expected === "number" || typeof expected === "boolean") return String(expected);
+  if (Array.isArray(expected)) return expected.map(formExpectation);
+  if (expected && typeof expected === "object" && !isAsymmetric(expected) && !(expected instanceof RegExp)) {
+    return Object.fromEntries(Object.entries(expected).map(([k, v]) => [k, formExpectation(v)]));
+  }
+  return expected;
 }
 
 function parseJson(body: string) {

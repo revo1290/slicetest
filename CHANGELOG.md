@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Stubs read form-encoded bodies: `call.form` has the fields of an `application/x-www-form-urlencoded` request (Stripe, Twilio, OAuth token endpoints), with bracket keys nested as those providers read them (`metadata[order]`, `items[0][price]`, `expand[]`). `form` conditions in `on()`, `calls()` and `toHaveReceived()` match a subset, comparing numbers and booleans with the strings sent; an unmatched call names the field that differed. YAML: `when.form`, `{{call.form.x}}`.
+
 ## 0.7.0
 
 Toward more stacks and more of what an app talks to: GraphQL on both sides, PHP / .NET / Elixir / Deno apps detected by `init`, migration tools that don't read `DATABASE_URL`, HAR files as recordings, and reports that explain a run (sequence diagrams, the closest route for an unmatched call, routes never called, the provider operations the app depends on).

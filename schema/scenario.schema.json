@@ -127,6 +127,10 @@
                 "json": {
                   "description": "Subset of the request JSON"
                 },
+                "form": {
+                  "type": "object",
+                  "description": "Subset of a form-encoded body's fields; bracket keys are nested (metadata[order] → metadata: { order })"
+                },
                 "body": {},
                 "variables": {
                   "description": "Subset of the GraphQL variables (with `graphql`)"
@@ -939,6 +943,10 @@
                 },
                 "json": {
                   "description": "Subset of the request JSON"
+                },
+                "form": {
+                  "type": "object",
+                  "description": "Subset of a form-encoded body's fields; bracket keys are nested (metadata[order] → metadata: { order })"
                 },
                 "body": {},
                 "variables": {

@@ -19,7 +19,7 @@ scenarios:
           headers: { location: "{{call.query.redirect_uri}}?code=c-1&state={{call.query.state}}" }
       - stub: provider
         on: POST /token
-        when: { body: { $contains: code=c-1 } }
+        when: { form: { code: c-1, client_id: app } }
         reply: { body: { access_token: t-42 } }
       - request: GET /login
         follow: true

@@ -284,9 +284,12 @@ stub("pay").on("GET", "/status").replySequence([{ status: 503 }, { status: 200 }
 stub("pay").on("POST", "/charge").delay(5_000).reply(200);    // exercise the app's timeouts
 stub("pay").on("POST", "/charge").networkError();             // drop the connection
 
+stub("stripe").on("POST", "/v1/payment_intents", { form: { amount: 2000, metadata: { order: "7" } } }).reply(200, { id: "pi_1" }); // form-encoded bodies
 stub("slack").on("POST", "/hook").optional().reply(200);      // may go uncalled, even with strictStubs
 stub("slack").calls("POST", "/hook");                         // recorded calls: method, path, params, query, headers, body, json
 ```
+
+Form-encoded bodies (Stripe, Twilio, OAuth token requests) are parsed into `call.form`, with bracket keys nested the way those providers read them: `metadata[order]=7&items[0][price]=p_1` is `{ metadata: { order: "7" }, items: [{ price: "p_1" }] }`. `form` conditions match a subset of it, and numbers and booleans compare with the strings sent.
 
 Later routes win. `path` may also be a RegExp, and `method` may be `*`. Unanswered calls get a `501` and fail the scenario, with the closest route and why it didn't match (`stub.explain(call)`).
 
@@ -766,7 +769,7 @@ scenarios:
 
 | Step | Keys |
 |---|---|
-| `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, body, variables }`, one of `reply: { status, headers, body }` (`{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.variables.id}}`. |
+| `stub: <name>` | `on: METHOD /path` (`:params` allowed) or `graphql: <operation>`, `when: { query, headers, json, form, body, variables }`, one of `reply: { status, headers, body }` (`{ data, errors }` for GraphQL) / `sequence: [...]` / `networkError: true`, plus `times`, `delay`. Replies may echo the call: `{{call.params.id}}`, `{{call.json.name}}`, `{{call.form.amount}}`, `{{call.variables.id}}`. |
 | `submit: <button>` | `form`, `fields`, `headers`, `follow`, `expect: { status, headers, json, text }`, `capture`. Submits a form of the page the last request returned, like `http.submit()`; `submit: true` presses the form's only button. |
 | `request: METHOD /path` | `headers`, `query`, one of `json` / `form` / `body` / `graphql: { query, variables, operationName }`, `expect.schema` (a JSON Schema, or `../openapi.yaml#/components/schemas/Poll` relative to the file), `follow`, `expect: { status, headers, json, text }`, `capture`. `concurrency: n` sends it `n` times at once; `expect` then applies to each response, and `expect.statuses: { 201: 1, 409: 9 }` counts them. |
 | `insert: <table>` | `rows`, `capture` (from `row` / `rows`) |

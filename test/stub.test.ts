@@ -210,3 +210,35 @@ test("explain() says when a once() route was used up", async () => {
   await fetch(`${stub.url}/token`);
   expect(stub.explain(stub.unmatched()[0]!)).toBe("closest route GET /token: the route already answered its 1 call(s) (once() / times())");
 });
+
+test("form-encoded bodies are parsed with nested bracket keys and matched with form", async () => {
+  stub.on("POST", "/v1/payment_intents", { form: { amount: 2000, metadata: { order: "7" }, capture: true } }).reply(200, { id: "pi_1" });
+  const post = (body: string) =>
+    fetch(`${stub.url}/v1/payment_intents`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded; charset=utf-8" }, body });
+
+  const ok = await post("amount=2000&currency=jpy&capture=true&metadata[order]=7&items[0][price]=p_1&items[1][price]=p_2&expand[]=customer&to=a&to=b");
+  const wrong = await post("amount=1999&metadata[order]=7&capture=true");
+
+  expect(ok.status).toBe(200);
+  expect(wrong.status).toBe(501);
+  expect(stub.calls()[0]!.form).toEqual({
+    amount: "2000",
+    currency: "jpy",
+    capture: "true",
+    metadata: { order: "7" },
+    items: [{ price: "p_1" }, { price: "p_2" }],
+    expand: ["customer"],
+    to: ["a", "b"],
+  });
+  expect(stub.explain(stub.unmatched()[0]!)).toBe('closest route POST /v1/payment_intents: form.amount: expected "2000", got "1999"');
+  expect(stub).toHaveReceived("POST", "/v1/payment_intents", { form: { items: [{ price: "p_1" }, { price: expect.stringMatching(/^p_/) }] } });
+});
+
+test("form conditions explain a body that isn't form-encoded", async () => {
+  stub.on("POST", "/token", { form: { grant_type: "client_credentials" } }).reply(200, {});
+
+  await fetch(`${stub.url}/token`, { method: "POST", headers: { "content-type": "application/json" }, body: '{"grant_type":"client_credentials"}' });
+
+  expect(stub.calls()[0]!.form).toBeUndefined();
+  expect(stub.explain(stub.unmatched()[0]!)).toBe('closest route POST /token: form: expected a form-encoded body, got application/json: "{\\"grant_type\\":\\"client_credentials\\"}"');
+});
