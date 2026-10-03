@@ -47,6 +47,22 @@ export interface Message {
  * the app's responses against the app's own spec, and the app's calls to a
  * stubbed service (and the stub's canned replies) against that service's spec.
  */
+interface Server {
+  url?: string;
+  variables?: Record<string, { default?: unknown; enum?: unknown[] }>;
+}
+
+/** A server's URL with its `{variables}` filled in: every `enum` value, else the default. */
+function serverUrls(server: Server): string[] {
+  let urls = [server.url ?? "/"];
+  for (const [name, v] of Object.entries(server.variables ?? {})) {
+    const values = [...new Set([...(v.default === undefined ? [] : [v.default]), ...(v.enum ?? [])].map(String))];
+    if (values.length === 0 || !urls[0]!.includes(`{${name}}`)) continue;
+    urls = urls.flatMap((u) => values.map((value) => u.replaceAll(`{${name}}`, value))).slice(0, 50);
+  }
+  return urls;
+}
+
 export class OpenApiSpec {
   #ajv: Ajv;
   #validators = new Map<string, ValidateFunction>();
@@ -80,7 +96,8 @@ export class OpenApiSpec {
     this.#basePaths = [
       ...new Set(
         (doc.servers ?? [])
-          .map((s: { url?: string }) => new URL(s.url ?? "/", "http://x").pathname.replace(/\/$/, ""))
+          .flatMap((s: Server) => serverUrls(s))
+          .map((url: string) => new URL(url, "http://x").pathname.replace(/\/$/, ""))
           .filter(Boolean),
       ),
     ] as string[];

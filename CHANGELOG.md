@@ -11,6 +11,7 @@
 
 Fixes:
 
+- OpenAPI `servers` URLs with variables (`https://{region}.api.example.com/{version}`) gave a base path of `/%7Bversion%7D`, so requests under `/v1/…` weren't found in the spec: contract checks, coverage and `autoReply` treated them as undocumented. Variables are now filled in with their `enum` values and default.
 - `db.migrate: { sql: <dir> }` applied rollback migrations too: golang-migrate / sqlx `*.down.sql` files (which sort before `*.up.sql`, so `DROP TABLE` ran first and the run stopped with `no such table`), Flyway undo files, and the `-- +goose Down` / `-- migrate:down` sections of goose and dbmate files. Those are now left out, files are ordered with version numbers compared as numbers (`V2__` before `V10__`), and a failing file is named in the error.
 - YAML `$gt` / `$gte` / `$lt` / `$lte` with a number never matched a Postgres `numeric` or MySQL `DECIMAL` column, which come back as strings (`"12.50"`) to keep their precision. Decimal strings now compare as numbers.
 - A header given to a request in another case than the client's default (`authorization` after `with({ headers: { Authorization } })`, `content-type` over a default `Content-Type`) was sent joined with it (`Bearer a, Bearer b`) instead of replacing it. Header names are now compared without case, also for `http.webhook()` headers.

@@ -143,3 +143,19 @@ test("formatUsage lists the provider operations the app called and flags depreca
   expect(report.markdown).toContain("- `POST /v1/charges` ⚠️ deprecated");
   expect(report.deprecated).toEqual(["POST /v1/charges"]);
 });
+
+test("server URLs with variables use their defaults and enum values as base paths", async () => {
+  const s = await spec({
+    openapi: "3.1.0",
+    servers: [
+      { url: "https://{region}.api.example.com/{version}", variables: { region: { default: "eu" }, version: { default: "v1", enum: ["v1", "v2"] } } },
+      { url: "{scheme}://legacy.example.com/api", variables: { scheme: { default: "https" } } },
+    ],
+    paths: { "/users": { get: { responses: { "200": { description: "" } } } } },
+  });
+
+  expect(s.operationOf("GET", "/v1/users")?.key).toBe("GET /users");
+  expect(s.operationOf("GET", "/v2/users")?.key).toBe("GET /users");
+  expect(s.operationOf("GET", "/api/users")?.key).toBe("GET /users");
+  expect(s.operationOf("GET", "/v3/users")).toBeUndefined();
+});
