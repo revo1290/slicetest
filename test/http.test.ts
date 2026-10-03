@@ -18,6 +18,7 @@ beforeAll(async () => {
     if (req.url === "/auth/token") return res.writeHead(204, { "set-cookie": ["refresh=r1; Path=/auth/refresh; HttpOnly", "csrf=c1"] }).end();
     if (req.url === "/secure-login") return res.writeHead(204, { "set-cookie": ["sid=s3cr3t; Path=/; HttpOnly; Secure; SameSite=lax; Max-Age=3600", "theme=dark"] }).end();
     if (req.url === "/stale") return res.writeHead(204, { "set-cookie": "late=1; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT" }).end();
+    if (req.url === "/endless") return void res.writeHead(200, { "content-type": "text/event-stream" }).write("data: 1\n\n");
     if (req.url === "/slow") return void setTimeout(() => res.writeHead(200).end("late"), 500);
     if (req.url === "/logout") return res.writeHead(204, { "set-cookie": "sid=; Max-Age=0; Path=/" }).end();
     res.writeHead(200, { "content-type": "application/json" }).end(
@@ -221,4 +222,13 @@ test("text/event-stream responses come with their events", async () => {
   ]);
   const res = await new HttpClient(baseUrl).get("/x");
   expect(res.events).toBeUndefined();
+});
+
+test("a body that doesn't finish within the timeout fails naming the request", async () => {
+  const client = new HttpClient(baseUrl);
+
+  await expect(client.get("/endless", { timeout: 200 })).rejects.toThrow(
+    "slicetest: GET /endless: answered 200 (text/event-stream) but the body didn't finish within 200ms (http timeout); the event stream has to end for its events to be checked",
+  );
+  expect(client.history.at(-1)).toMatchObject({ method: "GET", url: "/endless", status: 200 });
 });

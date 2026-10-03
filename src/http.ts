@@ -266,7 +266,21 @@ export class HttpClient {
       throw new Error(`slicetest: ${method} ${failed.url}: ${requestFailure(e, cause, opts.timeout)}`, { cause: e });
     }
     if (!stub) for (const cookie of res.headers.getSetCookie()) this.#storeCookie(cookie, url.pathname);
-    const text = await res.text();
+    let text: string;
+    try {
+      text = await res.text();
+    } catch (e) {
+      // The timeout also covers the body: a stream that never ends, or an app that stalls halfway.
+      const type = res.headers.get("content-type");
+      const failed: HttpResponse = { method, url: url.pathname + url.search, status: res.status, headers: res.headers, text: "", json: undefined, durationMs: Math.round(performance.now() - started) };
+      timeline.set(failed, { start: started, end: performance.now() });
+      this.#record(failed);
+      const why =
+        (e as Error).name === "TimeoutError"
+          ? `answered ${res.status}${type ? ` (${type})` : ""} but the body didn't finish within ${opts.timeout}ms (http timeout)${/event-stream/i.test(type ?? "") ? "; the event stream has to end for its events to be checked" : ""}`
+          : `the connection broke while reading the ${res.status} response's body: ${(e as Error).message}`;
+      throw new Error(`slicetest: ${method} ${failed.url}: ${why}`, { cause: e });
+    }
     let json: unknown;
     try {
       json = text ? JSON.parse(text) : undefined;

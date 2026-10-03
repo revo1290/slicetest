@@ -14,6 +14,7 @@
 
 Fixes:
 
+- An `http` `timeout` that ran out while the body was still arriving (a stream that never ends, an app stalling halfway) failed with fetch's bare `The operation was aborted due to timeout`, and the request was missing from the failure output. It now names the request, its status and content type, and is listed with the requests to the app.
 - Misspelt config keys were ignored without a word (`stub: [slack]`, `strictstubs: true`, `app.readytimeout`, `db.migrations`), so the setting silently didn't apply. Unknown keys at the top level and in `app`, `db`, stubs, `services` and `containers` now fail the run, naming the key and the one it was probably meant to be (`unknown key stub; did you mean "stubs"?`).
 - Recorded stubs and `slicetest import` stored credentials sent in the query or the body as they were (`?appid=…`, `?key=…`, an OAuth `client_secret`, a JSON `password`), into a file meant to be committed, and a replay only matched with that same real key, not the dummy one tests run with. Such values are now stored as `[redacted]` and match any value; existing recordings with the raw values still replay.
 - `submit` sent a select's disabled placeholder (`<option disabled>Choose a plan</option>`, or one also marked `selected`) and options of a disabled `<optgroup>`; browsers select the first option that isn't disabled and never send disabled ones. A single select with several options marked `selected` sent them all instead of the last one.
