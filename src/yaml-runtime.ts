@@ -546,7 +546,7 @@ const FORMATS: Record<string, RegExp> = {
   integer: /^-?\d+$/,
 };
 
-const MATCHERS = ["$type", "$regex", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$closeTo", "$len", "$not", "$oneOf", "$format"];
+const MATCHERS = ["$type", "$regex", "$options", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$closeTo", "$len", "$not", "$oneOf", "$format"];
 
 /** An asymmetric matcher Vitest's `toEqual` / `toMatchObject` call, with a readable name in diffs. */
 function matcher(name: string, test: (v: unknown) => boolean) {
@@ -582,7 +582,16 @@ function subsetEquals(expected: unknown, actual: unknown): boolean {
   return Object.is(expected, actual) || expected === actual;
 }
 
-function single(key: string, arg: unknown): unknown {
+function regexOf(pattern: unknown, flags: unknown) {
+  try {
+    return new RegExp(String(pattern), flags === undefined ? undefined : String(flags));
+  } catch (e) {
+    const bad = flags !== undefined && /flags/i.test((e as Error).message);
+    throw new Error(bad ? `$options ${JSON.stringify(flags)} has a flag JavaScript doesn't know (use i, m, s, u, g...)` : `$regex ${JSON.stringify(pattern)} isn't a valid regular expression: ${(e as Error).message}`);
+  }
+}
+
+function single(key: string, arg: unknown, options?: unknown): unknown {
   switch (key) {
     case "$type":
       if (arg === "null") return null;
@@ -590,7 +599,7 @@ function single(key: string, arg: unknown): unknown {
       if (typeof arg === "string" && arg in TYPES) return TYPES[arg];
       throw new Error(`$type must be one of ${Object.keys(TYPES).join(", ")}, integer, null`);
     case "$regex":
-      return expect.stringMatching(new RegExp(String(arg)));
+      return expect.stringMatching(regexOf(arg, options));
     case "$contains":
       return matcher(`$contains ${JSON.stringify(arg)}`, (v) =>
         typeof v === "string" ? v.includes(String(arg)) : Array.isArray(v) ? v.some((item) => equalsMatcher(toMatchers(arg), item)) : false,
@@ -644,7 +653,11 @@ export function toMatchers(value: unknown): unknown {
   if (!value || typeof value !== "object" || isAsymmetric(value)) return value;
   const keys = Object.keys(value);
   if (keys.length > 0 && keys.every((k) => k.startsWith("$"))) {
-    const parts = keys.map((k) => single(k, (value as Record<string, unknown>)[k]));
+    const given = value as Record<string, unknown>;
+    // `$options` is the flags of the `$regex` next to it, not a matcher of its own.
+    if ("$options" in given && !("$regex" in given)) throw new Error("$options belongs with $regex, e.g. { $regex: \"^ab\", $options: \"i\" }");
+    const own = keys.filter((k) => k !== "$options");
+    const parts = own.map((k) => single(k, given[k], given.$options));
     if (parts.length === 1) return parts[0];
     return matcher(keys.map((k) => `${k} ${JSON.stringify((value as Record<string, unknown>)[k])}`).join(", "), (v) => parts.every((p) => equalsMatcher(p, v)));
   }

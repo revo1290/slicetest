@@ -897,6 +897,7 @@ scenarios:
   |---|---|
   | `{ $type: number }` | `string`, `number`, `integer`, `boolean`, `array`, `object`, `null` |
   | `{ $regex: "^ch_" }` | a string the pattern finds |
+  | `{ $regex: "^ab", $options: i }` | the same with flags (`i`, `m`, `s`, …), as in MongoDB |
   | `{ $contains: "ok" }` | a string with that substring, or a list with a matching item (`{ $contains: { sku: a } }`) |
   | `{ $gte: 1, $lt: 10 }` | numbers (also decimals that `numeric` / `DECIMAL` columns return as strings, `"12.50"`), or strings such as ISO dates (`{ $gte: "2026-01-01" }`); also `$gt`, `$lte` |
   | `{ $closeTo: 9.99 }` | a number within ±0.005 (`[9.99, 0.1]` for another tolerance), for floats and computed totals; decimal strings too |

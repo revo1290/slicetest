@@ -222,3 +222,13 @@ test("a request step takes a timeout in ms", () => {
   expect(parseScenarioFile(src("500"), "s.scenario.yaml").scenarios[0]!.steps[0]).toMatchObject({ timeout: 500 });
   expect(() => parseScenarioFile(src("soon"), "s.scenario.yaml")).toThrow("`timeout` must be a positive number of milliseconds");
 });
+
+test("$regex takes $options as flags, and a bad pattern or flag names $regex", () => {
+  const m = toMatchers({ name: { $regex: "^ab", $options: "i" }, multi: { $regex: "^b$", $options: "m" } });
+
+  expect({ name: "ABc", multi: "a\nb" }).toEqual(m);
+  expect({ name: "xABc", multi: "a\nb" }).not.toEqual(m);
+  expect(() => toMatchers({ $regex: "(" })).toThrow('$regex "(" isn\'t a valid regular expression');
+  expect(() => toMatchers({ $regex: "a", $options: "z" })).toThrow('$options "z" has a flag JavaScript doesn\'t know');
+  expect(() => toMatchers({ $options: "i" })).toThrow("$options belongs with $regex");
+});
