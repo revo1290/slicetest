@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
-Honest scope for what slicetest checks, and a way to isolate what the database reset can't: the app's memory and background work.
+Honest scope for what slicetest checks, and a way to isolate what the database reset can't: the app's memory and background work. Contract checks that reach further (query values, required headers, response headers), a `record` that works with Vitest 4, a clear error when containers can't load on an old Node.js, and fixes found along the way, among them apps left running after every `app.scope: worker` run, redirects that changed a `PUT` into a `GET`, `//` paths and encoded stub routes. Some checks got stricter, so read "Changes that can alter an existing suite" below.
 
 - `app.restart: scenario`, `app.reset: { path }` and `app.idle: { path, timeout }`, also on `services`. `restart` stops the process before the reset and starts it after, `reset` calls an endpoint of the app after the reset, `idle` polls an endpoint after each scenario until the app reports no background work (before the next scenario's reset when the scenario failed). A process that stays busy past `timeout` fails that scenario and is restarted. Defaults change nothing. `reset` and `idle` send requests to the app, so those endpoints belong in test configuration only. `idle` waits at most the time the test's own timeout leaves, reports every busy process at once and restarts each; `path` can't leave the app (`//host`, backslashes and redirects are refused), `timeout` is at most 600000 ms, and a stopped process is never signalled twice. The `docs/` pages now ship in the npm package. See [state between scenarios](docs/state-isolation.md).
 - README: a comparison with function tests, existing API integration tests and browser E2E, and when not to use slicetest; the reset speeds say what was measured (a spike, one table); what is reset and what isn't; parallelism by level (requests in a scenario, files, scenarios of one file); compatibility table (what CI runs, what was tried by hand, what isn't verified) and release policy. Wording that overstated ("stubs that can't lie", "diagrams that can't go stale", "replay forever") now says what it checks. New [docs/guarantees.md](docs/guarantees.md): per check, what it catches and what it can't.
@@ -32,6 +32,12 @@ Honest scope for what slicetest checks, and a way to isolate what the database r
 Changes that can alter an existing suite:
 
 - A process that crashed is restarted after the database reset, not before, so it boots against the reset database. Before, it was started first and the reset ran under it.
+- OpenAPI contract checks are stricter: the app's requests to a stub now fail on a query value outside its parameter schema and on a missing required header parameter, and responses (the app's and the stubs') fail on a missing required response header or a header value outside its schema. A request or reply that matched the spec before can fail now.
+- A malformed `expect.status`, `readyTimeout`, `http.timeout`, `http.headers` or `http.follow` fails before anything runs; a misspelt `http` key is rejected.
+- `follow` repeats a `PUT`, `PATCH` or `DELETE` on a `301` / `302` instead of turning it into a `GET`; a scenario that relied on the old (wrong) `GET` sees different requests.
+- A stub path segment `*` now matches the rest of the path; it used to match only a literal `*`.
+- With `app.scope: worker`, apps and containers are now stopped when Vitest ends the worker; a suite that relied on the app staying up after the run (it shouldn't) no longer finds it.
+- `db.reset()` reads the table list each time, so a table created during the run is emptied too (about 0.7 ms more per reset on three small Postgres tables).
 
 Fixes:
 
