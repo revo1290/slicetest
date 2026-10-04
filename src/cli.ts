@@ -7,8 +7,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { parseArgs } from "node:util";
 import { parse } from "yaml";
+import { packageVersion, parseCliArgs, runOptions } from "./cli-run.js";
 import { CONFIG_NAMES, type SlicetestOptions } from "./config.js";
 
 
@@ -55,6 +55,7 @@ Options:
       --shard <i/n>    Run the i-th of n parts of the suite (split CI jobs)
       --diagrams <dir> Write a Mermaid sequence diagram of every scenario to <dir>,
                        one Markdown page per scenario file
+  -v, --version        Show the version
   -h, --help           Show this help
 
 Config (paths are relative to the config file):
@@ -77,30 +78,11 @@ export interface CliConfig extends SlicetestOptions {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: {
-      config: { type: "string", short: "c" },
-      watch: { type: "boolean", short: "w" },
-      name: { type: "string", short: "t" },
-      tag: { type: "string", multiple: true },
-      help: { type: "boolean", short: "h" },
-      force: { type: "boolean" },
-      spec: { type: "string" },
-      out: { type: "string" },
-      uncovered: { type: "boolean" },
-      port: { type: "string" },
-      diagrams: { type: "string" },
-      stub: { type: "string" },
-      upstream: { type: "string" },
-      json: { type: "boolean" },
-      update: { type: "boolean", short: "u" },
-      reporter: { type: "string", multiple: true },
-      "output-file": { type: "string" },
-      shard: { type: "string" },
-    },
-  });
+  const { values, positionals } = parseCliArgs(argv);
+  if (values.version) {
+    process.stdout.write(`${await packageVersion()}\n`);
+    return;
+  }
   if (values.help) {
     process.stdout.write(HELP);
     return;
@@ -201,7 +183,6 @@ export async function main(argv = process.argv.slice(2)) {
   const { slicetest, YAML_SCENARIOS } = await import("./vitest.js");
   // Vitest 4 takes the mode ("test") first; 5 dropped it.
   const start = (Number.parseInt(version, 10) === 4 ? startVitest.bind(null, "test") : startVitest) as typeof startVitest;
-  const { runOptions } = await import("./cli-run.js");
   const run = runOptions(values);
   const vitest = await start(
     positionals,

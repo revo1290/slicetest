@@ -183,7 +183,8 @@ export class Db {
 
   /** Empty every data table without dropping the app's connections, then re-apply the seed. */
   async reset() {
-    this.#tables ??= await this.#listTables();
+    // Listed again each time: a table the app or a scenario created since the last reset must be emptied too.
+    this.#tables = await this.#listTables();
     await this.#driver.truncate(this.#tables);
     this.#factory.reset();
     this.#start = undefined;

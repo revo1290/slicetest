@@ -3,6 +3,7 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { ResolvedProcess } from "./config.js";
+import { onProcessExit } from "./exit.js";
 
 type ProcessOptions = ResolvedProcess;
 
@@ -256,7 +257,7 @@ export class App {
 
 /** Apps still running, killed synchronously if the worker exits without tearing down. */
 const running = new Set<App>();
-process.once("exit", () => {
+onProcessExit(() => {
   for (const app of running) app.killNow();
 });
 

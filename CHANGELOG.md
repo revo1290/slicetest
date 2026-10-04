@@ -11,11 +11,18 @@ Honest scope for what slicetest checks, and a way to isolate what the database r
 - Regression tests for state left between scenarios: a cache and a delayed write (default fails, each setting covers its part), state after a failed scenario, order independence under seeded shuffles, two files on two workers, and `.concurrent` refused.
 - Add Japanese/English issue forms for bugs, feature requests and questions, a contribution guide, and README links to the issue chooser.
 
+- `npx slicetest --version` (`-v`) prints the installed version. An unknown option now fails with `slicetest: unknown option --tags; did you mean --tag? (see npx slicetest --help)` and exit code 1, instead of Node's `Unknown option … place it at the end of the command after '--'`.
+
 Changes that can alter an existing suite:
 
 - A process that crashed is restarted after the database reset, not before, so it boots against the reset database. Before, it was started first and the reset ran under it.
 
-Known limits found while documenting: the table list is read once per test file (per worker with `app.scope: worker`), so a table the app creates while the file runs is neither reset nor included in `db.changes()`; `auth.rotate()` isn't undone between scenarios.
+Fixes:
+
+- A table created while the run was going (by a scenario, or by the app when it first needed it) kept its rows into the next scenario, because the table list was read once per test file. The list is now read at every reset: on three small Postgres tables a reset took 2.0 ms instead of 1.4 ms (300 runs, a container on a laptop). `db.changes()` of the scenario that created the table still doesn't list it.
+- Node's `MaxListenersExceededWarning` ("11 exit listeners") with a Vitest config of many projects: each project's global setup loaded the package again and added its own `exit` listener. One shared listener now cleans up the apps and containers of every copy.
+
+Known limit found while documenting: `auth.rotate()` isn't undone between scenarios.
 
 ## 0.9.0
 

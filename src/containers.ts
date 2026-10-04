@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import type { StartedTestContainer } from "testcontainers";
 import type { ContainerOptions } from "./config.js";
 import { configureContainerRuntime } from "./container-runtime.js";
+import { onProcessExit } from "./exit.js";
 
 /**
  * A container the app depends on (Redis, a search engine, an S3 emulator),
@@ -75,6 +76,6 @@ export class Dependency {
 }
 
 const running = new Set<Dependency>();
-process.once("exit", () => {
+onProcessExit(() => {
   for (const d of running) d.removeNow();
 });

@@ -339,7 +339,7 @@ const STUB_KEYS = ["name", "openapi", "autoReply", "upstream", "recordings", "ho
 const CONTAINER_KEYS = ["image", "port", "env", "command", "ready", "reset"] as const satisfies readonly (keyof ContainerOptions)[];
 const DB_KEYS = ["engine", "image", "url", "migrate", "seed", "schemas", "keep", "ignoreChanges", "reuse", "queries", "neon"] as const satisfies readonly (keyof DbOptions)[];
 
-function editDistance(a: string, b: string) {
+export function editDistance(a: string, b: string) {
   const row = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let prev = row[0]!;

@@ -58,7 +58,7 @@ A diff of the database between the start of the scenario (after reset and seed, 
 |---|---|
 | A write to a table the test didn't list, when asserted with `toEqual`; which columns an update changed. | A row written and deleted again inside the scenario: it's a net diff, only the end state counts. |
 | An insert that should have happened and didn't. | Tables outside `db.schemas` (default `public`), tables in `db.keep`, migration bookkeeping tables, and columns in `db.ignoreChanges` / `ignore`. |
-| | Tables the app creates while a test file runs: the table list is read once per test file (per worker with `app.scope: worker`), so such a table is neither reset nor diffed in that file. |
+| | A table the app creates while a scenario runs: it is emptied from the next reset on, but `db.changes()` of the scenario that created it doesn't list it (the list is read at each reset). |
 | | Writes to anything but the database: Redis, files, a queue. |
 | | Reads. A query that returns the wrong rows changes nothing. |
 

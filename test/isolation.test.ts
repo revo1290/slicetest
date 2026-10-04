@@ -145,3 +145,11 @@ describe("parallelism", () => {
     expect([...serial.tests.values()].some((t) => t.status === "failed" && t.message.includes("the files ran one after the other"))).toBe(true);
   });
 });
+
+describe("a table created while the run is going", () => {
+  test("is emptied before the next scenario", async () => {
+    const run = await runFixture("isolation", { env: { ISOLATION_FILES: "late-table" } });
+    passed(run, "late table: a scenario creates a table after the run started");
+    passed(run, "late table: the next scenario finds that table empty");
+  });
+});
