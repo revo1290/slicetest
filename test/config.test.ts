@@ -44,6 +44,12 @@ test.each([
   [{ ...valid, stubs: [{ name: "gh", host: ["api.github.com"] }] }, 'unknown key stubs.gh.host; did you mean "hosts"?'],
   [{ ...valid, services: { worker: { command: "x", enviroment: {} } } }, "unknown key services.worker.enviroment"],
   [{ ...valid, containers: { cache: { image: "redis", port: 6379, ports: [1] } } }, 'unknown key containers.cache.ports; did you mean "port"?'],
+  [{ app: { command: "x", readyTimeout: "30s" } }, 'app.readyTimeout must be a positive number of milliseconds, got "30s"'],
+  [{ ...valid, services: { worker: { command: "x", readyTimeout: 0 } } }, "services.worker.readyTimeout must be a positive number of milliseconds, got 0"],
+  [{ ...valid, http: { timeout: "5s" } }, 'http.timeout must be a positive number of milliseconds, got "5s"'],
+  [{ ...valid, http: { headers: { accept: 1 } } }, "http.headers maps header names to strings"],
+  [{ ...valid, http: { follow: "yes" } }, 'http.follow must be true or false, got "yes"'],
+  [{ ...valid, http: { timout: 5 } }, 'unknown key http.timout; did you mean "timeout"?'],
 ])("rejects %j", (opts, message) => {
   expect(() => resolveOptions(opts as SlicetestOptions, "/")).toThrow(message);
 });

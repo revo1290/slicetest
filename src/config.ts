@@ -385,6 +385,20 @@ function validate(opts: SlicetestOptions) {
     if (ready && "path" in ready && !ready.path.startsWith("/")) fail(`${where}.ready.path must start with "/", got "${ready.path}"`);
   };
   checkReady(opts.app.ready, "app");
+  const checkTimeout = (v: unknown, where: string) => {
+    if (v !== undefined && !(typeof v === "number" && v > 0)) fail(`${where} must be a positive number of milliseconds, got ${JSON.stringify(v)}`);
+  };
+  checkTimeout(opts.app.readyTimeout, "app.readyTimeout");
+  if (opts.http !== undefined) {
+    if (!opts.http || typeof opts.http !== "object" || Array.isArray(opts.http)) fail(`http must be { headers, timeout, follow }, got ${JSON.stringify(opts.http)}`);
+    checkKeys(opts.http, ["headers", "query", "follow", "timeout"], "http.");
+    checkTimeout(opts.http.timeout, "http.timeout");
+    if (opts.http.follow !== undefined && typeof opts.http.follow !== "boolean") fail(`http.follow must be true or false, got ${JSON.stringify(opts.http.follow)}`);
+    const headers = opts.http.headers;
+    if (headers !== undefined && (!headers || typeof headers !== "object" || Array.isArray(headers) || Object.values(headers).some((v) => typeof v !== "string"))) {
+      fail('http.headers maps header names to strings, e.g. { accept: "application/json" }');
+    }
+  }
   if (opts.app.scope !== undefined && opts.app.scope !== "file" && opts.app.scope !== "worker") fail(`app.scope must be "file" or "worker", got ${JSON.stringify(opts.app.scope)}`);
   const checkBuild = (build: unknown, where: string) => {
     if (build !== undefined && (typeof build !== "string" || !build.trim())) fail(`${where}.build must be a command, e.g. "npm run build"`);
@@ -408,6 +422,7 @@ function validate(opts: SlicetestOptions) {
     if (!/^[\w-]+$/.test(name)) fail(`service name "${name}" may only contain letters, digits, "_" and "-"`);
     if (!s || typeof s.command !== "string" || !s.command.trim()) fail(`services.${name}.command is required`);
     checkReady(s.ready, `services.${name}`);
+    checkTimeout(s.readyTimeout, `services.${name}.readyTimeout`);
     checkBuild(s.build, `services.${name}`);
     checkLifecycle(s, `services.${name}`);
   }
