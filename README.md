@@ -1100,11 +1100,12 @@ app:
 
 ## Examples
 
-`examples/` has a Node app (`node:http` + `pg`) and a Python app (`http.server` + `psycopg`) with the same API. **The same scenario files (`polls.test.ts` and `polls.scenario.yaml`) run against both**:
+`examples/` has a Node app (`node:http` + `pg`), a Python app (`http.server` + `psycopg`) and a [Spring Boot app](examples/spring-boot-api/README.md) (Java 21, Maven, JDBC) with the same API. **The same scenario files (`polls.test.ts` and `polls.scenario.yaml`) run against all three**:
 
 ```sh
 npm test            # unit tests + both example apps
 npm run test:dist   # the built package, and the CLI with examples/slicetest.config.yaml
+npm run test:spring # the same scenarios against the Spring Boot app (needs JDK 21 and Maven)
 ```
 
 ## Using a coding agent
@@ -1128,7 +1129,7 @@ Version 0.x, early. What is run, and where:
 | OS | Ubuntu (the full suite); Windows (unit tests, the fixtures that crash and fail, and the built package with the CLI) | macOS | Windows with Docker-based databases: Windows CI uses a Postgres service instead of containers |
 | Database | PostgreSQL 17 (`postgres:17-alpine`, on Ubuntu) and the Postgres service of the Windows runner (its version isn't pinned); MySQL 8.4 and SQLite (Ubuntu; SQLite also in the isolation tests on Windows) | | other PostgreSQL / MySQL versions, MariaDB, other SQLite builds |
 | Container runtime | Docker (Ubuntu) | Podman (macOS) | |
-| App stacks | Node and Python example apps (Ubuntu), small Node fixtures | Spring Boot, Next.js and others, on the maintainer's own projects (the maintainer's report; no automated test) | the rest of what `slicetest init` recognizes: detection is tested on fixture projects, not on running apps |
+| App stacks | Node, Python and Spring Boot (Java 21, Maven) example apps (Ubuntu; the Spring one in its own job), small Node fixtures | Spring Boot, Next.js and others, on the maintainer's own projects (the maintainer's report; no automated test) | the rest of what `slicetest init` recognizes: detection is tested on fixture projects, not on running apps |
 
 The built package, not only the sources, is checked: `npm run test:dist` runs the Node example and the CLI (with the Node example's config) against `dist/` and type-checks them against the published types.
 

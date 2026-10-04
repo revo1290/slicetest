@@ -21,7 +21,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
 - `docs/` — `guarantees.md` (what each check does and doesn't catch) and `state-isolation.md` (what is reset between scenarios, parallelism). Keep them in step with the code: `test/isolation.test.ts` pins the second.
 - `schema/scenario.schema.json` — JSON Schema for `*.scenario.yaml`. Published with the package.
 - `test/` — unit tests; `test/fixtures/` holds small apps used to test failure modes, contracts and services.
-- `examples/` — a Node and a Python app with the same API. The same scenarios run against both.
+- `examples/` — a Node, a Python and a Spring Boot app with the same API. The same scenarios run against all three; the Spring one is separate (`test:spring`, its own CI job) so `npm test` needs no Java.
 
 ## Commands
 
@@ -31,6 +31,7 @@ npm run typecheck
 npm test            # unit tests + both example apps + services and MySQL fixtures (needs Docker or Podman, Atlas, Python)
 npx vitest run --project unit   # unit tests only
 npm run test:dist   # build, then run the examples and the CLI against dist/
+npm run test:spring # the same scenarios against examples/spring-boot-api (needs JDK 21 and Maven)
 ```
 
 Prerequisites for the full suite: Docker or Podman (or `SLICETEST_DATABASE_URL` pointing at a Postgres server), the `atlas` CLI, and a Python venv at `examples/python-api/.venv` with `psycopg[binary]` installed. CI (`.github/workflows/ci.yml`) runs on Linux and Windows.

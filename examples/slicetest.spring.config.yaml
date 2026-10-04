@@ -1,0 +1,20 @@
+# The same scenarios against the Spring Boot app: `npx slicetest --config examples/slicetest.spring.config.yaml`.
+app:
+  cwd: spring-boot-api
+  build: mvn -q -B package -Dmaven.test.skip=true
+  command: java -jar target/polls.jar
+  env:
+    SERVER_PORT: "{{app.port}}"
+    SPRING_DATASOURCE_URL: "{{db.jdbcUrl}}"
+    SPRING_DATASOURCE_USERNAME: "{{db.user}}"
+    SPRING_DATASOURCE_PASSWORD: "{{db.password}}"
+    SLACK_WEBHOOK_URL: "{{stub.slack}}/hook"
+  ready: { path: /health }
+  readyTimeout: 120000
+db:
+  migrate: { sql: migrations/20260929000000_init.sql }
+  seed: seed.sql
+  queries: true
+stubs:
+  - { name: slack, openapi: slack.openapi.yaml }
+openapi: { spec: openapi.yaml, minCoverage: 100 }

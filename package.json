@@ -65,6 +65,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:spring": "npm run build && vitest run --config examples/vitest.spring.config.ts && node dist/cli.js --config examples/slicetest.spring.config.yaml",
     "test:dist": "npm run build && tsc -p examples/tsconfig.dist.json && vitest run --config examples/vitest.dist.config.ts && node dist/cli.js --config examples/slicetest.config.yaml && node test/record-dist.mjs",
     "prepublishOnly": "npm run typecheck && npm run build"
   },

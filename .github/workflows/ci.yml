@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -19,6 +22,19 @@ jobs:
       - run: npm run typecheck
       - run: npm test # Postgres via Testcontainers (Docker is available on ubuntu runners)
       - run: npm run test:dist
+
+  spring:
+    # Its own job: `npm test` doesn't need Java, and a Maven Central outage shouldn't fail it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21, cache: maven }
+      - uses: ariga/setup-atlas@v0
+      - run: npm ci
+      - run: npm run test:spring
 
   windows:
     # Windows runners can't run Linux containers, so use the preinstalled Postgres via SLICETEST_DATABASE_URL.
