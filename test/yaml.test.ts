@@ -37,6 +37,8 @@ test.each([
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { duration: 0 }\n", "`expect.duration` is a number of milliseconds (at most)"],
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { cookies: { sid: true } }\n", "`expect.cookies` maps cookie names to attributes"],
   ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        within: 100\n        concurrency: 2\n", "can't be combined with `concurrency`"],
+  ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { status: 20x }\n", "`expect.status` is a code (201), a class (2xx) or a list of them, got \"20x\""],
+  ["scenarios:\n  - name: a\n    steps:\n      - request: GET /\n        expect: { status: [200, 6xx] }\n", "`expect.status` is a code (201), a class (2xx) or a list of them, got [200,\"6xx\"]"],
 ])("rejects %j", (text, message) => {
   expect(() => parse(text)).toThrow(message);
 });

@@ -567,6 +567,14 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
         if (q !== undefined && !(Number.isInteger(q) && (q as number) >= 0)) fail(at("expect"), "`expect.queries` is the most SQL statements the request may run, e.g. 3");
         if (q !== undefined && raw.concurrency !== undefined) fail(at("expect"), "`expect.queries` can't be used with `concurrency`");
       }
+      {
+        const status = (raw.expect as Record<string, unknown> | undefined)?.status;
+        // A template (`{{status}}` from `each`) is only known when the step runs.
+        const ok = (s: unknown) => (typeof s === "number" && Number.isInteger(s)) || (typeof s === "string" && (s.includes("{{") || /^(\d{3}|[1-5]xx)$/.test(s)));
+        if (status !== undefined && !(Array.isArray(status) ? status.length > 0 && status.every(ok) : ok(status))) {
+          fail(at("expect"), `\`expect.status\` is a code (201), a class (2xx) or a list of them, got ${JSON.stringify(status)}`);
+        }
+      }
       if (raw.concurrency !== undefined && raw.capture !== undefined) fail(at("capture"), "`capture` can't be used with `concurrency`: there is more than one response");
       {
         const statuses = (raw.expect as Record<string, unknown> | undefined)?.statuses;

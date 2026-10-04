@@ -199,6 +199,8 @@ export class HttpClient {
    */
   async request(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<HttpResponse> {
     const opts = merge(this.defaults, options);
+    // Fetch upper-cases get and put but not patch, so `request("patch", …)` went out as "patch".
+    method = method.toUpperCase();
     let url = new URL(path, this.baseUrl);
     if (url.origin !== new URL(this.baseUrl).origin) {
       throw new Error(`slicetest: http only talks to the app under test; "${path}" resolves to ${url.origin}`);
@@ -218,8 +220,9 @@ export class HttpClient {
       const next = new URL(location, url);
       // Like a browser: on to the app, or to a host a stub stands in for; anywhere else is returned.
       if (next.origin !== new URL(this.baseUrl).origin && lookupHost(this.#session.external, next.hostname) === undefined) break;
-      // 307/308 repeat the request as it was; the others turn it into a GET without a body, like browsers do.
-      if (res.status !== 307 && res.status !== 308 && method !== "HEAD") {
+      // Fetch's rules: 303 makes anything but HEAD a GET, 301/302 only a POST; the rest repeat the request as it was.
+      const toGet = res.status === 303 ? method !== "HEAD" : (res.status === 301 || res.status === 302) && method === "POST";
+      if (toGet) {
         method = "GET";
         body = undefined;
       }

@@ -1,8 +1,5 @@
-/**
- * One `exit` listener shared by every copy of this package in the process. A multi-project Vitest
- * config loads the modules once per project's global setup, and a listener per copy ended in
- * Node's "11 exit listeners" warning.
- */
+// One listener for every copy of the package: a multi-project Vitest config loads it once per
+// project, and a listener each ended in Node's "11 exit listeners" warning.
 const KEY = Symbol.for("slicetest.exitHooks");
 type Registry = { [KEY]?: Set<() => void> };
 

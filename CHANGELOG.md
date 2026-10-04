@@ -13,6 +13,8 @@ Honest scope for what slicetest checks, and a way to isolate what the database r
 
 - `npx slicetest --version` (`-v`) prints the installed version. An unknown option now fails with `slicetest: unknown option --tags; did you mean --tag? (see npx slicetest --help)` and exit code 1, instead of Node's `Unknown option … place it at the end of the command after '--'`.
 
+- A malformed `expect.status` (`20x`, `[200, 6xx]`) is rejected when the file is read, by the run and by `slicetest list`, naming the line, instead of failing only when that step is reached.
+
 Changes that can alter an existing suite:
 
 - A process that crashed is restarted after the database reset, not before, so it boots against the reset database. Before, it was started first and the reset ran under it.
@@ -20,6 +22,8 @@ Changes that can alter an existing suite:
 Fixes:
 
 - A table created while the run was going (by a scenario, or by the app when it first needed it) kept its rows into the next scenario, because the table list was read once per test file. The list is now read at every reset: on three small Postgres tables a reset took 2.0 ms instead of 1.4 ms (300 runs, a container on a laptop). `db.changes()` of the scenario that created the table still doesn't list it.
+- `follow` turned a `PUT`, `PATCH` or `DELETE` into a `GET` without its body on a `301` or `302` (a trailing-slash redirect, a moved endpoint), so the scenario saw the redirect target's answer to a request the app never got. Only a `POST` becomes a `GET` there now, as in fetch; a `303` still turns anything but `HEAD` into a `GET`.
+- `http.request("patch", …)` (a lower-case method from TypeScript) was sent as `patch`: fetch upper-cases `get` and `put` but leaves `patch` alone, and servers match the method case-sensitively. Methods are upper-cased before sending.
 - Node's `MaxListenersExceededWarning` ("11 exit listeners") with a Vitest config of many projects: each project's global setup loaded the package again and added its own `exit` listener. One shared listener now cleans up the apps and containers of every copy.
 
 Known limit found while documenting: `auth.rotate()` isn't undone between scenarios.

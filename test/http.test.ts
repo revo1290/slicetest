@@ -14,6 +14,9 @@ beforeAll(async () => {
     if (req.url?.startsWith("/login")) return res.writeHead(204, { "set-cookie": "sid=abc; Path=/; HttpOnly" }).end();
     if (req.url === "/session") return res.writeHead(303, { location: "/me", "set-cookie": "sid=xyz; Path=/" }).end();
     if (req.url === "/keep") return res.writeHead(307, { location: "/echo" }).end();
+    if (req.url === "/moved") return res.writeHead(301, { location: "/whoami" }).end();
+    if (req.url === "/found") return res.writeHead(302, { location: "/whoami" }).end();
+    if (req.url === "/whoami") return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ method: req.method, body }));
     if (req.url === "/away") return res.writeHead(302, { location: "https://example.com/" }).end();
     if (req.url === "/auth/token") return res.writeHead(204, { "set-cookie": ["refresh=r1; Path=/auth/refresh; HttpOnly", "csrf=c1"] }).end();
     if (req.url === "/secure-login") return res.writeHead(204, { "set-cookie": ["sid=s3cr3t; Path=/; HttpOnly; Secure; SameSite=lax; Max-Age=3600", "theme=dark"] }).end();
@@ -113,6 +116,23 @@ test("follow keeps cookies set by each redirect, switches to GET on 303 and keep
   expect(res.method).toBe("GET");
   expect((await client.post("/keep", "x", { follow: true })).json).toMatchObject({ url: "/echo", body: "x" });
   expect(client.history.map((r) => `${r.method} ${r.url} ${r.status}`)).toEqual(["POST /session 303", "GET /me 200", "POST /keep 307", "POST /echo 200"]);
+});
+
+test("follow turns only a POST into a GET on 301 and 302, as fetch does; PUT and DELETE are repeated", async () => {
+  const client = new HttpClient(baseUrl);
+
+  expect((await client.post("/moved", "x", { follow: true })).json).toEqual({ method: "GET", body: "" });
+  expect((await client.post("/found", "x", { follow: true })).json).toEqual({ method: "GET", body: "" });
+  expect((await client.put("/moved", "x", { follow: true })).json).toEqual({ method: "PUT", body: "x" });
+  expect((await client.patch("/found", "x", { follow: true })).json).toEqual({ method: "PATCH", body: "x" });
+  expect((await client.delete("/moved", { follow: true })).json).toEqual({ method: "DELETE", body: "" });
+});
+
+test("a lower-case method is sent upper-case, also patch, which fetch leaves alone", async () => {
+  const client = new HttpClient(baseUrl);
+
+  expect((await client.request("patch", "/whoami", "x")).json).toEqual({ method: "PATCH", body: "x" });
+  expect((await client.request("put", "/whoami")).json).toMatchObject({ method: "PUT" });
 });
 
 test("follow stops at a redirect away from the app", async () => {

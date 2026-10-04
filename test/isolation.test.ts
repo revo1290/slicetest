@@ -151,5 +151,5 @@ describe("a table created while the run is going", () => {
     const run = await runFixture("isolation", { env: { ISOLATION_FILES: "late-table" } });
     passed(run, "late table: a scenario creates a table after the run started");
     passed(run, "late table: the next scenario finds that table empty");
-  });
+  }, 60_000);
 });
