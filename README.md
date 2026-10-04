@@ -1130,7 +1130,7 @@ Version 0.x, early. What is run, and where:
 
 | | Verified in CI on every push | Used by hand, not in CI | Not verified |
 |---|---|---|---|
-| Node.js | 24 | the maintainer's machine (also 24) | 20 and 22, though `engines` says `>=20` (SQLite needs 22.5+; `hosts` for Node apps needs 22.21+ / 24.5+) |
+| Node.js | 24 | the maintainer's machine (also 24); 2026-10-05, the Node example app's 31 tests by hand: Node 22.23.3 (containers) and Node 20.20.2 with Vitest 5.0.2 against a database server you run (`SLICETEST_DATABASE_URL`) | the rest of the suite on 20 and 22. On Node below 22.22 the container library doesn't load (Testcontainers' requirement; checked on 20.20.2), so a database or dependency in a container needs 22.22+, and the error says so. SQLite needs 22.5+; `hosts` for Node apps needs 22.21+ / 24.5+ |
 | Vitest | 5.0.x (the version in the lockfile) | 4.x on one project (the maintainer's report; nothing in the repo shows it) | 6 and later |
 | OS | Ubuntu (the full suite); Windows (unit tests, the fixtures that crash and fail, and the built package with the CLI) | macOS | Windows with Docker-based databases: Windows CI uses a Postgres service instead of containers |
 | Database | PostgreSQL 17 (`postgres:17-alpine`, on Ubuntu) and the Postgres service of the Windows runner (its version isn't pinned); MySQL 8.4 and SQLite (Ubuntu; SQLite also in the isolation tests on Windows) | | other PostgreSQL / MySQL versions, MariaDB, other SQLite builds |

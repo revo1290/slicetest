@@ -1,6 +1,7 @@
 import type { Connection, FieldPacket, ResultSetHeader, TypeCastField } from "mysql2/promise";
 import mysql from "mysql2/promise";
 import type { Admin, Driver, Engine, Row, Table, TableShape } from "./driver.js";
+import { loadContainers } from "../container-runtime.js";
 
 /**
  * Makes rows look like the Postgres driver's, so the same scenarios pass on
@@ -325,7 +326,9 @@ export const mysqlEngine: Engine = {
   name: "mysql",
   defaultImage: "mysql:8.4",
   async startContainer(image, reuse) {
-    const { MySqlContainer } = await import("@testcontainers/mysql").catch(() => {
+    const { MySqlContainer } = await loadContainers(() => import("@testcontainers/mysql")).catch((e: Error) => {
+      // An old Node.js already has its own explanation; a missing package gets the install hint.
+      if (/^slicetest: Node\.js/.test(e.message)) throw e;
       throw new Error("slicetest: starting a MySQL container needs the @testcontainers/mysql package: npm i -D @testcontainers/mysql (or set db.url)");
     });
     const definition = new MySqlContainer(image);

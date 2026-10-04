@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { parse } from "yaml";
 import { resolveOptions, seedFiles, type ResolvedOptions, type SlicetestOptions } from "./config.js";
-import { configureContainerRuntime } from "./container-runtime.js";
+import { configureContainerRuntime, loadContainers } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import { OpenApiSpec } from "./openapi.js";
 
@@ -35,7 +35,7 @@ const exec = promisify(execFile);
 export const machine: Probes = {
   async containerRuntime() {
     configureContainerRuntime();
-    const { getContainerRuntimeClient } = await import("testcontainers");
+    const { getContainerRuntimeClient } = await loadContainers(() => import("testcontainers"));
     const client = await withTimeout(getContainerRuntimeClient(), 15_000, "no answer from the container runtime");
     const { containerRuntime: rt } = client.info;
     return `${rt.operatingSystem} ${rt.serverVersion} at ${rt.host}`;

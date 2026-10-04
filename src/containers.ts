@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import type { StartedTestContainer } from "testcontainers";
 import type { ContainerOptions } from "./config.js";
-import { configureContainerRuntime } from "./container-runtime.js";
+import { configureContainerRuntime, loadContainers } from "./container-runtime.js";
 import { onProcessExit } from "./exit.js";
 
 /**
@@ -17,7 +17,7 @@ export class Dependency {
 
   static async start(name: string, opts: ContainerOptions) {
     configureContainerRuntime();
-    const { GenericContainer, Wait } = await import("testcontainers");
+    const { GenericContainer, Wait } = await loadContainers(() => import("testcontainers"));
     let definition = new GenericContainer(opts.image).withExposedPorts(opts.port);
     if (opts.env) definition = definition.withEnvironment(opts.env);
     if (opts.command) definition = definition.withCommand(opts.command);

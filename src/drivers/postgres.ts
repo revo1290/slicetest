@@ -1,5 +1,6 @@
 import pg from "pg";
 import type { Admin, Driver, Engine, Row, Table, TableShape } from "./driver.js";
+import { loadContainers } from "../container-runtime.js";
 
 const INT8 = 20;
 
@@ -197,7 +198,7 @@ export const postgres: Engine = {
   name: "postgres",
   defaultImage: "postgres:17-alpine",
   async startContainer(image, reuse) {
-    const { PostgreSqlContainer } = await import("@testcontainers/postgresql");
+    const { PostgreSqlContainer } = await loadContainers(() => import("@testcontainers/postgresql"));
     const definition = new PostgreSqlContainer(image);
     // A reused container is left running and found again by its configuration on the next run.
     if (reuse) definition.withReuse();
