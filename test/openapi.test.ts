@@ -189,6 +189,8 @@ test("requests: query values are held to their parameter schema, required header
   expect(s.checkRequest("GET", "/items", req("limit=0"))).toEqual(['GET /items: query parameter "limit" must be >= 1 (got "0")']);
   expect(s.checkRequest("GET", "/items", req("sort=up"))).toEqual(['GET /items: query parameter "sort" must be equal to one of the allowed values (got "up")']);
   expect(s.checkRequest("GET", "/items", req("active=yes"))).toEqual(['GET /items: query parameter "active" must be boolean (got "yes")']);
+  expect(s.checkRequest("GET", "/items", req("ids=1,2"))).toEqual([]);
+  expect(s.checkRequest("GET", "/items", req("ids=1,x"))).toEqual(['GET /items: query parameter "ids" item 2 must be integer (got "x")']);
   expect(s.checkRequest("GET", "/items", req("ids=1&ids=x"))).toEqual(['GET /items: query parameter "ids" item 2 must be integer (got "x")']);
   expect(s.checkRequest("GET", "/items", req("cursor=zz"))).toEqual(['GET /items: query parameter "cursor" must match pattern "^c_" (got "zz")']);
   expect(s.checkRequest("GET", "/items", req("", {}))).toEqual(['GET /items: required header "x-tenant" is missing']);

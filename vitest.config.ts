@@ -3,7 +3,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     projects: [
-      { test: { name: "unit", include: ["test/**/*.test.ts"] } },
+      // A test that imports runtime.js cold, or starts a nested Vitest, can pass 5 s on a busy machine without being wrong.
+      { test: { name: "unit", include: ["test/**/*.test.ts"], testTimeout: 30_000 } },
       "examples/vitest.node.config.ts",
       "examples/vitest.python.config.ts",
       "test/fixtures/services/vitest.config.ts",

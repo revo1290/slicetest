@@ -333,8 +333,8 @@ export class OpenApiSpec {
     };
     if (node?.type !== "array") return one(values[0]!, node, at, "");
     const [items, itemsAt] = this.#resolve(node.items, [...at, "items"]);
-    // `?ids=1,2` is the same list as `?ids=1&ids=2` for the default (form, not exploded) style.
-    const list = node.style === "form" || values.length > 1 ? values : values.flatMap((v) => v.split(","));
+    // One value may carry the whole list (`?ids=1,2`, explode: false). Many servers accept it for the exploded default too, so it isn't held against the spec.
+    const list = values.length > 1 ? values : values.flatMap((v) => v.split(","));
     return list.flatMap((raw, i) => one(raw, items, itemsAt, ` item ${i + 1}`));
   }
 
