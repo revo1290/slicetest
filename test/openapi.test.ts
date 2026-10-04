@@ -228,3 +228,64 @@ test("3.0's boolean exclusiveMinimum / exclusiveMaximum are read as bounds, not 
   expect(s.checkResponse("GET", "/x", ok({ n: 0 }))).toEqual(["GET /x → 200: /n must be > 0"]);
   expect(s.checkResponse("GET", "/x", ok({ n: 11 }))).toEqual(["GET /x → 200: /n must be <= 10"]);
 });
+
+test("responses: headers the spec lists are required when marked so, and held to their schema", async () => {
+  const s = await spec({
+    openapi: "3.0.3",
+    paths: {
+      "/items": {
+        get: {
+          responses: {
+            "200": {
+              description: "",
+              headers: {
+                "X-Rate-Limit": { required: true, schema: { type: "integer", minimum: 0 } },
+                "X-Request-Id": { schema: { type: "string", pattern: "^req_" } },
+                Location: { $ref: "#/components/headers/Where" },
+                "Content-Type": { required: true, schema: { type: "string" } },
+              },
+              ...json({ type: "object" }),
+            },
+          },
+        },
+      },
+    },
+    components: { headers: { Where: { required: true, schema: { type: "string", format: "uri-reference" } } } },
+  });
+  const res = (headers: Record<string, string>) => ({ ...ok({}), headers });
+
+  expect(s.checkResponse("GET", "/items", res({ "x-rate-limit": "5", "x-request-id": "req_1", location: "/items/1" }))).toEqual([]);
+  expect(s.checkResponse("GET", "/items", res({ location: "/x" }))).toEqual(['GET /items → 200: required header "X-Rate-Limit" is missing']);
+  expect(s.checkResponse("GET", "/items", res({ "x-rate-limit": "-1", location: "/x" }))).toEqual(['GET /items → 200: header "X-Rate-Limit" must be >= 0 (got "-1")']);
+  expect(s.checkResponse("GET", "/items", res({ "x-rate-limit": "1", "x-request-id": "abc", location: "/x" }))).toEqual(['GET /items → 200: header "X-Request-Id" must match pattern "^req_" (got "abc")']);
+  expect(s.checkResponse("GET", "/items", res({ "x-rate-limit": "1" }))).toEqual(['GET /items → 200: required header "Location" is missing']);
+  // Without headers on the message (a caller that doesn't pass them) nothing is claimed about them.
+  expect(s.checkResponse("GET", "/items", ok({}))).toEqual([]);
+});
+
+test("an example response carries the headers the spec requires, so autoReply satisfies the header check", async () => {
+  const s = await spec({
+    openapi: "3.0.3",
+    paths: {
+      "/items": {
+        get: {
+          responses: {
+            "200": {
+              description: "",
+              headers: { "X-Total-Count": { required: true, schema: { type: "integer" } }, "X-Optional": { schema: { type: "string" } }, "X-Ver": { required: true, example: "v2", schema: { type: "string" } } },
+              ...json({ type: "array", items: { type: "string" } }),
+            },
+            "204": { description: "", headers: { "X-Only": { required: true, schema: { type: "string" } } } },
+          },
+        },
+      },
+    },
+  });
+
+  const example = s.exampleResponse("GET", "/items")!;
+
+  expect(example.headers).toMatchObject({ "content-type": "application/json", "X-Total-Count": "0", "X-Ver": "v2" });
+  expect(example.headers).not.toHaveProperty("X-Optional");
+  const lower = Object.fromEntries(Object.entries(example.headers!).map(([k, v]) => [k.toLowerCase(), v]));
+  expect(s.checkResponse("GET", "/items", { status: 200, contentType: lower["content-type"], body: example.body, headers: lower })).toEqual([]);
+});

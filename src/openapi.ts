@@ -164,7 +164,8 @@ export class OpenApiSpec {
     const key = pickResponse(responses, res.status ?? 0);
     if (!key) return [`${method} ${template} responded ${status}, which ${this.file} doesn't document (documented: ${Object.keys(responses).join(", ") || "none"})`];
     const [response, at] = this.#resolve(responses[key], ["paths", template, found.method, "responses", key]);
-    return this.#checkContent(response?.content, res, [...at, "content"], `${method} ${template} → ${status}`);
+    const label = `${method} ${template} → ${status}`;
+    return [...this.#checkHeaders(label, response?.headers, [...at, "headers"], res.headers), ...this.#checkContent(response?.content, res, [...at, "content"], label)];
   }
 
   /**
@@ -184,7 +185,14 @@ export class OpenApiSpec {
     const response = this.#deref(responses[key]);
     const content: Record<string, any> = response?.content ?? {};
     const media = Object.keys(content).find(isJson) ?? Object.keys(content)[0];
-    if (!media) return { status };
+    // The headers the spec requires, so the example passes the same check the stub's replies are held to.
+    const required = Object.fromEntries(
+      Object.entries<any>(response?.headers ?? {})
+        .map(([name, def]) => [name, this.#deref(def)] as const)
+        .filter(([name, h]) => h?.required && !["content-type", "accept", "authorization"].includes(name.toLowerCase()))
+        .map(([name, h]) => [name, String(h.example !== undefined ? h.example : this.#sample(h.schema))]),
+    );
+    if (!media) return { status, ...(Object.keys(required).length ? { headers: required } : {}) };
     const m = content[media] ?? {};
     const named = m.examples && Object.values<any>(m.examples)[0];
     const body =
@@ -193,7 +201,7 @@ export class OpenApiSpec {
         : named !== undefined
           ? (this.#deref(named)?.value ?? null)
           : this.#sample(m.schema);
-    return { status, headers: { "content-type": media === "*/*" ? "application/json" : media }, body: isJson(media) ? body : String(body ?? "") };
+    return { status, headers: { "content-type": media === "*/*" ? "application/json" : media, ...required }, body: isJson(media) ? body : String(body ?? "") };
   }
 
   /**
@@ -296,7 +304,7 @@ export class OpenApiSpec {
       if (p?.in === "query") {
         if (p.required && !req.query?.has(p.name)) errors.push(`${method} ${template}: required query parameter "${p.name}" is missing`);
         const values = req.query?.getAll(p.name) ?? [];
-        if (values.length && p.schema) errors.push(...this.#checkQuery(`${method} ${template}`, p.name, values, p.schema, [...at, "schema"]));
+        if (values.length && p.schema) errors.push(...this.#checkValues(`${method} ${template}`, `query parameter "${p.name}"`, values, p.schema, [...at, "schema"]));
       }
       // Authorization, Accept and Content-Type are the transport's business, whatever the spec lists.
       const skipped = ["authorization", "accept", "content-type"];
@@ -313,21 +321,39 @@ export class OpenApiSpec {
     return [...errors, ...this.#checkContent(body.content, req, [...at, "content"], `${method} ${template} request`)];
   }
 
-  /** A query parameter's values as strings, held to its schema after reading them as the type it declares. */
-  #checkQuery(label: string, name: string, values: string[], schema: any, pointer: string[]): string[] {
+  /** A query parameter's or header's values as strings, held to its schema after reading them as the type it declares. */
+  #checkValues(label: string, subject: string, values: string[], schema: any, pointer: string[]): string[] {
     const [node, at] = this.#resolve(schema, pointer);
     const one = (raw: string, node: any, at: string[], where: string) => {
       if (!["string", "integer", "number", "boolean"].includes(node?.type) && !node?.enum) return [];
       const validate = this.#validator(at);
       const value = (node.type === "integer" || node.type === "number") && raw.trim() !== "" && Number.isFinite(Number(raw)) ? Number(raw) : node.type === "boolean" && (raw === "true" || raw === "false") ? raw === "true" : raw;
       if (validate(value)) return [];
-      return [`${label}: query parameter "${name}"${where} ${validate.errors![0]!.message} (got ${JSON.stringify(raw)})`];
+      return [`${label}: ${subject}${where} ${validate.errors![0]!.message} (got ${JSON.stringify(raw)})`];
     };
     if (node?.type !== "array") return one(values[0]!, node, at, "");
     const [items, itemsAt] = this.#resolve(node.items, [...at, "items"]);
     // `?ids=1,2` is the same list as `?ids=1&ids=2` for the default (form, not exploded) style.
     const list = node.style === "form" || values.length > 1 ? values : values.flatMap((v) => v.split(","));
     return list.flatMap((raw, i) => one(raw, items, itemsAt, ` item ${i + 1}`));
+  }
+
+  /** The headers a response documents: the required ones must be there, and what is there must fit its schema. */
+  #checkHeaders(label: string, documented: Record<string, any> | undefined, at: string[], actual: Message["headers"]): string[] {
+    if (!documented || !actual) return [];
+    const errors: string[] = [];
+    for (const [name, def] of Object.entries(documented)) {
+      // The spec says to ignore these three when they are listed.
+      if (["content-type", "accept", "authorization"].includes(name.toLowerCase())) continue;
+      const [h, hat] = this.#resolve(def, [...at, name]);
+      const raw = actual[name.toLowerCase()];
+      if (raw === undefined) {
+        if (h?.required) errors.push(`${label}: required header "${name}" is missing`);
+      } else if (h?.schema) {
+        errors.push(...this.#checkValues(label, `header "${name}"`, [Array.isArray(raw) ? raw.join(", ") : raw], h.schema, [...hat, "schema"]));
+      }
+    }
+    return errors;
   }
 
   #checkContent(content: Record<string, any> | undefined, msg: Message, pointer: string[], label: string): string[] {

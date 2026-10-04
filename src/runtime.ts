@@ -398,7 +398,7 @@ export class Runtime {
     const res = call.response;
     if (res) {
       const body = res.body ? (parseJson(res.body) ?? res.body) : "";
-      const problems = spec.checkResponse(call.method, call.path, { status: res.status, contentType: res.headers["content-type"], body });
+      const problems = spec.checkResponse(call.method, call.path, { status: res.status, contentType: res.headers["content-type"], body, headers: Object.fromEntries(Object.entries(res.headers).map(([k, v]) => [k.toLowerCase(), v])) });
       out.push(...problems.map((c) => `stub ${name} reply (the real service wouldn't answer this way): ${c}`));
     }
     return out;
@@ -621,7 +621,7 @@ async function pollIdle(proc: App, hook: HookOptions, where: string, deadline?: 
 }
 
 function message(res: HttpResponse) {
-  return { status: res.status, contentType: res.headers.get("content-type") ?? undefined, body: res.json ?? res.text };
+  return { status: res.status, contentType: res.headers.get("content-type") ?? undefined, body: res.json ?? res.text, headers: Object.fromEntries(res.headers) };
 }
 
 function header(v: string | string[] | undefined) {
