@@ -957,6 +957,7 @@ npx slicetest list --tag smoke # what would run: file, line, tags, steps (--json
 npx slicetest -u              # rewrite `snapshot: true` snapshots that no longer match
 npx slicetest --reporter junit --output-file reports/slicetest.xml   # GitLab, Jenkins, CircleCI test reports
 npx slicetest --shard 2/4     # the second of four parts, for parallel CI jobs
+npx slicetest --version       # the installed version; an unknown option names the nearest one
 ```
 
 ### Scenarios from your OpenAPI spec: `npx slicetest gen`
