@@ -12,7 +12,7 @@ export interface HmacScheme {
   prefix?: string;
 }
 
-export type WebhookProvider = "stripe" | "github" | "slack" | "shopify" | "standard" | "line" | "paddle" | "linear" | "gitlab" | "zoom" | "twitch" | "twilio" | HmacScheme;
+export type WebhookProvider = "stripe" | "github" | "slack" | "shopify" | "standard" | "line" | "paddle" | "linear" | "gitlab" | "zoom" | "twitch" | "twilio" | "typeform" | "notion" | "bitbucket" | "intercom" | HmacScheme;
 
 export interface WebhookOptions {
   provider: WebhookProvider;
@@ -38,7 +38,7 @@ export interface WebhookOptions {
 }
 
 /** The providers `signWebhook` knows by name. */
-export const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard", "line", "paddle", "linear", "gitlab", "zoom", "twitch", "twilio"] as const;
+export const WEBHOOK_PROVIDERS = ["stripe", "github", "slack", "shopify", "standard", "line", "paddle", "linear", "gitlab", "zoom", "twitch", "twilio", "typeform", "notion", "bitbucket", "intercom"] as const;
 
 const hmac = (algorithm: string, key: string | Buffer, data: string) => createHmac(algorithm, key).update(data);
 
@@ -48,7 +48,7 @@ const hmac = (algorithm: string, key: string | Buffer, data: string) => createHm
  * `X-Hub-Signature-256`, Slack's `v0` signature, Shopify's base64 HMAC,
  * Standard Webhooks (Svix, Resend, Clerk, …), LINE's `X-Line-Signature`,
  * Paddle Billing's `Paddle-Signature`, Linear, GitLab's token, Zoom's `v0`
- * signature and Twitch EventSub.
+ * signature, Twitch EventSub, Typeform, Notion, Bitbucket and Intercom.
  */
 export function signWebhook(body: string, opts: WebhookOptions): Record<string, string> {
   const now = Math.floor(Date.now() / 1000);
@@ -105,6 +105,14 @@ export function signWebhook(body: string, opts: WebhookOptions): Record<string, 
         "twitch-eventsub-message-signature": `sha256=${hmac("sha256", secret, `${id}${at}${body}`).digest("hex")}`,
       };
     }
+    case "typeform":
+      return { "typeform-signature": `sha256=${hmac("sha256", secret, body).digest("base64")}` };
+    case "notion":
+      return { "x-notion-signature": `sha256=${hmac("sha256", secret, body).digest("hex")}` };
+    case "bitbucket":
+      return { "x-hub-signature": `sha256=${hmac("sha256", secret, body).digest("hex")}` };
+    case "intercom":
+      return { "x-hub-signature": `sha1=${hmac("sha1", secret, body).digest("hex")}` };
     case "twilio": {
       // Twilio's validateRequest: the URL, then each POST parameter's name and value, sorted by name; HMAC-SHA1, base64.
       if (!opts.url) throw new Error("slicetest: a twilio webhook is signed over its URL: pass `url`, or send it with http.webhook()");

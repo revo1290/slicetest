@@ -595,7 +595,11 @@
                         "gitlab",
                         "zoom",
                         "twitch",
-                        "twilio"
+                        "twilio",
+                        "typeform",
+                        "notion",
+                        "bitbucket",
+                        "intercom"
                       ]
                     },
                     {

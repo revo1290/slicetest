@@ -682,8 +682,12 @@ In YAML, `auth` on a `request` step sends `Authorization: Bearer` with those cla
 | `zoom` | `x-zm-signature: v0=…`, `x-zm-request-timestamp` |
 | `twilio` | `X-Twilio-Signature` over the URL and the sorted form parameters; objects are sent as a form. The URL is the app's address and the path, or `url` when the app validates against a public URL it's configured with |
 | `twitch` | EventSub: `Twitch-Eventsub-Message-Signature`, `-Id`, `-Timestamp`, `-Type` (`event`, default `notification`) |
+| `typeform` | `Typeform-Signature: sha256=…` (base64) |
+| `notion` | `X-Notion-Signature: sha256=…` (the `verification_token` as `secret`) |
+| `bitbucket` | Bitbucket Cloud: `X-Hub-Signature: sha256=…` |
+| `intercom` | `X-Hub-Signature: sha1=…` (the app's `client_secret`) |
 
-The signatures are checked against the providers' documented examples where they publish one.
+The signatures are checked against the providers' documented examples where they publish one. `typeform`, `notion`, `bitbucket` and `intercom` follow the algorithm in the provider's documentation (read on 2026-10-05); none of them publishes an example to compare with, so they are recomputed in the tests, not checked against an SDK.
 
 ```ts
 const stripe = { provider: "stripe", secret: "whsec_test" } as const;   // the same secret as in app.env

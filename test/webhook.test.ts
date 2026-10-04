@@ -60,6 +60,19 @@ test("LINE, Paddle, Linear, GitLab, Zoom and Twitch sign the way their SDKs veri
   });
 });
 
+test("Typeform, Notion, Bitbucket and Intercom sign the raw body the way their docs describe", () => {
+  const body = '{"form_response":{}}';
+  const mac = (algo: string, enc: "hex" | "base64") => createHmac(algo, "s3cret").update(body).digest(enc);
+  const sign = (provider: string, o: object = {}) => signWebhook(body, { provider: provider as "typeform", secret: "s3cret", ...o });
+
+  expect(sign("typeform")).toEqual({ "typeform-signature": `sha256=${mac("sha256", "base64")}` });
+  expect(sign("notion")).toEqual({ "x-notion-signature": `sha256=${mac("sha256", "hex")}` });
+  expect(sign("bitbucket")).toEqual({ "x-hub-signature": `sha256=${mac("sha256", "hex")}` });
+  expect(sign("intercom")).toEqual({ "x-hub-signature": `sha1=${mac("sha1", "hex")}` });
+  expect(sign("notion")["x-notion-signature"]).toMatch(/^sha256=[0-9a-f]{64}$/);
+  expect(sign("typeform", { invalidSignature: true })["typeform-signature"]).not.toBe(sign("typeform")["typeform-signature"]);
+});
+
 test("Twilio: matches the example in Twilio's security docs, and posts objects as a form", async () => {
   const { webhookBody } = await import("../src/webhook.js");
   const params = { CallSid: "CA1234567890ABCDE", Caller: "+12349013030", Digits: "1234", From: "+12349013030", To: "+18005551212" };
