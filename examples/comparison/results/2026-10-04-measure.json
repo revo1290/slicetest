@@ -1,0 +1,712 @@
+{
+  "environment": {
+    "date": "2026-10-04T05:29:18.544Z",
+    "os": "macOS 26.6.2 (arm64)",
+    "cpu": "Apple M5, 10 cores",
+    "memoryGiB": 16,
+    "loadAverageAtStart": [
+      9.263671875,
+      7.3994140625,
+      6.51708984375
+    ],
+    "podman": "podman version 5.8.2; machine: 5.7.1",
+    "podmanMachine": "4 CPUs, 3814 MiB",
+    "postgresImage": "25a89970a83255ae96484d709005bb35aa71f7455f941bc1634514f31c5d5c62",
+    "java": "openjdk version \"21.0.11\" 2026-04-21",
+    "maven": "Apache Maven 3.9.12 (848fbb4bf2d427b72bdb2471c22fced7ebd9a7a1)",
+    "springBoot": "3.5.16",
+    "testcontainers": "1.21.4",
+    "wiremock": "3.13.2 (wiremock-standalone, pinned in pom.xml)",
+    "node": "v24.13.0",
+    "vitest": "5.0.2",
+    "slicetest": "0.9.0, commit 5f69597 + uncommitted changes",
+    "workers": "A: one JVM, tests in one class, run serially. B: workers 1.",
+    "runnerNote": "Other processes on the machine were not stopped."
+  },
+  "cold": 3,
+  "warm": 20,
+  "loc": {
+    "A_support": {
+      "file": "ApiTestEnvironment.java",
+      "lines": 107
+    },
+    "A_cases": {
+      "file": "PollsApiTest.java",
+      "lines": 94
+    },
+    "A_config": {
+      "file": "pom.xml test dependencies + junit-platform.properties",
+      "lines": "see README"
+    },
+    "B_support": {
+      "file": "comparison/vitest.config.ts",
+      "lines": 29
+    },
+    "B_cases": {
+      "file": "comparison/slicetest/polls-comparison.test.ts",
+      "lines": 55
+    }
+  },
+  "runs": [
+    {
+      "side": "A",
+      "label": "A-cold",
+      "seed": 1,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5564
+    },
+    {
+      "side": "B",
+      "label": "B-cold(reuse off)",
+      "seed": 1,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4145
+    },
+    {
+      "side": "A",
+      "label": "A-cold",
+      "seed": 2,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5483
+    },
+    {
+      "side": "B",
+      "label": "B-cold(reuse off)",
+      "seed": 2,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3983
+    },
+    {
+      "side": "A",
+      "label": "A-cold",
+      "seed": 3,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5343
+    },
+    {
+      "side": "B",
+      "label": "B-cold(reuse off)",
+      "seed": 3,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4397
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 1,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5547
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 1,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4134
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 1,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3244
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 2,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4629
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 2,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3799
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 2,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3414
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 3,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4947
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 3,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4480
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 3,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3083
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 4,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4907
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 4,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4065
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 4,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3347
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 5,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5265
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 5,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3670
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 5,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3416
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 6,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5007
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 6,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5179
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 6,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3619
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 7,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4962
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 7,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3979
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 7,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3170
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 8,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4863
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 8,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3724
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 8,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3362
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 9,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5021
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 9,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3863
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 9,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3342
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 10,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5017
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 10,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3699
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 10,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3401
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 11,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4691
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 11,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3906
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 11,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3462
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 12,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5260
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 12,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4614
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 12,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3405
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 13,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5128
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 13,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3868
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 13,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3314
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 14,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4972
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 14,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4011
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 14,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3382
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 15,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5040
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 15,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4861
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 15,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3164
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 16,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5099
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 16,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4641
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 16,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3258
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 17,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5187
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 17,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3615
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 17,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3471
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 18,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4935
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 18,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3822
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 18,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3326
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 19,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 5020
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 19,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4590
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 19,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3158
+    },
+    {
+      "side": "A",
+      "label": "A-warm",
+      "seed": 20,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4832
+    },
+    {
+      "side": "B",
+      "label": "B-warm(reuse off)",
+      "seed": 20,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 4758
+    },
+    {
+      "side": "B(reuse)",
+      "label": "B-reuse-warm",
+      "seed": 20,
+      "tests": 9,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "ms": 3345
+    }
+  ]
+}

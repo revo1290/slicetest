@@ -1,0 +1,63 @@
+[
+  {
+    "id": "M1",
+    "name": "notification after the commit: a failed Slack call keeps the poll",
+    "file": "src/main/java/example/polls/PollsController.java",
+    "from": "      Long id = tx.execute(status -> {\n        Long created = jdbc.queryForObject(\"INSERT INTO polls (title, option_a, option_b) VALUES (?, ?, ?) RETURNING id\", Long.class, title, a, b);\n        slack.post()",
+    "to": "      Long id = tx.execute(status -> jdbc.queryForObject(\"INSERT INTO polls (title, option_a, option_b) VALUES (?, ?, ?) RETURNING id\", Long.class, title, a, b));\n      tx.execute(status -> {\n        Long created = id;\n        slack.post()",
+    "expect": [
+      "C2",
+      "C3"
+    ]
+  },
+  {
+    "id": "M2",
+    "name": "creating a poll also writes a stray vote",
+    "file": "src/main/java/example/polls/PollsController.java",
+    "from": "        return created;\n      });",
+    "to": "        jdbc.update(\"INSERT INTO votes (poll_id, choice) VALUES (?, 'a')\", created);\n        return created;\n      });",
+    "expect": [
+      "C1"
+    ]
+  },
+  {
+    "id": "M3",
+    "name": "the Slack text loses the options",
+    "file": "src/main/java/example/polls/PollsController.java",
+    "from": "\"新しい投票: \" + title + \"（\" + a + \" vs \" + b + \"）\"",
+    "to": "\"新しい投票: \" + title",
+    "expect": [
+      "C1"
+    ]
+  },
+  {
+    "id": "M4",
+    "name": "Slack is called twice",
+    "file": "src/main/java/example/polls/PollsController.java",
+    "from": "            .retrieve().toBodilessEntity();\n        return created;",
+    "to": "            .retrieve().toBodilessEntity();\n        slack.post().uri(slackUrl).contentType(MediaType.APPLICATION_JSON).body(Map.of(\"text\", \"新しい投票: \" + title + \"（\" + a + \" vs \" + b + \"）\")).retrieve().toBodilessEntity();\n        return created;",
+    "expect": [
+      "C1"
+    ]
+  },
+  {
+    "id": "M5",
+    "name": "the aggregate swaps a and b",
+    "file": "src/main/java/example/polls/PollsController.java",
+    "from": "out.put(\"votes\", Map.of(\"a\", p.get(\"a_votes\"), \"b\", p.get(\"b_votes\")));",
+    "to": "out.put(\"votes\", Map.of(\"a\", p.get(\"b_votes\"), \"b\", p.get(\"a_votes\")));",
+    "expect": [
+      "C7"
+    ]
+  },
+  {
+    "id": "M6",
+    "name": "a vote for an unknown poll answers 204 instead of 404",
+    "file": "src/main/java/example/polls/PollsController.java",
+    "from": "return rows > 0 ? ResponseEntity.noContent().build() : error(HttpStatus.NOT_FOUND, \"not found\");",
+    "to": "return ResponseEntity.noContent().build();",
+    "expect": [
+      "C6"
+    ]
+  }
+]

@@ -51,7 +51,7 @@ Whether it's worth adopting depends on what you have:
 | Many branches of internal logic to cover | Unit tests first |
 | The UI, or a real identity provider or external API | Browser E2E, or a check against the real service, alongside |
 
-Not measured yet: whether it is faster than other setups, cheaper to maintain, or stable over long use on real projects. The speeds quoted below are narrow measurements, with their conditions.
+Not measured yet: whether it is faster than other setups, cheaper to maintain, or stable over long use on real projects. The one comparison made so far (the same nine checks on a Spring Boot app, written with JUnit + Testcontainers + WireMock and with slicetest; run times, flaky runs, injected faults, and what each failure shows) is in [examples/comparison](examples/comparison/README.md), with its limits: one machine, one small app, both suites by one author. The speeds quoted below are narrow measurements, with their conditions.
 
 The database is reset between scenarios with `TRUNCATE ... RESTART IDENTITY CASCADE` over every table, and the app keeps its connections, so this works with any driver or ORM. In the spike that chose this (`TRUNCATE polls RESTART IDENTITY`: one table, no `CASCADE`, 20 runs, median, a Postgres container on a laptop) the reset took 1.5 ms; dropping and re-creating the database took about 130 ms and crashed some apps when their pooled connections were cut. That is the reset step alone, not the time of a test run, and it wasn't measured with more tables. **Of the app's own state, only what is in the database is reset by default**: whatever the app keeps in memory or does in the background survives into the next scenario unless you say otherwise ([state between scenarios](docs/state-isolation.md)).
 

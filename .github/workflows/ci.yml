@@ -35,6 +35,7 @@ jobs:
       - uses: ariga/setup-atlas@v0
       - run: npm ci
       - run: npm run test:spring
+      - run: npm run test:comparison # the JUnit side needs Docker, which ubuntu runners have
 
   windows:
     # Windows runners can't run Linux containers, so use the preinstalled Postgres via SLICETEST_DATABASE_URL.
