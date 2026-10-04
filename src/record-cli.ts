@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { compatStart } from "./cli-run.js";
 import { resolveOptions, type SlicetestOptions } from "./config.js";
 import { SESSION_ENV, type RecordSession, type Summary } from "./record.js";
 
@@ -30,7 +31,7 @@ export async function record(configPath: string, options: SlicetestOptions, { ou
   const stop = () => void writeFile(session.stopFile, "").catch(() => {});
   process.once("SIGINT", stop);
 
-  const { startVitest } = await import("vitest/node");
+  const startVitest = compatStart(await import("vitest/node"));
   const { slicetest } = await import("./vitest.js");
   const announce = watchState(session.stateFile, (state) => {
     process.stdout.write(

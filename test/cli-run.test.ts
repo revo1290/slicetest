@@ -31,3 +31,14 @@ test("an unknown option is named, with the nearest one, instead of node's wordin
   expect(() => parseCliArgs(["--zzzzzz"])).toThrow("slicetest: unknown option --zzzzzz (see npx slicetest --help)");
   expect(() => parseCliArgs(["--config"])).toThrow(/^slicetest: .*argument missing/);
 });
+
+test("startVitest is called the way the installed Vitest takes it: 4 wants the mode first, 5 doesn't", async () => {
+  const { compatStart } = await import("../src/cli-run.js");
+  const seen: unknown[][] = [];
+  const fake = (version: string) => ({ version, startVitest: (...args: unknown[]) => (seen.push(args), Promise.resolve(undefined)) }) as never;
+
+  await compatStart(fake("4.1.11"))(["a"], { run: true });
+  await compatStart(fake("5.0.2"))(["a"], { run: true });
+
+  expect(seen).toEqual([["test", ["a"], { run: true }], [["a"], { run: true }]]);
+});

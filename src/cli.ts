@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
-import { packageVersion, parseCliArgs, runOptions } from "./cli-run.js";
+import { compatStart, packageVersion, parseCliArgs, runOptions } from "./cli-run.js";
 import { CONFIG_NAMES, type SlicetestOptions } from "./config.js";
 
 
@@ -174,15 +174,15 @@ export async function main(argv = process.argv.slice(2)) {
   // Workers inherit the environment; a relative directory is taken from where the command runs.
   if (values.diagrams) process.env.SLICETEST_DIAGRAMS = path.resolve(values.diagrams);
   if (values.tag?.length) process.env.SLICETEST_TAGS = values.tag.join(",");
-  const { startVitest, version } = await import("vitest/node");
+  const vitestNode = await import("vitest/node");
+  const { version } = vitestNode;
   if (Number.parseInt(version, 10) < 4) {
     process.stderr.write(`slicetest: needs Vitest 4 or later, and this project has Vitest ${version}. Upgrade it (npm i -D vitest@latest), or run slicetest from a folder with its own package.json.\n`);
     process.exitCode = 1;
     return;
   }
   const { slicetest, YAML_SCENARIOS } = await import("./vitest.js");
-  // Vitest 4 takes the mode ("test") first; 5 dropped it.
-  const start = (Number.parseInt(version, 10) === 4 ? startVitest.bind(null, "test") : startVitest) as typeof startVitest;
+  const start = compatStart(vitestNode);
   const run = runOptions(values);
   const vitest = await start(
     positionals,

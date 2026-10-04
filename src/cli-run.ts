@@ -71,3 +71,9 @@ export async function packageVersion() {
   const file = new URL("../package.json", import.meta.url);
   return (JSON.parse(await readFile(file, "utf8")) as { version: string }).version;
 }
+
+/** `startVitest` as the installed Vitest takes it: 4 wants the mode ("test") first, 5 dropped it. */
+export function compatStart(vitest: typeof import("vitest/node")) {
+  const { startVitest, version } = vitest;
+  return (Number.parseInt(version, 10) === 4 ? startVitest.bind(null, "test") : startVitest) as typeof startVitest;
+}
