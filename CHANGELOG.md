@@ -13,6 +13,9 @@ Honest scope for what slicetest checks, and a way to isolate what the database r
 
 - `npx slicetest --version` (`-v`) prints the installed version. An unknown option now fails with `slicetest: unknown option --tags; did you mean --tag? (see npx slicetest --help)` and exit code 1, instead of Node's `Unknown option … place it at the end of the command after '--'`.
 
+- Responses and requests are now checked against an OpenAPI 3.0 spec that writes `minimum: 0` with `exclusiveMinimum: true` (or `exclusiveMaximum`): the validator rejected the boolean form (`exclusiveMinimum value must be ["number"]`), so such a spec couldn't be checked at all. `toMatchSchema` reads it too.
+- Example responses (`autoReply`, `slicetest gen`) satisfy their schema more often: `maxLength` shortens a plain string, numbers respect `maximum`, `exclusiveMinimum` / `exclusiveMaximum` (both forms) and `multipleOf`, and a `uniqueItems` list of an `enum` takes different values.
+- `slicetest init` in a folder whose `package.json` or `composer.json` isn't valid JSON fails with `slicetest init: package.json isn't valid JSON (…)` instead of the parser's bare message.
 - A malformed `expect.status` (`20x`, `[200, 6xx]`) is rejected when the file is read, by the run and by `slicetest list`, naming the line, instead of failing only when that step is reached.
 
 - Contract checks of what the app sends to a stubbed service now also hold query values to their parameter schema (`?limit=abc` for an integer, a value outside an `enum`, a `pattern`, a number out of range, each item of a list) and fail a request that lacks a required header parameter. `Authorization`, `Accept` and `Content-Type` are never reported as missing. A request that was valid before can fail now if it sends such a value.

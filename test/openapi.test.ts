@@ -195,3 +195,36 @@ test("requests: query values are held to their parameter schema, required header
   // Authorization is listed as required but is the transport's business, so its absence isn't reported.
   expect(s.checkRequest("GET", "/items", req("", { "x-tenant": "t" }))).toEqual([]);
 });
+
+test("a generated example response satisfies the schema it was built from", async () => {
+  const props = {
+    code: { type: "string", maxLength: 2 },
+    negative: { type: "integer", maximum: -5 },
+    below: { type: "integer", exclusiveMaximum: 0 },
+    stepped: { type: "integer", minimum: 1, multipleOf: 5 },
+    strict30: { type: "integer", minimum: 0, exclusiveMinimum: true },
+    ratio: { type: "number", minimum: 0.5, maximum: 0.9 },
+    tags: { type: "array", minItems: 2, maxItems: 3, uniqueItems: true, items: { type: "string", enum: ["a", "b"] } },
+    padded: { type: "string", minLength: 8, maxLength: 8 },
+  };
+  const s = await spec({
+    openapi: "3.0.3",
+    paths: { "/x": { get: { responses: { "200": { description: "", ...json({ type: "object", properties: props }) } } } } },
+  });
+
+  const example = s.exampleResponse("GET", "/x")!;
+
+  expect(s.checkResponse("GET", "/x", { status: 200, contentType: "application/json", body: example.body })).toEqual([]);
+});
+
+test("3.0's boolean exclusiveMinimum / exclusiveMaximum are read as bounds, not rejected by the validator", async () => {
+  const s = await spec({
+    openapi: "3.0.3",
+    paths: { "/x": { get: { responses: { "200": { description: "", ...json({ type: "object", properties: { n: { type: "integer", minimum: 0, exclusiveMinimum: true, maximum: 10, exclusiveMaximum: false } } }) } } } } },
+  });
+
+  expect(s.checkResponse("GET", "/x", ok({ n: 1 }))).toEqual([]);
+  expect(s.checkResponse("GET", "/x", ok({ n: 10 }))).toEqual([]);
+  expect(s.checkResponse("GET", "/x", ok({ n: 0 }))).toEqual(["GET /x → 200: /n must be > 0"]);
+  expect(s.checkResponse("GET", "/x", ok({ n: 11 }))).toEqual(["GET /x → 200: /n must be <= 10"]);
+});

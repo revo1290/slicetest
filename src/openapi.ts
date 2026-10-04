@@ -265,10 +265,14 @@ export class OpenApiSpec {
       case "object":
         return Object.fromEntries(Object.entries<any>(s.properties ?? {}).map(([k, v]) => [k, this.#sample(v, depth + 1)]));
       case "array":
-        return Array.from({ length: Math.max(1, s.minItems ?? 1) }, () => this.#sample(s.items, depth + 1));
+        return Array.from({ length: Math.max(1, s.minItems ?? 1) }, (_, i) => {
+          const items = this.#deref(s.items);
+          // Equal items would break `uniqueItems`.
+          return s.uniqueItems && Array.isArray(items?.enum) && items.enum.length ? items.enum[i % items.enum.length] : this.#sample(s.items, depth + 1);
+        });
       case "integer":
       case "number":
-        return typeof s.minimum === "number" ? s.minimum : typeof s.exclusiveMinimum === "number" ? s.exclusiveMinimum + 1 : 0;
+        return sampleNumber(s, type === "integer");
       case "boolean":
         return true;
       case "string":
@@ -383,9 +387,32 @@ const FORMATS: Record<string, string> = {
   ipv6: "2001:db8::1",
 };
 
-function sampleString(s: { format?: string; minLength?: number; pattern?: string }) {
-  const base = (s.format && FORMATS[s.format]) ?? "string";
+function sampleString(s: { format?: string; minLength?: number; maxLength?: number; pattern?: string }) {
+  let base = (s.format && FORMATS[s.format]) ?? "string";
+  // A cut-off date or address would break its format as much as the length, so only plain strings are shortened.
+  if (!s.format && s.maxLength !== undefined && base.length > s.maxLength) base = base.slice(0, s.maxLength);
   return base.length >= (s.minLength ?? 0) ? base : base.padEnd(s.minLength!, "x");
+}
+
+/** A number inside the schema's bounds (3.0's `exclusiveMinimum: true` and 3.1's numeric form), on its `multipleOf` step. */
+function sampleNumber(s: any, integer: boolean) {
+  const bound = (value: string, exclusive: string) => {
+    if (typeof s[exclusive] === "number") return { at: s[exclusive] as number, open: true };
+    if (typeof s[value] === "number") return { at: s[value] as number, open: s[exclusive] === true };
+    return undefined;
+  };
+  const lo = bound("minimum", "exclusiveMinimum");
+  const hi = bound("maximum", "exclusiveMaximum");
+  let n = 0;
+  if (lo) n = lo.open ? lo.at + 1 : lo.at;
+  else if (hi) n = hi.open ? hi.at - 1 : Math.min(0, hi.at);
+  // The step past an open lower bound can overshoot a close upper one.
+  if (lo && hi && (hi.open ? n >= hi.at : n > hi.at)) n = lo.open ? (lo.at + hi.at) / 2 : lo.at;
+  if (typeof s.multipleOf === "number" && s.multipleOf > 0) {
+    n = Math.ceil(n / s.multipleOf) * s.multipleOf;
+    if (lo?.open && n <= lo.at) n += s.multipleOf;
+  }
+  return integer ? Math.ceil(n) : n;
 }
 
 function pickResponse(responses: Record<string, unknown>, status: number) {
@@ -439,6 +466,14 @@ export function nullableToType(node: any): any {
   if (Array.isArray(node)) return node.map(nullableToType);
   if (!node || typeof node !== "object") return node;
   for (const [k, v] of Object.entries(node)) node[k] = nullableToType(v);
+  // 3.0 writes `minimum: 0, exclusiveMinimum: true`; JSON Schema (and Ajv) want `exclusiveMinimum: 0`.
+  for (const [flag, bound] of [["exclusiveMinimum", "minimum"], ["exclusiveMaximum", "maximum"]] as const) {
+    if (typeof node[flag] !== "boolean") continue;
+    if (node[flag] && typeof node[bound] === "number") {
+      node[flag] = node[bound];
+      delete node[bound];
+    } else delete node[flag];
+  }
   if (node.nullable === true) {
     if (node.enum && !node.enum.includes(null)) node.enum = [...node.enum, null];
     if (typeof node.type === "string") node.type = [node.type, "null"];

@@ -452,3 +452,9 @@ test("Go without a main package to pick and a Rust workspace say what to set", a
   const rust = await detect(await project({ "Cargo.toml": '[workspace]\nmembers = ["api"]\n' }));
   expect(rust.notes[0]).toContain("Rust workspace (Cargo.toml): add `-p <crate>` to app.command");
 });
+
+test("a package.json that isn't valid JSON is named in the error", async () => {
+  const root = await project({ "package.json": '{ "name": "x", ' });
+
+  await expect(detect(root)).rejects.toThrow(/^slicetest init: package.json isn't valid JSON \(.*\); fix it, or run init from the folder of the app$/);
+});

@@ -125,11 +125,18 @@ export async function detect(root: string): Promise<Detected> {
   const appRoot = path.join(root, appDir);
   const has = (p: string) => existsSync(path.join(appRoot, p));
   const read = async (p: string) => (has(p) ? readFile(path.join(appRoot, p), "utf8") : "");
-  const pkg = has("package.json") ? (JSON.parse(await read("package.json")) as { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }) : undefined;
+  const readJson = async (name: string) => {
+    try {
+      return JSON.parse(await read(name)) as unknown;
+    } catch (e) {
+      throw new Error(`slicetest init: ${name} isn't valid JSON (${(e as Error).message}); fix it, or run init from the folder of the app`);
+    }
+  };
+  const pkg = has("package.json") ? ((await readJson("package.json")) as { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }) : undefined;
   const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
   const python = `${await read("requirements.txt")}\n${await read("pyproject.toml")}`.toLowerCase();
   const gemfile = await read("Gemfile");
-  const composer = has("composer.json") ? (JSON.parse(await read("composer.json")) as { require?: Record<string, string>; "require-dev"?: Record<string, string> }) : undefined;
+  const composer = has("composer.json") ? ((await readJson("composer.json")) as { require?: Record<string, string>; "require-dev"?: Record<string, string> }) : undefined;
   const php = { ...composer?.require, ...composer?.["require-dev"] };
   const laravel = !!php["laravel/framework"] && has("artisan");
   const symfony = !laravel && !!php["symfony/framework-bundle"] && has("bin/console");
