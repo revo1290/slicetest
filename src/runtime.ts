@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { App } from "./app.js";
 import { Issuer } from "./auth.js";
-import type { HookOptions, ResolvedOptions, ResolvedProcess } from "./config.js";
+import { seedFiles, type HookOptions, type ResolvedOptions, type ResolvedProcess } from "./config.js";
 import { Dependency } from "./containers.js";
 import { connectionVars } from "./connection.js";
 import { Db, formatChanges, noDatabase } from "./db.js";
@@ -131,7 +131,7 @@ export class Runtime {
             schemas: opts.db.schemas,
             keep: opts.db.keep,
             ignoreChanges: opts.db.ignoreChanges,
-            seedFile: opts.db.seed && path.resolve(opts.root, opts.db.seed),
+            seedFiles: seedFiles(opts.db.seed).map((f) => path.resolve(opts.root, f)),
           })
         : noDatabase();
       const started = await Promise.allSettled(Object.entries(opts.containers).map(async ([name, c]) => containers.set(name, await Dependency.start(name, c))));

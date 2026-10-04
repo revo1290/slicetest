@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { promisify } from "node:util";
 import { parse } from "yaml";
-import { resolveOptions, type ResolvedOptions, type SlicetestOptions } from "./config.js";
+import { resolveOptions, seedFiles, type ResolvedOptions, type SlicetestOptions } from "./config.js";
 import { configureContainerRuntime } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
 import { OpenApiSpec } from "./openapi.js";
@@ -129,7 +129,7 @@ export async function doctor(configPath: string | undefined, probes: Probes = ma
     }
   } else if ("sql" in m) await checkPath(add, "migrations", m.sql, root, rel);
   else for (const input of m.inputs ?? []) await checkPath(add, "migration input", input, root, rel);
-  if (opts.db.seed) await checkPath(add, "seed", opts.db.seed, root, rel);
+  for (const file of seedFiles(opts.db.seed)) await checkPath(add, "seed", file, root, rel);
 
   for (const [label, p] of [["app", opts.app], ...Object.entries(opts.services).map(([n, s]) => [`service ${n}`, s] as const)] as const) {
     if (p.cwd) await checkPath(add, `${label} cwd`, p.cwd, root, rel);

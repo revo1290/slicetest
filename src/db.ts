@@ -66,7 +66,7 @@ type Snapshot = Map<string, Row[]>;
 export class Db {
   #driver: Driver;
   #tables?: Table[];
-  #seed?: string;
+  #seeds: string[] = [];
   /** Contents right after the reset (and seed); undefined means every table was empty. */
   #start?: Snapshot;
   #checkpoint?: Snapshot | "start";
@@ -85,9 +85,9 @@ export class Db {
     );
   }
 
-  static async connect(driver: Driver, url: string, opts: { schemas: string[]; keep: string[]; ignoreChanges?: string[]; seedFile?: string }) {
+  static async connect(driver: Driver, url: string, opts: { schemas: string[]; keep: string[]; ignoreChanges?: string[]; seedFiles?: string[] }) {
     const db = new Db(driver, url, opts);
-    if (opts.seedFile) db.#seed = await readFile(opts.seedFile, "utf8");
+    db.#seeds = await Promise.all((opts.seedFiles ?? []).map((file) => readFile(file, "utf8")));
     return db;
   }
 
@@ -189,8 +189,8 @@ export class Db {
     this.#factory.reset();
     this.#start = undefined;
     this.#checkpoint = undefined;
-    if (this.#seed) {
-      await this.#driver.exec(this.#seed);
+    if (this.#seeds.length) {
+      for (const script of this.#seeds) await this.#driver.exec(script);
       this.#start = await this.#snapshot();
     }
   }

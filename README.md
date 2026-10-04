@@ -786,7 +786,7 @@ Tags select scenarios across files: `npx slicetest --tag smoke` (repeat `--tag` 
 | `app.scope` | `"file"` | `"worker"`: start the app (and stubs, services) once per Vitest worker and keep it for all of that worker's test files, for apps that start slowly. Sets Vitest's `isolate: false`. |
 | `db.engine` | `postgres`, or `mysql` for a `mysql://` URL | `postgres`, `mysql` (see [MySQL](#mysql)) or `sqlite` (see [SQLite](#sqlite)). |
 | `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs?, env? }`. A `sql` directory is applied in name order with version numbers compared as numbers (`V2__` before `V10__`), leaving out rollbacks: `*.down.sql` (golang-migrate, sqlx, Diesel), Flyway undo files (`U2__…`) and the down section of goose (`-- +goose Down`) and dbmate (`-- migrate:down`) files. The command gets `DATABASE_URL`, and both it and `env` may use the `{{db.*}}` placeholders, for tools that read other variables: `{ command: "php artisan migrate --force", env: { DB_HOST: "{{db.host}}", DB_DATABASE: "{{db.name}}" } }`, `{ command: "dotnet ef database update --connection \"{{db.adoNet}}\"" }`. |
-| `db.seed` | none | SQL file re-run after every reset. |
+| `db.seed` | none | SQL file, or a list of files run in that order, re-run after every reset. |
 | `db.schemas` | `["public"]` | Schemas whose tables are reset. |
 | `db.keep` | `[]` | Extra tables (`name` or `schema.name`) never truncated. |
 | `db.ignoreChanges` | `[]` | Columns (`updated_at`, `orders.synced_at`) and tables (`sessions.*`) left out of `db.changes()`, `trace()` and the failure output. |

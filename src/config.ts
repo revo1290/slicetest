@@ -187,7 +187,7 @@ export interface DbOptions {
   url?: string;
   migrate?: MigrateOptions;
   /** SQL file (relative to the vitest root) run after every reset. */
-  seed?: string;
+  seed?: string | string[];
   /** Schemas whose tables are reset between scenarios. Default `["public"]`. */
   schemas?: string[];
   /** Extra tables kept across resets, in addition to known migration bookkeeping tables. */
@@ -456,6 +456,10 @@ function validate(opts: SlicetestOptions) {
   if (dbOpts?.neon && (engine === "mysql" || engine === "sqlite")) fail("db.neon is Neon's protocol for Postgres; it doesn't apply to " + engine);
   if (engine === "sqlite" && dbOpts?.queries) fail("db.queries needs a database server (postgres or mysql): an SQLite app opens the file directly, so there is no connection to read");
   if (engine === "sqlite" && dbOpts?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");
+  const seed = dbOpts?.seed;
+  if (seed !== undefined && !(typeof seed === "string" ? seed : Array.isArray(seed) && seed.length > 0 && seed.every((f) => typeof f === "string" && f))) {
+    fail(`db.seed must be a SQL file or a list of them, e.g. seed.sql, got ${JSON.stringify(seed)}`);
+  }
   const migrate = dbOpts?.migrate;
   if (migrate) {
     const keys = Object.keys(migrate).filter((k) => ["atlas", "sql", "command"].includes(k));
@@ -515,4 +519,9 @@ function stubName(s: string | { name: string }) {
 
 function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** `db.seed` as a list of files, in the order they run. */
+export function seedFiles(seed: string | string[] | undefined) {
+  return seed === undefined ? [] : Array.isArray(seed) ? seed : [seed];
 }
