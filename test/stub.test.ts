@@ -1,3 +1,4 @@
+import http from "node:http";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { sse, Stub } from "../src/stub.js";
 import "../src/matchers.js";
@@ -328,4 +329,26 @@ test("a reply function that throws answers 500 and is kept for the scenario's fa
   expect(stub.handlerErrors().map((e) => [e.call.path, (e.error as Error).message])).toEqual([["/charge", "Cannot read properties of undefined (reading 'amount')"]]);
   stub.reset();
   expect(stub.handlerErrors()).toEqual([]);
+});
+
+test("a path starting with // (a base URL's trailing slash plus a leading one) is recorded as sent", async () => {
+  stub.on("GET", "/users/:id").reply(200, "ok");
+
+  const res = await new Promise<number>((resolve) => {
+    const req = http.request({ host: "127.0.0.1", port: stub.port, path: "//users/42" }, (r) => (r.resume(), resolve(r.statusCode!)));
+    req.end();
+  });
+
+  expect(res).toBe(501);
+  expect(stub.unmatched().map((c) => c.path)).toEqual(["//users/42"]);
+});
+
+test("a route path with spaces or non-ASCII characters matches the percent-encoded request", async () => {
+  stub.on("GET", "/検索/:word").reply(200, "found");
+  stub.on("POST", "/a b").reply(200, "space");
+
+  expect(await (await fetch(`${stub.url}/${encodeURIComponent("検索")}/x`)).text()).toBe("found");
+  expect(await (await fetch(`${stub.url}/a%20b`, { method: "POST" })).text()).toBe("space");
+  expect(stub.calls("GET", "/検索/:word")).toHaveLength(1);
+  expect(stub.calls("POST", "/a b")).toHaveLength(1);
 });

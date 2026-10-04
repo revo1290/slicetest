@@ -1,6 +1,7 @@
 import { createSign, generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { requestUrl } from "./request-url.js";
 
 export interface TokenOptions {
   /** Seconds until the token expires. Default 3600. */
@@ -135,7 +136,7 @@ export class Issuer {
   }
 
   async #handle(req: IncomingMessage): Promise<[number, unknown]> {
-    const path = new URL(req.url ?? "/", this.url).pathname;
+    const path = requestUrl(req.url, this.url).pathname;
     if (req.method === "GET" && path === "/.well-known/openid-configuration") {
       return [
         200,

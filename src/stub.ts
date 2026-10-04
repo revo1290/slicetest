@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { isDeepStrictEqual } from "node:util";
 import { describeGraphQL, graphqlErrors, graphqlOf, type GraphQLCall } from "./graphql.js";
 import { timeline } from "./timeline.js";
+import { requestUrl } from "./request-url.js";
 
 export interface RecordedCall {
   method: string;
@@ -416,7 +417,7 @@ export class Stub {
     const raw = Buffer.concat(chunks);
     const body = raw.toString("utf8");
     const contentType = req.headers["content-type"] ?? "";
-    const url = new URL(req.url ?? "/", this.url);
+    const url = requestUrl(req.url, this.url);
     const call: RecordedCall = {
       method: req.method ?? "GET",
       path: url.pathname,
@@ -520,7 +521,7 @@ function compilePath(path: string | RegExp) {
   const source = path
     .split("/")
     .map((seg) => {
-      if (!seg.startsWith(":")) return seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (!seg.startsWith(":")) return encodeLiteral(seg).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       paramNames.push(seg.slice(1));
       return "([^/]+)";
     })
@@ -530,7 +531,7 @@ function compilePath(path: string | RegExp) {
 
 /** Returns captured params on a match, undefined otherwise. */
 function matchPath(path: string | RegExp, pattern: RegExp | undefined, actual: string, names: string[] = []) {
-  if (typeof path === "string" && !pattern) return path === actual ? {} : undefined;
+  if (typeof path === "string" && !pattern) return path === actual || encodeLiteral(path) === actual ? {} : undefined;
   const re = pattern ?? (path as RegExp);
   re.lastIndex = 0;
   const m = re.exec(actual);
@@ -538,6 +539,11 @@ function matchPath(path: string | RegExp, pattern: RegExp | undefined, actual: s
   const params: Record<string, string> = { ...m.groups };
   names.forEach((n, i) => (params[n] = decodeSegment(m[i + 1]!)));
   return params;
+}
+
+/** A route written with a space or non-ASCII characters (`/検索`) is what the app sent percent-encoded (`/%E6%A4%9C…`). */
+function encodeLiteral(path: string) {
+  return path.replace(/[^\x21-\x7e]+/gu, encodeURIComponent);
 }
 
 /** A path segment decoded, or as sent when it isn't valid percent-encoding (`%zz`), instead of dropping the call. */

@@ -8,6 +8,7 @@ import type { Changes } from "./db.js";
 import type { ScenarioContext } from "./runtime.js";
 import { parseForm, type RecordedCall } from "./stub.js";
 import { mask } from "./trace.js";
+import { requestUrl } from "./request-url.js";
 
 /**
  * `npx slicetest record`: use the app for real (a browser, curl, a mobile
@@ -59,7 +60,7 @@ export async function runSession(ctx: ScenarioContext, session: RecordSession) {
       for (const value of Array.isArray(v) ? v : [v]) headers.append(k, value);
     }
     try {
-      const upstream = await fetch(new URL(req.url ?? "/", target), {
+      const upstream = await fetch(requestUrl(req.url, target), {
         method: req.method,
         headers,
         body: body.length && req.method !== "GET" && req.method !== "HEAD" ? body : undefined,
