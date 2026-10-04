@@ -25,13 +25,35 @@ scenario("creating a poll stores it and notifies Slack", async ({ http, db, stub
 
 No browser, no mocked database, no hooks inside your app. The app only has to read its port, database URL and outbound base URLs from environment variables. (State the app keeps in memory is the one thing that may need your help: [state between scenarios](docs/state-isolation.md).)
 
-## Why
+## Why, and when not to use it
 
-- **Unit tests** mock the database and the network, so broken SQL, migrations and request payloads slip through.
-- **End-to-end tests** drive a browser against a deployed stack. They are slow and hard to make deterministic.
-- **slicetest** keeps the real HTTP server, the real SQL and the real migrations, and replaces only the things you don't own: third-party APIs. With OpenAPI specs, it also checks that those replacements behave like the real thing.
+Testing an API against a real server, a real database and stubbed third parties is an established approach, and most stacks can do it already ([Spring Boot](https://docs.spring.io/spring-boot/reference/testing/index.html) starts a real server in tests and [integrates with Testcontainers](https://docs.spring.io/spring-boot/reference/testing/testcontainers.html); [Playwright has API testing](https://playwright.dev/docs/api-testing); [WireMock](https://wiremock.org/docs/simulating-faults/) stubs HTTP services and simulates faults). slicetest doesn't claim something only it can do. It bundles the parts you'd otherwise assemble per project, for any language the app is written in: starting the app, the database and the stubs, resetting them between scenarios, checking the three boundaries in one scenario, and explaining a failure.
 
-The database is reset between scenarios with a single `TRUNCATE ... RESTART IDENTITY CASCADE` (about 1.5 ms). The app keeps its connections, so this works with any driver or ORM. Resetting by dropping and re-creating the database takes about 130 ms, and it crashed some apps when their pooled connections were cut.
+The usual labels mix up three separate questions: is anything mocked, is a real server running, and how much does the test cover. Side by side:
+
+| Approach | Mainly checks | Strong at | Limits |
+|---|---|---|---|
+| Function / class tests | Logic, boundaries, exception branches | Control over internal dependencies | Real connections and SQL need a separate check |
+| API integration tests you already have | HTTP, the app, a real DB, calls to external services | Fit with your existing framework | Starting, resetting and diagnosing is yours to build, depending on the setup |
+| slicetest | The same API-level tests, plus environment management and diagnostics | Several checks in one scenario; the same scenarios for any language | Reaching into the app's internals, or a dependency it doesn't support, takes extra design |
+| Browser E2E | From UI actions through the main flows | What happens in the browser | Poor at controlling fine-grained internal state |
+
+What slicetest keeps real: the HTTP server, the SQL and the migrations. What it replaces: services you don't own, with stubs. With OpenAPI specs it also checks that your stubs' replies could come from the real service, within what the spec documents ([what each check does and doesn't guarantee](docs/guarantees.md)).
+
+Whether it's worth adopting depends on what you have:
+
+| Team or use | Verdict |
+|---|---|
+| No test setup for the API, the DB and external calls | A small trial fits |
+| Several languages, and you want one way to test all of them | A comparatively strong candidate |
+| Failures take long to investigate in logs and the DB | Worth measuring what the combined output saves |
+| Spring (or similar) integration tests that already run stably | Don't plan to replace them; measure what slicetest would add |
+| Many branches of internal logic to cover | Unit tests first |
+| The UI, or a real identity provider or external API | Browser E2E, or a check against the real service, alongside |
+
+Not measured yet: whether it is faster than other setups, cheaper to maintain, or stable over long use on real projects. The speeds quoted below are narrow measurements, with their conditions.
+
+The database is reset between scenarios with `TRUNCATE ... RESTART IDENTITY CASCADE` over every table, and the app keeps its connections, so this works with any driver or ORM. In the spike that chose this (`TRUNCATE polls RESTART IDENTITY`: one table, no `CASCADE`, 20 runs, median, a Postgres container on a laptop) the reset took 1.5 ms; dropping and re-creating the database took about 130 ms and crashed some apps when their pooled connections were cut. That is the reset step alone, not the time of a test run, and it wasn't measured with more tables. **Of the app's own state, only what is in the database is reset by default**: whatever the app keeps in memory or does in the background survives into the next scenario unless you say otherwise ([state between scenarios](docs/state-isolation.md)).
 
 ## Quick start
 
@@ -42,17 +64,17 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 
 `init` recognises Node (`npm start`, or Bun, pnpm or Yarn from the lockfile), Deno, Phoenix, Django, FastAPI, Flask, Rails, Laravel, Symfony, plain PHP, Spring Boot, ASP.NET Core, Go (the main package at the root or in `cmd/<name>`) and Rust apps (both compiled once before the workers start); Atlas, Prisma, Alembic, Django, Rails, Laravel, Doctrine, EF Core, Ecto, Drizzle, Knex and plain SQL migrations (golang-migrate, goose, sqlx, Diesel and dbmate layouts in `migrations/`, `db/migrations/` or `sql/migrations/`); and an `openapi.yaml`. If there's a `compose.yaml` / `docker-compose.yml`, its database service sets `db.image` (and `db.engine: mysql` for MySQL or MariaDB), and Redis, Valkey, Mongo, Elasticsearch, MinIO, RabbitMQ and other services with a port become [`containers`](#containers-redis-search-s3-and-other-dependencies), with a reset command where one is known and the usual variable (`REDIS_URL`, `S3_ENDPOINT`, …) passed to the app. A mail catcher there (Mailpit, MailHog, MailDev, smtp4dev, …) or a mail library in the dependencies turns on [`mail`](#mail-catch-what-the-app-sends). SQLite is picked up from Prisma's provider, Rails' `database.yml`, Django's settings or a SQLite driver, with `DATABASE_URL` in the form the framework reads (`file:…`, `sqlite3:…`). And third-party API URLs in `.env.example` (`STRIPE_API_BASE=https://api.stripe.com`) become stubs [recorded from that service](#recording-a-real-service), with the variable pointed at the stub, while local addresses, databases and your own URLs are left alone. Token issuer settings there (`OIDC_ISSUER`, `AUTH0_DOMAIN`, `JWKS_URL`, `JWT_AUDIENCE`, …) turn on [`auth`](#auth-a-real-openid-issuer-tokens-with-any-claims) and point at slicetest's issuer instead of becoming stubs. It lists every guess as a comment in the config so you know what to check.
 
-## What you get that's hard to find elsewhere
+## What it bundles
 
 - **One scenario, three boundaries.** Assert on the HTTP response, the rows in the real database and the calls to third-party APIs in the same test, in any language the app is written in.
 - **`db.changes()`**: a diff of every row the scenario inserted, updated or deleted. `toEqual` on it catches writes you didn't expect.
-- **Stubs that can't lie.** Give a stub the provider's OpenAPI spec, and a canned reply the real service would never send fails the test. The run also lists which of the provider's operations the app depends on, flagging deprecated ones.
+- **Stubs checked against the provider's spec.** Give a stub the provider's OpenAPI spec, and a canned reply that contradicts what the spec documents (a status or body the real service doesn't list) fails the test. The spec has to be right and complete for this to mean much. The run also lists which of the provider's operations the app depends on, flagging deprecated ones.
 - **Whole-scenario snapshots.** `expect(await trace()).toMatchSnapshot()` pins the responses, the outbound calls and the database changes in one reviewable file, with dates and UUIDs masked.
-- **Record the real service once, replay forever.** Point a stub at the real API with `SLICETEST_RECORD=1`, or import a HAR file saved from the browser, commit the YAML it writes, and later runs are offline and deterministic.
-- **OpenAPI coverage** of your own API, per operation and status, across all scenarios, and `slicetest gen --uncovered` to scaffold scenarios for what's missing.
+- **Record the real service once, replay offline.** Point a stub at the real API with `SLICETEST_RECORD=1`, or import a HAR file saved from the browser, commit the YAML it writes, and later runs are offline and deterministic. A replay is the service as it was when recorded: re-record now and then to notice changes.
+- **OpenAPI coverage** of your own API: which documented responses (operation and status) some scenario produced, across all scenarios. It isn't code or business-rule coverage. `slicetest gen --uncovered` scaffolds scenarios for what's missing.
 - **Record instead of write.** `npx slicetest record` puts a proxy in front of the app: click through a flow, press Enter, and get a replayable YAML scenario with the stubs' answers, the responses, captured ids and the database changes.
 - **Readable in CI.** On GitHub Actions, failing YAML steps are annotated in the pull request on the line that failed, and the job summary shows the OpenAPI coverage table and a sequence diagram of each failed scenario.
-- **Diagrams that can't go stale.** `--diagrams docs/flows` writes a Mermaid sequence diagram of every scenario (app, stubs, mail, database), regenerated from what really happened on each run.
+- **Diagrams regenerated from each run.** `--diagrams docs/flows` writes a Mermaid sequence diagram of every scenario (app, stubs, mail, database), regenerated from what really happened on each run.
 - **Races on purpose.** `http.concurrently(10, ...)` and `toHaveStatuses({ 201: 1, 409: 9 })` turn "what if two people click at once" into a test against the real database.
 - **Mail as a fourth boundary.** `mail: true` catches the app's SMTP traffic in-process, decoded, with the links pulled out, so a sign-up test can follow the confirmation link.
 - **Real token verification, any user.** `auth: true` gives the app an OpenID issuer with a JWKS, so JWT checks stay on in tests, and scenarios mint tokens with any claims, including expired or foreign-signed ones.
@@ -63,7 +85,7 @@ npx slicetest        # starts Postgres, migrates, starts your app, runs scenario
 - **Hard-coded APIs, stubbed anyway.** `hosts: [api.github.com]` catches calls to URLs written in the code or built into a framework, over HTTPS, from Node, Python, Go, Ruby or the JVM, with no change to the app. Redirects to those hosts are followed to the stub, so OAuth logins run end to end.
 - **N+1 detection for any stack.** A wire-protocol proxy records the SQL the app runs, so query counts are asserted at the HTTP boundary, whatever the ORM or language.
 - **Postgres, MySQL or SQLite**, with the same scenarios and the same helpers on all three, plus Redis, MinIO or any other `containers` reset between scenarios.
-- **Fast resets.** `TRUNCATE` between scenarios (about 1.5 ms) with the app still running, and a cached migrated template, so the second run skips container start-up and migrations.
+- **Cheap resets.** `TRUNCATE` between scenarios with the app still running (about 1.5 ms in the spike above), and a cached migrated template, so the second run skips container start-up and migrations. For apps that need their process restarted or their in-memory state cleared too: `restart`, `reset` and `idle` ([state between scenarios](docs/state-isolation.md)).
 
 ## Install
 
@@ -331,7 +353,7 @@ slicetest({
 
 - **Your app's responses** must be documented (path, method, status) and match the schema.
 - **The app's requests to a stub** must match the provider's spec: required query parameters, content type and request body. Spec paths are matched with or without the server's base path (`/v1`).
-- **Your stubs' replies** must be something the real service could send. A stub that returns `200 { ok: true }` where the provider documents `202 { messageId }` makes tests pass against an API that doesn't exist; slicetest fails the scenario instead.
+- **Your stubs' replies** must be something the provider's spec says the real service sends. A stub that returns `200 { ok: true }` where the provider documents `202 { messageId }` makes tests pass against an API that doesn't exist; slicetest fails the scenario instead. A provider that differs from its own spec isn't caught.
 
 ```
 slicetest: traffic doesn't match the OpenAPI spec:
@@ -339,6 +361,8 @@ slicetest: traffic doesn't match the OpenAPI spec:
   app → mail: POST /mail/send request: body must have required property 'subject'
   stub mail reply (the real service wouldn't answer this way): POST /mail/send responded 200, which specs/mail.yaml doesn't document (documented: 202)
 ```
+
+These checks compare traffic with a spec; they don't prove behavior. For each one, what it catches and what it can't (a right-shaped but wrong value, request headers, a spec that has drifted from the service, …) is in [What the checks guarantee](docs/guarantees.md).
 
 At the end of the run, each stub with a spec reports which of the provider's operations the app called across all scenarios: its footprint on that API, for planning an upgrade or a switch of provider. Operations the provider marks `deprecated` are flagged, and on GitHub Actions they become a warning annotation and the list goes to the job summary:
 
@@ -498,6 +522,8 @@ npx slicetest import session.har --stub stripe --upstream https://api.stripe.com
 ```
 
 Requests under a stub's `upstream` become entries of its recordings file, in the same format and with the same filtering as recording: only the five response headers above, no request headers, the path relative to the upstream's. Preflights, aborted requests and binary responses are skipped, and the hosts it didn't import are listed. Entries already in the file aren't added twice.
+
+A replay is the real service as it was when recorded. If the provider changes, the recording keeps passing: delete the file (or entries) and record again from time to time, and review the diff, or check the provider with a separate contract test. Values other than the well-known credential names are stored as sent.
 
 Precedence is: registered route, then recording, then `autoReply`, then a 501 that says how to record the call. Replayed calls have `call.fallback === true`, and are checked against the provider's spec when the stub has one. To refresh recordings, delete the file (or the entries) and record again.
 
@@ -698,6 +724,8 @@ scenario("voting flow", async ({ http, stub, trace }) => {
 ```
 
 Dates (`Date` values and ISO strings) become `[date]` and UUIDs `[uuid]`. Mask more with `trace({ keys: ["token"], patterns: [/^tok_/] })`, or use `mask(value, opts)` from `slicetest` on anything else. Update snapshots with `vitest -u`. In YAML, the step is `snapshot: true` (with `mask: [token]`).
+
+A snapshot records what the app does today, bugs included, and `-u` accepts whatever it shows: review a snapshot update like a change to an assertion, and don't let it be the only assertion on behavior a requirement spells out.
 
 The example apps share one snapshot file: the Node and the Python implementation must produce the same trace, byte for byte.
 
@@ -942,6 +970,8 @@ writes `scenarios/<resource>.gen.scenario.yaml` with one scenario per documented
 
 Operations that the spec protects with a bearer token (`http: bearer`, `oauth2` or `openIdConnect` security) get `auth:` on their requests, with the scopes the spec requires in the token's `scope` claim, and their 401 responses become runnable scenarios that send no token. With [`auth`](#auth-a-real-openid-issuer-tokens-with-any-claims) in the config, the generated scenarios run against the app's real token checks.
 
+The generated expectations come from the spec, so a mistake in the spec is copied into them; review the scenarios before committing them, as you would code (see [tests written by an AI agent](docs/guarantees.md#tests-written-by-an-ai-agent)).
+
 `--uncovered` reads the coverage the last run left in `node_modules/.cache/slicetest/`, which closes the loop: run, look at the ✗ in the coverage table, `gen --uncovered`, fill in the TODOs.
 
 ### Record a scenario by using the app: `npx slicetest record`
@@ -1087,6 +1117,19 @@ Found a bug, have an idea, or need help? [Open an issue](https://github.com/revo
 
 不具合報告・機能提案・質問を[Issues](https://github.com/revo1290/slicetest/issues/new/choose)で受け付けています。日本語でお気軽に投稿してください。投稿方法は[貢献ガイド](CONTRIBUTING.md)をご覧ください。
 
-## Status
+## Compatibility and releases
 
-Early. Postgres, MySQL and SQLite. CI runs on Linux and Windows.
+Version 0.x, early. What is run, and where:
+
+| | Verified in CI on every push | Used by hand, not in CI | Not verified |
+|---|---|---|---|
+| Node.js | 24 | the maintainer's machine (also 24) | 20 and 22, though `engines` says `>=20` (SQLite needs 22.5+; `hosts` for Node apps needs 22.21+ / 24.5+) |
+| Vitest | 5.0.x (the version in the lockfile) | 4.x on one project (the maintainer's report; nothing in the repo shows it) | 6 and later |
+| OS | Ubuntu (the full suite); Windows (unit tests, the fixtures that crash and fail, and the built package with the CLI) | macOS | Windows with Docker-based databases: Windows CI uses a Postgres service instead of containers |
+| Database | PostgreSQL 17 (`postgres:17-alpine`, on Ubuntu) and the Postgres service of the Windows runner (its version isn't pinned); MySQL 8.4 and SQLite (Ubuntu; SQLite also in the isolation tests on Windows) | | other PostgreSQL / MySQL versions, MariaDB, other SQLite builds |
+| Container runtime | Docker (Ubuntu) | Podman (macOS) | |
+| App stacks | Node and Python example apps (Ubuntu), small Node fixtures | Spring Boot, Next.js and others, on the maintainer's own projects (the maintainer's report; no automated test) | the rest of what `slicetest init` recognizes: detection is tested on fixture projects, not on running apps |
+
+The built package, not only the sources, is checked: `npm run test:dist` runs the Node example and the CLI (with the Node example's config) against `dist/` and type-checks them against the published types.
+
+**Releases.** Before 1.0, a minor version (`0.N.0`) may change behavior or configuration, and a patch version (`0.N.P`) only fixes bugs. [CHANGELOG.md](CHANGELOG.md) lists every change. Pin the minor (`"slicetest": "~0.9.0"`) and upgrade on purpose: read the entries between your version and the new one, run `npx slicetest doctor`, and review snapshot diffs instead of running `-u`. A change that can make a passing suite fail (a check that got stricter, a key that was removed) is called out in that version's entry as it is released.

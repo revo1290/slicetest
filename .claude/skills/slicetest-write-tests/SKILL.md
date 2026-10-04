@@ -58,6 +58,7 @@ scenarios:
 - Prefer `db.changes()` / `changes:` over querying single tables: it also fails on writes you didn't expect.
 - Cover failure paths of outbound APIs: `.once().reply(500)` then a success route for retries, `.delay(ms)` for timeouts, `.networkError()` for dropped connections.
 - The database is reset between scenarios; the app's memory isn't. If a scenario fails only after another one ran, suspect a cache or a late write, and set `app.restart: scenario`, `app.reset` or `app.idle` (`docs/state-isolation.md` in the package) rather than adding sleeps.
+- Passing contract checks and snapshots don't show the expected values are right: check them against the requirement, and review `-u` updates.
 - For background work use `vi.waitFor` / `expect.poll` (YAML: `within: <ms>`), or `service("worker").waitForLog(/.../)` (YAML: `log:`). Never add fixed sleeps.
 - Don't reset the database or clear stubs yourself; slicetest does it before every scenario. Don't use `.concurrent`.
 - Every call the app makes to a stub must match a registered route (or `autoReply`), otherwise the scenario fails with a 501.

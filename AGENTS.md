@@ -18,6 +18,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
   - `query-log.ts` — the wire-protocol proxy behind `db.queries` (Postgres simple/extended protocol, MySQL COM_QUERY / prepared statements).
   - `webhook.ts` — provider signatures behind `http.webhook()` (checked against the providers' documented vectors in `test/webhook.test.ts`).
   - `auth.ts` — the in-process OpenID Connect issuer (discovery, JWKS, RS256 tokens, client credentials) behind `auth`.
+- `docs/` — `guarantees.md` (what each check does and doesn't catch) and `state-isolation.md` (what is reset between scenarios, parallelism). Keep them in step with the code: `test/isolation.test.ts` pins the second.
 - `schema/scenario.schema.json` — JSON Schema for `*.scenario.yaml`. Published with the package.
 - `test/` — unit tests; `test/fixtures/` holds small apps used to test failure modes, contracts and services.
 - `examples/` — a Node and a Python app with the same API. The same scenarios run against both.
