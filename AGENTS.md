@@ -34,6 +34,13 @@ npm run test:dist   # build, then run the examples and the CLI against dist/
 
 Prerequisites for the full suite: Docker or Podman (or `SLICETEST_DATABASE_URL` pointing at a Postgres server), the `atlas` CLI, and a Python venv at `examples/python-api/.venv` with `psycopg[binary]` installed. CI (`.github/workflows/ci.yml`) runs on Linux and Windows.
 
+## Working rules
+
+- **Facts, not guesses.** Read the code, run the command, check the output before stating or acting on anything. If something couldn't be verified, say so; don't present an assumption as a finding.
+- **Whole investigation, whole implementation.** Before changing a behaviour, find every place it touches (callers, config keys, YAML parser and schema, README, CHANGELOG, tests, the other engines and Windows). Implement all of it in the same change; no partial implementation that leaves the rest for later.
+- **Comments: at most 3 lines, and say why not.** Don't restate what the code does or why it exists. Record what was rejected or what looks right but breaks (`// Not a template DB: it cut pooled connections`). No comment if there's nothing like that to say.
+- **TDD.** Write the failing test first and watch it fail for the right reason, then the smallest change that passes, then refactor. A bug fix starts with a test that reproduces it.
+
 ## Conventions
 
 - Every behaviour change comes with a test. Prefer a scenario against a fixture app over mocking internals.
