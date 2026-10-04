@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add Japanese/English issue forms for bugs, feature requests and questions, a contribution guide, and README links to the issue chooser.
+
 ## 0.9.0
 
 Checks that reach further into what an app answers (status classes, response-time budgets, cookie attributes, server-sent events), a CLI that fits any CI (`-u`, JUnit and other reporters, shards), SQL migrations from Go and Rust tools applied correctly, and recordings safe to commit. Plus fixes found along the way, several of which let a broken scenario pass.

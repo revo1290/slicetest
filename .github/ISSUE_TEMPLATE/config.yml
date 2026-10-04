@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation / ドキュメント
+    url: https://github.com/revo1290/slicetest#readme
+    about: Read the usage guide and examples. 使い方と実例はこちら。

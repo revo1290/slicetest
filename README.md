@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/revo1290/slicetest/actions/workflows/ci.yml/badge.svg)](https://github.com/revo1290/slicetest/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/slicetest)](https://www.npmjs.com/package/slicetest) [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+[Report a bug / 不具合報告](https://github.com/revo1290/slicetest/issues/new/choose) · [Contributing / 貢献ガイド](CONTRIBUTING.md)
+
 Tests that sit between unit tests and end-to-end tests, for apps written in any language or framework.
 
 slicetest starts your app as a real process, points it at a real Postgres (or MySQL, or SQLite) and at stub servers for the services it calls, and lets you check all three sides in one scenario:
@@ -1056,6 +1058,12 @@ npm run test:dist   # the built package, and the CLI with examples/slicetest.con
 ## Using a coding agent
 
 [`.claude/skills/slicetest-write-tests`](.claude/skills/slicetest-write-tests/SKILL.md) teaches Claude Code (or any agent that reads skills) how to write slicetest scenarios. Copy it into your project's `.claude/skills/`. Contributors: see [`AGENTS.md`](AGENTS.md).
+
+## Feedback and contributing
+
+Found a bug, have an idea, or need help? [Open an issue](https://github.com/revo1290/slicetest/issues/new/choose) using the bug report, feature request, or question form. **Japanese and English are welcome.** See [CONTRIBUTING.md](CONTRIBUTING.md) for reporting and contribution guidance.
+
+不具合報告・機能提案・質問を[Issues](https://github.com/revo1290/slicetest/issues/new/choose)で受け付けています。日本語でお気軽に投稿してください。投稿方法は[貢献ガイド](CONTRIBUTING.md)をご覧ください。
 
 ## Status
 

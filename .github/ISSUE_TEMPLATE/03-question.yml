@@ -1,0 +1,36 @@
+name: Question or docs / 質問・ドキュメント
+description: Ask about usage or report unclear documentation. 使い方の質問やドキュメントの改善。
+title: '[Question] '
+body:
+- type: markdown
+  attributes:
+    value: '日本語・英語どちらでも投稿できます。Japanese and English are welcome.
+
+
+      Please search [existing issues](https://github.com/revo1290/slicetest/issues?q=is%3Aissue) first.
+      まず既存のIssueをご確認ください。
+
+
+      Remove credentials, tokens, personal data and private URLs from examples and logs. 設定・ログから認証情報、個人情報、非公開URLを除去してください。'
+- type: textarea
+  id: question
+  attributes:
+    label: Question or documentation issue / 質問・ドキュメントの問題
+    description: Explain your goal or link to the unclear documentation. 目的や、分かりにくいドキュメントの箇所を記載してください。
+  validations:
+    required: true
+- type: textarea
+  id: attempts
+  attributes:
+    label: What you tried / 試したこと
+    description: Include configuration, commands and results if relevant. 必要に応じて設定、コマンド、結果を記載してください。
+  validations:
+    required: false
+- type: textarea
+  id: environment
+  attributes:
+    label: Environment / 実行環境
+    description: For usage questions, include slicetest/Node.js versions and your app/DB environment.
+      使い方の質問ではバージョンとアプリ・DB環境を記載してください。
+  validations:
+    required: false

@@ -1,0 +1,42 @@
+name: Feature request / 機能提案
+description: Describe a use case or improvement. 利用場面や改善案を提案します。
+title: '[Feature] '
+body:
+- type: markdown
+  attributes:
+    value: '日本語・英語どちらでも投稿できます。Japanese and English are welcome.
+
+
+      Please search [existing issues](https://github.com/revo1290/slicetest/issues?q=is%3Aissue) first.
+      まず既存のIssueをご確認ください。
+
+
+      Remove credentials, tokens, personal data and private URLs from examples and logs. 設定・ログから認証情報、個人情報、非公開URLを除去してください。'
+- type: textarea
+  id: problem
+  attributes:
+    label: Use case and problem / 利用場面と課題
+    description: What are you trying to test, and what is difficult today? 何をテストしたいか、現在何に困っているかを記載してください。
+  validations:
+    required: true
+- type: textarea
+  id: proposal
+  attributes:
+    label: Proposed behavior / 希望する動作
+    description: Describe the desired outcome. Code or an API design is optional. 実現したい動作を記載してください。コードやAPI設計は不要です。
+  validations:
+    required: true
+- type: textarea
+  id: alternatives
+  attributes:
+    label: Alternatives / 代替手段
+    description: Describe any workaround or other tools considered. 検討した回避策や他のツールがあれば記載してください。
+  validations:
+    required: false
+- type: textarea
+  id: context
+  attributes:
+    label: Additional context / 補足
+    description: Examples, constraints or related issues. 具体例、制約、関連Issueなど。
+  validations:
+    required: false

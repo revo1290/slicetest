@@ -1,0 +1,51 @@
+name: Bug report / 不具合報告
+description: Report unexpected behavior with reproduction steps. 再現手順とともに不具合を報告します。
+title: '[Bug] '
+body:
+- type: markdown
+  attributes:
+    value: '日本語・英語どちらでも投稿できます。Japanese and English are welcome.
+
+
+      Please search [existing issues](https://github.com/revo1290/slicetest/issues?q=is%3Aissue) first.
+      まず既存のIssueをご確認ください。
+
+
+      Remove credentials, tokens, personal data and private URLs from examples and logs. 設定・ログから認証情報、個人情報、非公開URLを除去してください。'
+- type: textarea
+  id: problem
+  attributes:
+    label: Problem / 発生した問題
+    description: What happened, and what did you expect? 実際の動作と期待した動作を記載してください。
+  validations:
+    required: true
+- type: input
+  id: version
+  attributes:
+    label: slicetest version / バージョン
+    description: Installed version (npm ls slicetest). インストール済みのバージョン。
+  validations:
+    required: true
+- type: textarea
+  id: environment
+  attributes:
+    label: Environment / 実行環境
+    description: Include OS, Node.js, Vitest, app language/framework, database engine/version, and Docker/Podman
+      if used. OS・Node.js・Vitest・対象アプリ・DB・コンテナ環境を記載してください。
+  validations:
+    required: true
+- type: textarea
+  id: reproduction
+  attributes:
+    label: Steps to reproduce / 再現手順
+    description: Include the command and a minimal sanitized config/scenario, or a public reproduction
+      repository. If you cannot reproduce reliably, describe the frequency and conditions. 実行コマンド、最小限の設定・シナリオ、または公開再現リポジトリを記載してください。再現が不安定な場合は頻度・条件を記載してください。
+  validations:
+    required: true
+- type: textarea
+  id: logs
+  attributes:
+    label: Logs / ログ
+    description: Paste relevant error output after removing sensitive data. 機密情報を除いたエラー出力を貼り付けてください。
+  validations:
+    required: false
