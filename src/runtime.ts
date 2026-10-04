@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { App } from "./app.js";
 import { Issuer } from "./auth.js";
-import type { ResolvedOptions } from "./config.js";
+import type { HookOptions, ResolvedOptions, ResolvedProcess } from "./config.js";
 import { Dependency } from "./containers.js";
 import { connectionVars } from "./connection.js";
 import { Db, formatChanges, noDatabase } from "./db.js";
@@ -251,6 +251,39 @@ export class Runtime {
     return [this.app, ...this.services.values()];
   }
 
+  // Marked busy until afterScenario() sees `idle` answer 2xx, so a scenario that failed, or that Vitest
+  // timed out mid-wait, leaves its processes flagged and the next scenario restarts them.
+  #busy = new Set<App>();
+  #queue: Promise<unknown> = Promise.resolve();
+
+  /** Not concurrent: a scenario Vitest timed out leaves its beforeScenario() running, and a second would race it for `this.app`. */
+  #serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#queue.then(fn);
+    this.#queue = run.catch(() => {});
+    return run;
+  }
+
+  #hooked(hook: "reset" | "idle") {
+    const all = [
+      { name: "app", proc: this.app, options: this.opts.app as ResolvedProcess },
+      ...[...this.services].map(([n, proc]) => ({ name: `services.${n}`, proc, options: this.opts.services[n]! })),
+    ];
+    return all.filter((p) => p.options[hook] && !p.proc.exited);
+  }
+
+  /** Every busy process fails the scenario, not only the first, and each is flagged for a restart. */
+  async #waitIdle(deadline?: number) {
+    const hooked = this.#hooked("idle");
+    const results = await Promise.allSettled(
+      hooked.map(async ({ name, proc, options }) => {
+        await pollIdle(proc, options.idle!, `${name}.idle`, deadline);
+        this.#busy.delete(proc);
+      }),
+    );
+    const failed = results.flatMap((r) => (r.status === "rejected" ? [(r.reason as Error).message] : []));
+    if (failed.length > 0) throw new Error(failed.join("\n"));
+  }
+
   #usageDir?: string;
 
   /** Note which provider operations the stubs were called for, before their calls are cleared. */
@@ -265,19 +298,29 @@ export class Runtime {
     }
   }
 
-  async beforeScenario() {
+  beforeScenario() {
+    return this.#serial(() => this.#before());
+  }
+
+  /** `deadline`: when the test's own timeout is about to end, so `idle` reports before Vitest does. */
+  afterScenario(deadline?: number) {
+    return this.#serial(() => this.#after(deadline));
+  }
+
+  async #before() {
     this.#collectUsage();
-    // A crash already failed the scenario that caused it; give the next one a fresh process.
-    for (const [name, service] of this.services) {
-      if (!service.exited) continue;
-      await service.stop();
-      this.services.set(name, await App.start(this.opts.services[name]!, this.opts.root, this.vars, `service.${name}`, service.port));
+    // A failed scenario skipped afterScenario(). One look, not a wait: it already failed, and a restart ends the work.
+    for (const { proc, options } of this.#hooked("idle")) {
+      if (this.#busy.has(proc) && (await probeIdle(proc, options.idle!))) this.#busy.delete(proc);
     }
-    if (this.app.exited) {
-      await this.app.stop();
-      this.app = await App.start(this.opts.app, this.opts.root, this.vars);
-      this.#http = this.#client();
-    }
+    // Stop before the reset, start after. Not start-then-reset: the old process could still write into the
+    // fresh database, and the new one would boot against stale rows.
+    const restartService = (name: string, service: App) => service.exited || this.#busy.has(service) || this.opts.services[name]!.restart === "scenario";
+    const services = [...this.services].filter(([name, service]) => restartService(name, service));
+    const restartApp = !!this.app.exited || this.#busy.has(this.app) || this.opts.app.restart === "scenario";
+    if (restartApp) await this.app.stop();
+    for (const [, service] of [...services].reverse()) await service.stop();
+    this.#busy.clear();
     this.#contract = [];
     await this.db.reset();
     for (const stub of this.stubs.values()) stub.reset();
@@ -289,13 +332,26 @@ export class Runtime {
     this.interceptor?.blocked.clear();
     await Promise.all([...this.containers.values()].map((c) => c.reset()));
     this.http.reset();
+    for (const [name, old] of services) {
+      this.services.set(name, await App.start(this.opts.services[name]!, this.opts.root, this.vars, `service.${name}`, old.port));
+    }
+    if (restartApp) {
+      this.app = await App.start(this.opts.app, this.opts.root, this.vars);
+      this.#http = this.#client();
+    }
     for (const p of this.#processes()) p.beginScenario();
+    // Not before the start: a cache filled at boot would hold the pre-reset rows.
+    for (const { name, proc, options } of this.#hooked("reset")) {
+      await callHook(proc, options.reset!, `${name}.reset`);
+    }
+    for (const { proc } of this.#hooked("idle")) this.#busy.add(proc);
   }
 
   /** Failures that the scenario body can't see on its own. */
-  async afterScenario() {
+  async #after(deadline?: number) {
     await Promise.all(this.#processes().map((p) => p.settle()));
     this.#assertAlive();
+    await this.#waitIdle(deadline);
     if (this.interceptor?.blocked.size) throw new Error(blockedHint([...this.interceptor.blocked]));
     const thrown = this.#handlerErrors();
     if (thrown.length > 0) throw new Error(`slicetest: a stub's reply threw, so the app got an error response instead of the reply:\n${thrown.join("\n")}`);
@@ -500,6 +556,68 @@ async function ensureWorkerDatabase(engine: Engine, adminUrl: string, template: 
   } finally {
     await admin.close();
   }
+}
+
+const HOOK_TIMEOUT = 5000;
+
+/** Not `new URL(path, base)` alone: `//host/x` and `/\host` would send the request to another host. */
+function hookUrl(proc: App, hook: HookOptions) {
+  const url = new URL(hook.path, proc.url);
+  if (url.origin !== new URL(proc.url).origin) throw new Error(`slicetest: hook path ${JSON.stringify(hook.path)} leaves the ${proc.label} (${url.origin}); use a path on the app`);
+  return url;
+}
+
+async function callHook(proc: App, hook: HookOptions, where: string) {
+  const method = (hook.method ?? "POST").toUpperCase();
+  const what = `${method} ${hook.path}`;
+  let res: Response;
+  try {
+    // Not following redirects: a 3xx must not move the request off the app.
+    res = await fetch(hookUrl(proc, hook), { method, redirect: "manual", signal: AbortSignal.timeout(hook.timeout ?? HOOK_TIMEOUT) });
+  } catch (e) {
+    throw new Error(`slicetest: ${where}: ${what} failed: ${(e as Error).message}. The ${proc.label}'s in-process state wasn't reset, so this scenario could see the previous one's. Check that the ${proc.label} serves ${hook.path}.`);
+  }
+  const body = (await res.text().catch(() => "")).slice(0, 300);
+  if (res.status >= 300) {
+    throw new Error(`slicetest: ${where}: ${what} answered ${res.status}${body ? `: ${body}` : ""}. The ${proc.label}'s in-process state wasn't reset, so this scenario could see the previous one's.`);
+  }
+}
+
+/** One request: is the process idle right now. */
+async function probeIdle(proc: App, hook: HookOptions) {
+  try {
+    const res = await fetch(hookUrl(proc, hook), { method: (hook.method ?? "GET").toUpperCase(), redirect: "manual", signal: AbortSignal.timeout(1000) });
+    await res.body?.cancel();
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Poll `app.idle` until it answers 2xx, for `timeout` or until `deadline` (epoch ms), whichever is first. */
+async function pollIdle(proc: App, hook: HookOptions, where: string, deadline?: number) {
+  const timeout = hook.timeout ?? HOOK_TIMEOUT;
+  const start = Date.now();
+  const limit = Math.min(start + timeout, deadline ?? Infinity);
+  const method = (hook.method ?? "GET").toUpperCase();
+  let last = "no answer";
+  for (;;) {
+    try {
+      const res = await fetch(hookUrl(proc, hook), { method, redirect: "manual", signal: AbortSignal.timeout(Math.max(100, Math.min(1000, limit - Date.now()))) });
+      const body = (await res.text().catch(() => "")).trim().slice(0, 200);
+      if (res.ok) return;
+      last = `${res.status}${body ? ` ${body}` : ""}`;
+    } catch (e) {
+      last = (e as Error).message;
+    }
+    if (Date.now() >= limit) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const cut = limit < start + timeout ? `; the test's own timeout left no more (raise it, or lower ${where}.timeout)` : "";
+  throw new Error(
+    `slicetest: ${where}: the ${proc.label} still had background work after ${Date.now() - start}ms (${method} ${hook.path} last answered: ${last})${cut}. ` +
+      `Left running, it would write into a later scenario, so the ${proc.label} is restarted before the next one. Finish the work before the scenario ends, wait for it in the scenario, or raise the timeout.`,
+  );
 }
 
 function message(res: HttpResponse) {

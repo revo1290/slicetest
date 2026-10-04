@@ -144,6 +144,30 @@ export interface AppOptions {
    * turns off Vitest's per-file module isolation (`isolate: false`).
    */
   scope?: "file" | "worker";
+  /**
+   * `"scenario"`: stop before the reset, start after. Not a cure for other processes, containers without `reset`
+   * or files. Default `"never"`: the process, and its caches and timers, outlive the scenario. Also on `services`.
+   */
+  restart?: "never" | "scenario";
+  /**
+   * Endpoint that drops in-process state, called after the reset. Not for work already in flight: it can still
+   * write before the call, so use `idle` or `restart`. A status of 400+ fails the scenario.
+   */
+  reset?: HookOptions;
+  /**
+   * 2xx once no background work is left. Not a fixed sleep: slicetest can't know when a job is done.
+   * Still busy after `timeout`: the scenario fails and the process is restarted.
+   */
+  idle?: HookOptions;
+}
+
+/** Sent by slicetest itself; not the scenario's `http` client. */
+export interface HookOptions {
+  path: string;
+  /** Default `POST` for `reset`, `GET` for `idle`. */
+  method?: string;
+  /** Milliseconds: how long `idle` is polled, or a `reset` request may take. Default 5000. */
+  timeout?: number;
 }
 
 export interface DbOptions {
@@ -310,7 +334,7 @@ function resolveDb(db: DbOptions): ResolvedOptions["db"] {
 }
 
 const TOP_LEVEL_KEYS = ["app", "db", "stubs", "openapi", "http", "services", "containers", "mail", "offline", "strictStubs", "workers", "auth", "include"] as const satisfies readonly (keyof SlicetestOptions | "include")[];
-const APP_KEYS = ["command", "build", "cwd", "env", "ready", "readyTimeout", "scope", "baseEnv"] as const;
+const APP_KEYS = ["command", "build", "cwd", "env", "ready", "readyTimeout", "scope", "restart", "reset", "idle", "baseEnv"] as const;
 const STUB_KEYS = ["name", "openapi", "autoReply", "upstream", "recordings", "hosts"] as const satisfies readonly (keyof StubOptions)[];
 const CONTAINER_KEYS = ["image", "port", "env", "command", "ready", "reset"] as const satisfies readonly (keyof ContainerOptions)[];
 const DB_KEYS = ["engine", "image", "url", "migrate", "seed", "schemas", "keep", "ignoreChanges", "reuse", "queries", "neon"] as const satisfies readonly (keyof DbOptions)[];
@@ -366,11 +390,26 @@ function validate(opts: SlicetestOptions) {
     if (build !== undefined && (typeof build !== "string" || !build.trim())) fail(`${where}.build must be a command, e.g. "npm run build"`);
   };
   checkBuild(opts.app.build, "app");
+  const checkLifecycle = (p: Partial<AppOptions>, where: string) => {
+    if (p.restart !== undefined && p.restart !== "never" && p.restart !== "scenario") fail(`${where}.restart must be "never" or "scenario", got ${JSON.stringify(p.restart)}`);
+    for (const key of ["reset", "idle"] as const) {
+      const hook = p[key];
+      if (hook === undefined) continue;
+      if (!hook || typeof hook !== "object" || Array.isArray(hook)) fail(`${where}.${key} must be { path }, e.g. { path: "/__test/${key}" }`);
+      checkKeys(hook, ["path", "method", "timeout"], `${where}.${key}.`);
+      // Not just startsWith("/"): "//host/x" and "/\\host" resolve to another host.
+      if (typeof hook.path !== "string" || !/^\/(?![/\\])[^\s\\]*$/.test(hook.path)) fail(`${where}.${key}.path must be a path on the app starting with "/" (no "//", backslash or spaces), got ${JSON.stringify(hook.path)}`);
+      if (hook.method !== undefined && !(typeof hook.method === "string" && ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].includes(hook.method.toUpperCase()))) fail(`${where}.${key}.method must be GET, POST, PUT, PATCH, DELETE or HEAD, got ${JSON.stringify(hook.method)}`);
+      if (hook.timeout !== undefined && !(Number.isInteger(hook.timeout) && hook.timeout >= 1 && hook.timeout <= 600_000)) fail(`${where}.${key}.timeout must be between 1 and 600000 milliseconds, got ${JSON.stringify(hook.timeout)}`);
+    }
+  };
+  checkLifecycle(opts.app, "app");
   for (const [name, s] of Object.entries(opts.services ?? {})) {
     if (!/^[\w-]+$/.test(name)) fail(`service name "${name}" may only contain letters, digits, "_" and "-"`);
     if (!s || typeof s.command !== "string" || !s.command.trim()) fail(`services.${name}.command is required`);
     checkReady(s.ready, `services.${name}`);
     checkBuild(s.build, `services.${name}`);
+    checkLifecycle(s, `services.${name}`);
   }
   for (const [name, c] of Object.entries(opts.containers ?? {})) {
     if (!/^[\w-]+$/.test(name)) fail(`container name "${name}" may only contain letters, digits, "_" and "-"`);

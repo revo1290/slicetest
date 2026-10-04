@@ -2,7 +2,17 @@
 
 ## Unreleased
 
+Honest scope for what slicetest checks, and a way to isolate what the database reset can't: the app's memory and background work.
+
+- `app.restart: scenario`, `app.reset: { path }` and `app.idle: { path, timeout }`, also on `services`. `restart` stops the process before the reset and starts it after, `reset` calls an endpoint of the app after the reset, `idle` polls an endpoint after each scenario until the app reports no background work (before the next scenario's reset when the scenario failed). A process that stays busy past `timeout` fails that scenario and is restarted. Defaults change nothing. `reset` and `idle` send requests to the app, so those endpoints belong in test configuration only. `idle` waits at most the time the test's own timeout leaves, reports every busy process at once and restarts each; `path` can't leave the app (`//host`, backslashes and redirects are refused), `timeout` is at most 600000 ms, and a stopped process is never signalled twice. The `docs/` pages now ship in the npm package. See [state between scenarios](docs/state-isolation.md).
+- Regression tests for state left between scenarios: a cache and a delayed write (default fails, each setting covers its part), state after a failed scenario, order independence under seeded shuffles, two files on two workers, and `.concurrent` refused.
 - Add Japanese/English issue forms for bugs, feature requests and questions, a contribution guide, and README links to the issue chooser.
+
+Changes that can alter an existing suite:
+
+- A process that crashed is restarted after the database reset, not before, so it boots against the reset database. Before, it was started first and the reset ran under it.
+
+Known limits found while documenting: the table list is read once per test file (per worker with `app.scope: worker`), so a table the app creates while the file runs is neither reset nor included in `db.changes()`; `auth.rotate()` isn't undone between scenarios.
 
 ## 0.9.0
 

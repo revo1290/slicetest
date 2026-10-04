@@ -21,6 +21,7 @@ export class App {
   /** Lines ever received, so callers can ask for output since a point in time. */
   #lineCount = 0;
   #exit?: Exit;
+  #stopped = false;
   #exited: Promise<Exit>;
   #listeners = new Set<(line: string) => void>();
   /** `mark()` at the start of the current scenario. */
@@ -186,6 +187,9 @@ export class App {
    */
   async stop() {
     running.delete(this);
+    // Not signalling again: a process group id can be reused once the first stop has reaped it.
+    if (this.#stopped) return;
+    this.#stopped = true;
     const pid = this.#child.pid;
     if (pid === undefined) return;
     if (WINDOWS) {

@@ -51,9 +51,11 @@ function define(register: typeof test | typeof test.only | typeof test.skip) {
           console.error(`--- slicetest ---\n${await runtime.diagnostics()}\n-----------------`);
           await runtime.reportDiagram(file, task.name, true);
         });
+        const started = Date.now();
         await runtime.beforeScenario();
         await body(runtime.context());
-        await runtime.afterScenario();
+        // Leaves a margin for the checks after the wait, so `idle` reports before Vitest's timeout does.
+        await runtime.afterScenario(task.timeout ? started + task.timeout - 500 : undefined);
         await runtime.reportDiagram(file, task.name, false);
       },
       timeout,

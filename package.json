@@ -54,6 +54,7 @@
   },
   "files": [
     "dist",
+    "docs",
     "preload",
     "schema"
   ],

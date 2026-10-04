@@ -58,10 +58,10 @@ Options:
   -h, --help           Show this help
 
 Config (paths are relative to the config file):
-  app:      { command, env, cwd, ready: { path } | { log }, readyTimeout }
+  app:      { command, env, cwd, ready: { path } | { log }, readyTimeout, restart, reset: { path }, idle: { path } }
   db:       { migrate: { atlas: { dir } } | { sql } | { command, inputs }, engine, seed, url, image, schemas, keep, ignoreChanges, reuse, queries }
   stubs:    [name | { name, openapi, autoReply, upstream, recordings }]
-  services: { name: { command, env, cwd, ready } }
+  services: { name: { command, env, cwd, ready, restart, reset: { path }, idle: { path } } }
   containers: { name: { image, port, env, command, ready: { log }, reset } }
   mail:     true    SMTP server at {{mail.host}} / {{mail.port}}
   auth:     true | { audience, claims }   OpenID issuer at {{auth.issuer}} / {{auth.jwks}}

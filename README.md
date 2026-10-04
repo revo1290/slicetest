@@ -23,7 +23,7 @@ scenario("creating a poll stores it and notifies Slack", async ({ http, db, stub
 });
 ```
 
-No browser, no mocked database, no hooks inside your app. The app only has to read its port, database URL and outbound base URLs from environment variables.
+No browser, no mocked database, no hooks inside your app. The app only has to read its port, database URL and outbound base URLs from environment variables. (State the app keeps in memory is the one thing that may need your help: [state between scenarios](docs/state-isolation.md).)
 
 ## Why
 
@@ -133,10 +133,29 @@ export default defineConfig({
 1. **Once per run.** slicetest starts `postgres:17-alpine` and migrates a template database. Locally, the container is kept running and the migrated template is cached by the contents of your migrations, so the next run with unchanged migrations skips both steps (see `db.reuse`).
 2. **Once per worker.** It clones the template into the worker's own database.
 3. **Once per test file.** It starts the stub servers, your `services` and your app.
-4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app or a service crashed in the previous scenario, it is restarted.
-5. **After each scenario.** The scenario fails if the app or a service crashed, the app called a stub route you didn't register, or (with `openapi`) any traffic didn't match the spec.
+4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app or a service crashed in the previous scenario, or has `restart: scenario`, it is stopped before the reset and started after it.
+5. **After each scenario.** The scenario fails if the app or a service crashed, the app called a stub route you didn't register, or (with `openapi`) any traffic didn't match the spec. With `idle`, it waits for the app's background work to finish before those checks.
 
 Database names are unique per run, so several projects or CI jobs can share one Postgres server via `db.url`.
+
+### What is reset between scenarios, and what isn't
+
+| Reset before every scenario | Kept, unless you configure otherwise |
+|---|---|
+| Database rows (and the seed is re-applied), stubs, recordings, mail, the auth issuer, cookies and request history, containers that have a `reset` command | The app and `services` processes, so **anything the app holds in memory (caches, singletons, timers) and any background work in flight**; containers without `reset`; files, other stores and processes the app uses |
+
+So "the database is reset" does not mean every scenario starts from an identical app. An app that caches a query result serves it after the table was emptied, and a write scheduled by one scenario can land in the next one. Three settings deal with that, on `app` and on each of `services`:
+
+```yaml
+app:
+  restart: scenario                 # stop the process before the reset, start it after
+  reset: { path: /__test/reset }    # or: an endpoint that makes the app drop its caches and timers
+  idle:  { path: /__test/idle }     # and/or: an endpoint that answers 2xx once no background work is left
+```
+
+`reset` and `idle` are requests slicetest sends to the app itself, so the app has to serve them: register those endpoints only in test configuration (an environment variable the test config sets), never in production, since `reset` is an unauthenticated call that wipes state. `restart` costs a process start per scenario, which counts toward the test timeout, and the first scenario of a file restarts the app started moments before.
+
+Which one covers what, the order of everything that happens around a scenario, and what stays your job (files, workers, queues) is in [State between scenarios, and running in parallel](docs/state-isolation.md).
 
 ### When a scenario fails
 
@@ -714,7 +733,7 @@ scenario.each([{ choice: "a", status: 204 }, { choice: "x", status: 400 }])(
 );
 ```
 
-Scenarios in one file share an app and a database, so they always run one at a time; `.concurrent` is rejected.
+Scenarios in one file share an app and a database, so they always run one at a time; `.concurrent` is rejected. Test files do run in parallel, one database per Vitest worker and their own stubs and app process, and requests inside one scenario can overlap (`http.concurrently`): [what is shared and what isn't](docs/state-isolation.md#running-in-parallel).
 
 Tags select scenarios across files: `npx slicetest --tag smoke` (repeat `--tag` for any of several, `--tag '!slow'` to leave some out), or `SLICETEST_TAGS=smoke,!slow npx vitest` with your own Vitest config. Scenarios a filter leaves out are reported as skipped. In YAML, `tags: [smoke, payments]` on a scenario.
 
@@ -729,6 +748,9 @@ Tags select scenarios across files: `npx slicetest --tag smoke` (repeat `--tag` 
 | `app.cwd` | vitest root | |
 | `app.ready` | `{ path: "/" }` | Poll a path until it answers below 500, or `{ log: "listening" \| /regex/ }`. |
 | `app.readyTimeout` | `30000` | |
+| `app.restart` | `"never"` | `"scenario"`: stop the process before each scenario's reset and start it after, so nothing in its memory survives. Also on `services`. See [state between scenarios](docs/state-isolation.md). |
+| `app.reset` | none | `{ path, method?, timeout? }`: an endpoint the app serves to drop its in-process state, called (`POST` by default) after the reset and before each scenario. `path` is a path on the app, `method` one of GET / POST / PUT / PATCH / DELETE / HEAD. Redirects aren't followed and a status of 300 or more fails the scenario. Also on `services`. |
+| `app.idle` | none | `{ path, method?, timeout? }`: an endpoint that answers 2xx once the app has no background work left, polled (`GET`) after each scenario for up to `timeout` (5000 ms, at most 600000) or the time the test's own timeout leaves. If it's still busy, the scenario fails and the process is restarted. Also on `services`. |
 | `app.scope` | `"file"` | `"worker"`: start the app (and stubs, services) once per Vitest worker and keep it for all of that worker's test files, for apps that start slowly. Sets Vitest's `isolate: false`. |
 | `db.engine` | `postgres`, or `mysql` for a `mysql://` URL | `postgres`, `mysql` (see [MySQL](#mysql)) or `sqlite` (see [SQLite](#sqlite)). |
 | `db.migrate` | none | `{ atlas: { dir } }`, `{ sql: "file-or-dir" }` or `{ command, inputs?, env? }`. A `sql` directory is applied in name order with version numbers compared as numbers (`V2__` before `V10__`), leaving out rollbacks: `*.down.sql` (golang-migrate, sqlx, Diesel), Flyway undo files (`U2__…`) and the down section of goose (`-- +goose Down`) and dbmate (`-- migrate:down`) files. The command gets `DATABASE_URL`, and both it and `env` may use the `{{db.*}}` placeholders, for tools that read other variables: `{ command: "php artisan migrate --force", env: { DB_HOST: "{{db.host}}", DB_DATABASE: "{{db.name}}" } }`, `{ command: "dotnet ef database update --connection \"{{db.adoNet}}\"" }`. |

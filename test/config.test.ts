@@ -105,3 +105,22 @@ test("db.ignoreChanges is a list of columns or tables", () => {
   expect(resolveOptions({ ...valid, db: { ignoreChanges: ["updated_at", "sessions.*"] } }, "/").db.ignoreChanges).toEqual(["updated_at", "sessions.*"]);
   expect(() => resolveOptions({ ...valid, db: { ignoreChanges: "updated_at" as never } }, "/")).toThrow("db.ignoreChanges must be a list of columns or tables");
 });
+
+test("app.restart, app.reset and app.idle are validated, for the app and for services", () => {
+  const ok = resolveOptions({ app: { command: "x", restart: "scenario", reset: { path: "/__test/reset" }, idle: { path: "/__test/idle", timeout: 2000 } }, services: { worker: { command: "y", restart: "scenario" } } }, "/");
+  expect(ok.app).toMatchObject({ restart: "scenario", reset: { path: "/__test/reset" }, idle: { path: "/__test/idle", timeout: 2000 } });
+  expect(ok.services.worker).toMatchObject({ restart: "scenario" });
+  expect(() => resolveOptions({ app: { command: "x", restart: "always" as never } }, "/")).toThrow('app.restart must be "never" or "scenario", got "always"');
+  expect(() => resolveOptions({ app: { command: "x", reset: "/reset" as never } }, "/")).toThrow("app.reset must be { path }");
+  expect(() => resolveOptions({ app: { command: "x", idle: { path: "idle" } } }, "/")).toThrow('app.idle.path must be a path on the app starting with "/"');
+  expect(() => resolveOptions({ app: { command: "x", idle: { path: "/idle", timeout: 0 } } }, "/")).toThrow("app.idle.timeout must be between 1 and 600000 milliseconds, got 0");
+  expect(() => resolveOptions({ app: { command: "x", reset: { path: "/r", verb: "POST" } as never } }, "/")).toThrow('unknown key app.reset.verb');
+  expect(() => resolveOptions({ app: { command: "x" }, services: { w: { command: "y", idle: { path: "x" } } } }, "/")).toThrow('services.w.idle.path must be a path on the app starting with "/"');
+  // These resolve to another host with new URL(path, base).
+  for (const path of ["//evil.example/x", "/\\evil.example", "/ /evil", "/\t/evil.example"]) {
+    expect(() => resolveOptions({ app: { command: "x", reset: { path } } }, "/"), path).toThrow("must be a path on the app");
+  }
+  expect(() => resolveOptions({ app: { command: "x", idle: { path: "/idle", timeout: 1e12 } } }, "/")).toThrow("between 1 and 600000");
+  expect(() => resolveOptions({ app: { command: "x", reset: { path: "/r", method: "TRACE" } } }, "/")).toThrow("method must be GET, POST, PUT, PATCH, DELETE or HEAD");
+  expect(resolveOptions({ app: { command: "x", reset: { path: "/r/a?b=c", method: "put" } } }, "/").app.reset).toEqual({ path: "/r/a?b=c", method: "put" });
+});
