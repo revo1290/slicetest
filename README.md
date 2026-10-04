@@ -352,7 +352,7 @@ slicetest({
 ```
 
 - **Your app's responses** must be documented (path, method, status) and match the schema.
-- **The app's requests to a stub** must match the provider's spec: required query parameters, content type and request body. Spec paths are matched with or without the server's base path (`/v1`).
+- **The app's requests to a stub** must match the provider's spec: required query parameters and header parameters, query values against their schema (`?limit=abc` for an integer, a value outside an `enum`), content type and request body. Spec paths are matched with or without the server's base path (`/v1`).
 - **Your stubs' replies** must be something the provider's spec says the real service sends. A stub that returns `200 { ok: true }` where the provider documents `202 { messageId }` makes tests pass against an API that doesn't exist; slicetest fails the scenario instead. A provider that differs from its own spec isn't caught.
 
 ```

@@ -159,3 +159,39 @@ test("server URLs with variables use their defaults and enum values as base path
   expect(s.operationOf("GET", "/api/users")?.key).toBe("GET /users");
   expect(s.operationOf("GET", "/v3/users")).toBeUndefined();
 });
+
+test("requests: query values are held to their parameter schema, required headers must be sent", async () => {
+  const s = await spec({
+    openapi: "3.0.3",
+    paths: {
+      "/items": {
+        parameters: [{ name: "x-tenant", in: "header", required: true, schema: { type: "string" } }],
+        get: {
+          parameters: [
+            { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+            { name: "sort", in: "query", schema: { type: "string", enum: ["asc", "desc"] } },
+            { name: "active", in: "query", schema: { type: "boolean" } },
+            { name: "ids", in: "query", schema: { type: "array", items: { type: "integer" } } },
+            { $ref: "#/components/parameters/Cursor" },
+            { name: "Authorization", in: "header", required: true, schema: { type: "string" } },
+          ],
+          responses: { "200": { description: "" } },
+        },
+      },
+    },
+    components: { parameters: { Cursor: { name: "cursor", in: "query", schema: { type: "string", pattern: "^c_" } } } },
+  });
+  const req = (query: string, headers: Record<string, string> = { "x-tenant": "t1" }) => ({ body: "", query: new URLSearchParams(query), headers });
+
+  expect(s.checkRequest("GET", "/items", req("limit=10&sort=asc&active=true&ids=1&ids=2&cursor=c_1"))).toEqual([]);
+  expect(s.checkRequest("GET", "/items", req(""))).toEqual([]);
+  expect(s.checkRequest("GET", "/items", req("limit=abc"))).toEqual(['GET /items: query parameter "limit" must be integer (got "abc")']);
+  expect(s.checkRequest("GET", "/items", req("limit=0"))).toEqual(['GET /items: query parameter "limit" must be >= 1 (got "0")']);
+  expect(s.checkRequest("GET", "/items", req("sort=up"))).toEqual(['GET /items: query parameter "sort" must be equal to one of the allowed values (got "up")']);
+  expect(s.checkRequest("GET", "/items", req("active=yes"))).toEqual(['GET /items: query parameter "active" must be boolean (got "yes")']);
+  expect(s.checkRequest("GET", "/items", req("ids=1&ids=x"))).toEqual(['GET /items: query parameter "ids" item 2 must be integer (got "x")']);
+  expect(s.checkRequest("GET", "/items", req("cursor=zz"))).toEqual(['GET /items: query parameter "cursor" must match pattern "^c_" (got "zz")']);
+  expect(s.checkRequest("GET", "/items", req("", {}))).toEqual(['GET /items: required header "x-tenant" is missing']);
+  // Authorization is listed as required but is the transport's business, so its absence isn't reported.
+  expect(s.checkRequest("GET", "/items", req("", { "x-tenant": "t" }))).toEqual([]);
+});

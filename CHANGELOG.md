@@ -15,6 +15,8 @@ Honest scope for what slicetest checks, and a way to isolate what the database r
 
 - A malformed `expect.status` (`20x`, `[200, 6xx]`) is rejected when the file is read, by the run and by `slicetest list`, naming the line, instead of failing only when that step is reached.
 
+- Contract checks of what the app sends to a stubbed service now also hold query values to their parameter schema (`?limit=abc` for an integer, a value outside an `enum`, a `pattern`, a number out of range, each item of a list) and fail a request that lacks a required header parameter. `Authorization`, `Accept` and `Content-Type` are never reported as missing. A request that was valid before can fail now if it sends such a value.
+
 Changes that can alter an existing suite:
 
 - A process that crashed is restarted after the database reset, not before, so it boots against the reset database. Before, it was started first and the reset ran under it.

@@ -40,6 +40,8 @@ export interface Message {
   /** Parsed JSON when the body is JSON, else the raw text. */
   body: unknown;
   query?: URLSearchParams;
+  /** Header names in lower case, as Node delivers them; undefined skips the check for required header parameters. */
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 /**
@@ -282,9 +284,21 @@ export class OpenApiSpec {
     if (!found) return [`${method} ${path} is not in ${this.file}`];
     const { template, op } = found;
     const errors: string[] = [];
-    const params = [...(this.doc.paths[template].parameters ?? []), ...(op.parameters ?? [])].map((p) => this.#deref(p));
-    for (const p of params) {
-      if (p?.in === "query" && p.required && !req.query?.has(p.name)) errors.push(`${method} ${template}: required query parameter "${p.name}" is missing`);
+    const listed: [any, string[]][] = [
+      ...(this.doc.paths[template].parameters ?? []).map((p: any, i: number) => this.#resolve(p, ["paths", template, "parameters", String(i)])),
+      ...(op.parameters ?? []).map((p: any, i: number) => this.#resolve(p, ["paths", template, found.method, "parameters", String(i)])),
+    ];
+    for (const [p, at] of listed) {
+      if (p?.in === "query") {
+        if (p.required && !req.query?.has(p.name)) errors.push(`${method} ${template}: required query parameter "${p.name}" is missing`);
+        const values = req.query?.getAll(p.name) ?? [];
+        if (values.length && p.schema) errors.push(...this.#checkQuery(`${method} ${template}`, p.name, values, p.schema, [...at, "schema"]));
+      }
+      // Authorization, Accept and Content-Type are the transport's business, whatever the spec lists.
+      const skipped = ["authorization", "accept", "content-type"];
+      if (p?.in === "header" && p.required && req.headers && !skipped.includes(p.name.toLowerCase()) && req.headers[p.name.toLowerCase()] === undefined) {
+        errors.push(`${method} ${template}: required header "${p.name}" is missing`);
+      }
     }
     const [body, at] = this.#resolve(op.requestBody, ["paths", template, found.method, "requestBody"]);
     if (!body) return errors;
@@ -293,6 +307,23 @@ export class OpenApiSpec {
       return errors;
     }
     return [...errors, ...this.#checkContent(body.content, req, [...at, "content"], `${method} ${template} request`)];
+  }
+
+  /** A query parameter's values as strings, held to its schema after reading them as the type it declares. */
+  #checkQuery(label: string, name: string, values: string[], schema: any, pointer: string[]): string[] {
+    const [node, at] = this.#resolve(schema, pointer);
+    const one = (raw: string, node: any, at: string[], where: string) => {
+      if (!["string", "integer", "number", "boolean"].includes(node?.type) && !node?.enum) return [];
+      const validate = this.#validator(at);
+      const value = (node.type === "integer" || node.type === "number") && raw.trim() !== "" && Number.isFinite(Number(raw)) ? Number(raw) : node.type === "boolean" && (raw === "true" || raw === "false") ? raw === "true" : raw;
+      if (validate(value)) return [];
+      return [`${label}: query parameter "${name}"${where} ${validate.errors![0]!.message} (got ${JSON.stringify(raw)})`];
+    };
+    if (node?.type !== "array") return one(values[0]!, node, at, "");
+    const [items, itemsAt] = this.#resolve(node.items, [...at, "items"]);
+    // `?ids=1,2` is the same list as `?ids=1&ids=2` for the default (form, not exploded) style.
+    const list = node.style === "form" || values.length > 1 ? values : values.flatMap((v) => v.split(","));
+    return list.flatMap((raw, i) => one(raw, items, itemsAt, ` item ${i + 1}`));
   }
 
   #checkContent(content: Record<string, any> | undefined, msg: Message, pointer: string[], label: string): string[] {

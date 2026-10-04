@@ -393,7 +393,7 @@ export class Runtime {
 
   #checkStubCall(name: string, spec: OpenApiSpec, call: RecordedCall) {
     if (!call.matched) return []; // already reported as an unmatched call
-    const req = { contentType: header(call.headers["content-type"]), body: call.json ?? call.body, query: call.query };
+    const req = { contentType: header(call.headers["content-type"]), body: call.json ?? call.body, query: call.query, headers: call.headers };
     const out = spec.checkRequest(call.method, call.path, req).map((c) => `app → ${name}: ${c}`);
     const res = call.response;
     if (res) {
