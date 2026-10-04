@@ -142,3 +142,19 @@ test("selects skip disabled options and keep one selection, as browsers do: a di
   expect(String(formRequest(html).body)).toBe("plan=free&tier=new&one=b&many=a&many=c");
   expect(String(formRequest(html, { fields: { size: "S" } }).body)).toBe("plan=free&size=S&tier=new&one=b&many=a&many=c");
 });
+
+test("a browser fills in _charset_ and the dirname fields of text controls", () => {
+  const html = `<form method="post"><input type="hidden" name="_charset_" value="x"><input name="q" dirname="q.dir" value="a">
+    <textarea name="body" dirname="body.dir">hi</textarea><input type="checkbox" name="c" dirname="c.dir" checked><input type="hidden" name="h" dirname="h.dir" value="1"></form>`;
+
+  expect(entries(formRequest(html).body)).toEqual([
+    ["_charset_", "UTF-8"],
+    ["q", "a"],
+    ["q.dir", "ltr"],
+    ["body", "hi"],
+    ["body.dir", "ltr"],
+    ["c", "on"],
+    ["h", "1"],
+  ]);
+  expect(entries(formRequest(html, { fields: { q: "b" } }).body)).toContainEqual(["q.dir", "ltr"]);
+});

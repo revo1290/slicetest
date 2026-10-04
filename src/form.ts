@@ -269,7 +269,9 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
       const first = c.options.find((o) => !o.disabled);
       const chosen = selected.length ? selected : "multiple" in c.attrs || !first ? [] : [first];
       for (const o of chosen) if (!o.disabled) entries.push([name, o.value]);
-    } else entries.push([name, c.attrs.value ?? ""]);
+    } else entries.push([name, type === "hidden" && name === "_charset_" ? "UTF-8" : (c.attrs.value ?? "")]);
+    // Text controls with a `dirname` also send their direction; left-to-right is what a test page has.
+    if (c.attrs.dirname && (c.tag === "textarea" || ["text", "search", "tel", "url", "email"].includes(type))) entries.push([c.attrs.dirname, "ltr"]);
   }
 
   const pick = (attr: string) => (button && button.attrs[`form${attr}`] !== undefined ? button.attrs[`form${attr}`] : form.attrs[attr]);
