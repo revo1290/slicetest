@@ -516,11 +516,16 @@ function splitQuery(path: string | RegExp, match: MatchOptions) {
 }
 
 function compilePath(path: string | RegExp) {
-  if (typeof path !== "string" || !path.includes("/:")) return { pattern: undefined, paramNames: [] };
+  if (typeof path !== "string" || !/\/[:*]/.test(path)) return { pattern: undefined, paramNames: [] };
   const paramNames: string[] = [];
   const source = path
     .split("/")
     .map((seg) => {
+      // Like Express's `*`: the rest of the path, slashes included.
+      if (seg === "*") {
+        paramNames.push("*");
+        return "(.+)";
+      }
       if (!seg.startsWith(":")) return encodeLiteral(seg).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       paramNames.push(seg.slice(1));
       return "([^/]+)";

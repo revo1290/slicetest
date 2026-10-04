@@ -352,3 +352,14 @@ test("a route path with spaces or non-ASCII characters matches the percent-encod
   expect(stub.calls("GET", "/検索/:word")).toHaveLength(1);
   expect(stub.calls("POST", "/a b")).toHaveLength(1);
 });
+
+test("a * segment matches the rest of the path, slashes included, and is captured as params['*']", async () => {
+  stub.on("PUT", "/bucket/*").reply(200, "stored");
+  stub.on("GET", "/v1/*/items").reply((call) => ({ status: 200, body: { scope: call.params["*"] } }));
+
+  expect(await (await fetch(`${stub.url}/bucket/photos/2026/a%20b.png`, { method: "PUT" })).text()).toBe("stored");
+  expect((await (await fetch(`${stub.url}/v1/org/7/items`)).json()).scope).toBe("org/7");
+  expect(stub.calls("PUT", "/bucket/*")[0]!.params["*"]).toBe("photos/2026/a b.png");
+  expect((await fetch(`${stub.url}/bucket/`, { method: "PUT" })).status).toBe(501);
+  expect(stub.calls("PUT", "/bucket/*")).toHaveLength(1);
+});
