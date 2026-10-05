@@ -186,7 +186,7 @@ export interface DbOptions {
    */
   url?: string;
   migrate?: MigrateOptions;
-  /** SQL file (relative to the vitest root) run after every reset. */
+  /** Files (relative to the vitest root) applied after every reset: SQL, or YAML / JSON rows per table (`plans: [{ id: 1 }]`). */
   seed?: string | string[];
   /** Schemas whose tables are reset between scenarios. Default `["public"]`. */
   schemas?: string[];
@@ -482,7 +482,7 @@ function validate(opts: SlicetestOptions) {
   if (engine === "sqlite" && dbOpts?.url) fail("db.url doesn't apply to sqlite: slicetest creates the database files itself and passes them to the app as {{db.url}} / {{db.path}}");
   const seed = dbOpts?.seed;
   if (seed !== undefined && !(typeof seed === "string" ? seed : Array.isArray(seed) && seed.length > 0 && seed.every((f) => typeof f === "string" && f))) {
-    fail(`db.seed must be a SQL file or a list of them, e.g. seed.sql, got ${JSON.stringify(seed)}`);
+    fail(`db.seed must be a file (SQL, YAML or JSON) or a list of them, e.g. seed.sql, got ${JSON.stringify(seed)}`);
   }
   const migrate = dbOpts?.migrate;
   if (migrate) {

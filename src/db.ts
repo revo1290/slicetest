@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import type { Driver, Row, Table } from "./drivers/driver.js";
 import { Factory } from "./factory.js";
 import type { QueryList, QueryLog } from "./query-log.js";
@@ -66,7 +68,8 @@ type Snapshot = Map<string, Row[]>;
 export class Db {
   #driver: Driver;
   #tables?: Table[];
-  #seeds: string[] = [];
+  /** SQL scripts, or rows per table from a YAML / JSON file. */
+  #seeds: (string | [table: string, rows: Row[]][])[] = [];
   /** Contents right after the reset (and seed); undefined means every table was empty. */
   #start?: Snapshot;
   #checkpoint?: Snapshot | "start";
@@ -87,7 +90,10 @@ export class Db {
 
   static async connect(driver: Driver, url: string, opts: { schemas: string[]; keep: string[]; ignoreChanges?: string[]; seedFiles?: string[] }) {
     const db = new Db(driver, url, opts);
-    db.#seeds = await Promise.all((opts.seedFiles ?? []).map((file) => readFile(file, "utf8")));
+    db.#seeds = await Promise.all((opts.seedFiles ?? []).map(async (file) => {
+      const text = await readFile(file, "utf8");
+      return /\.(ya?ml|json)$/i.test(file) ? seedRows(file, text) : text;
+    }));
     return db;
   }
 
@@ -190,7 +196,13 @@ export class Db {
     this.#start = undefined;
     this.#checkpoint = undefined;
     if (this.#seeds.length) {
-      for (const script of this.#seeds) await this.#driver.exec(script);
+      for (const seed of this.#seeds) {
+        if (typeof seed === "string") await this.#driver.exec(seed);
+        else {
+          for (const [table, rows] of seed) for (const row of rows) await this.#driver.insert(table, row);
+          for (const [table] of seed) await this.#driver.syncSequences?.(table);
+        }
+      }
       this.#start = await this.#snapshot();
     }
   }
@@ -258,6 +270,23 @@ export class Db {
   async close() {
     await this.#driver.close();
   }
+}
+
+/** A data seed file: `table: [rows]`, in file order; each row a mapping of columns. */
+function seedRows(file: string, text: string): [string, Row[]][] {
+  let doc: unknown;
+  try {
+    doc = path.extname(file).toLowerCase() === ".json" ? JSON.parse(text) : parseYaml(text);
+  } catch (e) {
+    throw new Error(`slicetest: seed ${file}: ${(e as Error).message}`);
+  }
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) throw new Error(`slicetest: seed ${file} must map tables to rows, e.g. plans: [{ id: 1, name: free }]`);
+  return Object.entries(doc).map(([table, rows]) => {
+    if (!Array.isArray(rows) || !rows.every((r) => r && typeof r === "object" && !Array.isArray(r))) {
+      throw new Error(`slicetest: seed ${file}: "${table}" must be a list of rows, e.g. ${table}: [{ id: 1, name: free }]`);
+    }
+    return [table, rows as Row[]];
+  });
 }
 
 /**

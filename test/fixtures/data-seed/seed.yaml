@@ -1,0 +1,5 @@
+plans:
+  - { id: 1, name: free }
+  - { id: 2, name: pro, active: false }
+users:
+  - { id: 10, plan_id: 2, email: a@example.com }

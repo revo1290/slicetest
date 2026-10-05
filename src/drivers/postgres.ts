@@ -104,6 +104,18 @@ export class PostgresDriver implements Driver {
     return this.query(sql, Object.values(row));
   }
 
+  async syncSequences(table: string) {
+    const name = this.ident(table);
+    const owned = await this.query<{ col: string; seq: string }>(
+      `SELECT a.attname AS col, pg_get_serial_sequence($1, a.attname) AS seq
+         FROM pg_attribute a
+        WHERE a.attrelid = to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`,
+      [name],
+    );
+    // An empty table restarts at 1; otherwise the next value follows the largest id.
+    for (const { col, seq } of owned) await this.query(`SELECT setval($1, COALESCE(MAX(${this.column(col)}), 1), MAX(${this.column(col)}) IS NOT NULL) FROM ${name}`, [seq]);
+  }
+
   async describe(table: string): Promise<TableShape> {
     const [{ oid } = { oid: null }] = await this.query<{ oid: number | null }>("SELECT to_regclass($1)::oid AS oid", [this.ident(table)]);
     if (oid === null) throw new Error(`slicetest: there is no table "${table}"`);

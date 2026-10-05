@@ -28,7 +28,30 @@ test("db.seed is a file or a list of files", () => {
 
   expect(options("seed.sql").db.seed).toBe("seed.sql");
   expect(options(["a.sql", "b.sql"]).db.seed).toEqual(["a.sql", "b.sql"]);
-  expect(() => options(["a.sql", 1])).toThrow("db.seed must be a SQL file or a list of them");
-  expect(() => options([])).toThrow("db.seed must be a SQL file or a list of them");
-  expect(() => options(3)).toThrow("db.seed must be a SQL file or a list of them, e.g. seed.sql, got 3");
+  expect(() => options(["a.sql", 1])).toThrow("db.seed must be a file (SQL, YAML or JSON) or a list of them");
+  expect(() => options([])).toThrow("db.seed must be a file (SQL, YAML or JSON) or a list of them");
+  expect(() => options(3)).toThrow("db.seed must be a file (SQL, YAML or JSON) or a list of them, e.g. seed.sql, got 3");
+});
+
+test("a YAML or JSON seed file lists rows per table, inserted in order with the engine's own quoting", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "slicetest-seed-"));
+  const url = sqliteUrl(path.join(dir, "a.db"));
+  const driver = await SqliteDriver.connect(url);
+  await driver.exec("CREATE TABLE plans (id INTEGER PRIMARY KEY, name TEXT, active INTEGER); CREATE TABLE users (id INTEGER PRIMARY KEY, plan_id INTEGER REFERENCES plans(id), note TEXT)");
+  await writeFile(path.join(dir, "plans.yaml"), "plans:\n  - { id: 1, name: free, active: 1 }\n  - { id: 2, name: \"it's pro\", active: 0 }\nusers:\n  - { id: 7, plan_id: 2, note: null }\n");
+  await writeFile(path.join(dir, "more.json"), JSON.stringify({ users: [{ id: 8, plan_id: 1 }] }));
+
+  const db = await Db.connect(driver, url, { schemas: ["main"], keep: [], seedFiles: [path.join(dir, "plans.yaml"), path.join(dir, "more.json")] });
+  await db.reset();
+  await db.insert("users", { id: 9, plan_id: 1 });
+  await db.reset();
+
+  expect(await db.rows("plans")).toEqual([{ id: 1, name: "free", active: 1 }, { id: 2, name: "it's pro", active: 0 }]);
+  expect(await db.rows("users")).toEqual([{ id: 7, plan_id: 2, note: null }, { id: 8, plan_id: 1, note: null }]);
+  expect(await db.changes()).toEqual({});
+
+  await writeFile(path.join(dir, "bad.yaml"), "plans: { id: 1 }\n");
+  await expect(Db.connect(driver, url, { schemas: ["main"], keep: [], seedFiles: [path.join(dir, "bad.yaml")] })).rejects.toThrow(
+    `seed ${path.join(dir, "bad.yaml")}: "plans" must be a list of rows, e.g. plans: [{ id: 1, name: free }]`,
+  );
 });

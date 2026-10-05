@@ -1,0 +1,18 @@
+scenarios:
+  - name: rows from a data seed are there, and the app's next ids come after them
+    steps:
+      - db: plans
+        orderBy: id
+        expect: { rows: [{ id: 1, name: free, active: true }, { id: 2, name: pro, active: false }] }
+      - request: POST /plans?name=team
+        expect: { status: 201, json: { id: 3 } }
+      - request: POST /users?email=b@example.com
+        expect: { status: 201, json: { id: 11 } }
+      - changes:
+          plans: { inserted: 1 }
+          users: { inserted: 1 }
+
+  - name: the next scenario starts from the seed again
+    steps:
+      - request: POST /plans?name=team
+        expect: { status: 201, json: { id: 3 } }

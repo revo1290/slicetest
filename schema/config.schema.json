@@ -278,7 +278,7 @@
                   }
                 }
               ],
-              "description": "SQL file(s) run after every reset"
+              "description": "Files re-applied after every reset: SQL, or YAML / JSON rows per table"
             },
             "schemas": {
               "type": "array",
