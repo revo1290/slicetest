@@ -104,16 +104,26 @@ export class PostgresDriver implements Driver {
     return this.query(sql, Object.values(row));
   }
 
-  async syncSequences(table: string) {
+  /** Columns backed by a sequence, per table: looked up once, since most inserts don't give their ids. */
+  #sequenced = new Map<string, { col: string; seq: string }[]>();
+
+  async syncSequences(table: string, columns?: string[]) {
     const name = this.ident(table);
-    const owned = await this.query<{ col: string; seq: string }>(
-      `SELECT a.attname AS col, pg_get_serial_sequence($1, a.attname) AS seq
-         FROM pg_attribute a
-        WHERE a.attrelid = to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`,
-      [name],
-    );
+    let owned = this.#sequenced.get(name);
+    if (!owned) {
+      owned = await this.query<{ col: string; seq: string }>(
+        `SELECT a.attname AS col, pg_get_serial_sequence($1, a.attname) AS seq
+           FROM pg_attribute a
+          WHERE a.attrelid = to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`,
+        [name],
+      );
+      this.#sequenced.set(name, owned);
+    }
     // An empty table restarts at 1; otherwise the next value follows the largest id.
-    for (const { col, seq } of owned) await this.query(`SELECT setval($1, COALESCE(MAX(${this.column(col)}), 1), MAX(${this.column(col)}) IS NOT NULL) FROM ${name}`, [seq]);
+    for (const { col, seq } of owned) {
+      if (columns && !columns.includes(col)) continue;
+      await this.query(`SELECT setval($1, COALESCE(MAX(${this.column(col)}), 1), MAX(${this.column(col)}) IS NOT NULL) FROM ${name}`, [seq]);
+    }
   }
 
   async describe(table: string): Promise<TableShape> {

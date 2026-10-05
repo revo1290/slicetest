@@ -65,10 +65,11 @@ export interface Driver {
   /** Insert one row and return it as stored (defaults and generated ids filled in). */
   insert(table: string, row: Row): Promise<Row[]>;
   /**
-   * Move `table`'s id sequences past the ids it holds, after rows were inserted with explicit ids.
-   * Only Postgres needs it: MySQL's AUTO_INCREMENT and SQLite's rowid follow the largest id themselves.
+   * Move `table`'s id sequences past the ids it holds, after rows were inserted with explicit ids
+   * (only those of `columns`, when given). Only Postgres needs it: MySQL's AUTO_INCREMENT and
+   * SQLite's rowid follow the largest id themselves.
    */
-  syncSequences?(table: string): Promise<void>;
+  syncSequences?(table: string, columns?: string[]): Promise<void>;
   /** Columns, foreign keys and checks of `table`. Throws when there is no such table. */
   describe(table: string): Promise<TableShape>;
   close(): Promise<void>;

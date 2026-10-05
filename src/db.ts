@@ -84,7 +84,7 @@ export class Db {
     this.#driver = driver;
     this.#factory = new Factory(
       (table) => driver.describe(table),
-      (table, row) => driver.insert(table, row),
+      (table, row) => this.#insertRow(table, row),
     );
   }
 
@@ -137,8 +137,15 @@ export class Db {
   async insert<T extends Row = Row>(table: string, rows: Row | Row[]): Promise<T[]> {
     const list = Array.isArray(rows) ? rows : [rows];
     const out: T[] = [];
-    for (const row of list) out.push(...((await this.#driver.insert(table, row)) as T[]));
+    for (const row of list) out.push(...((await this.#insertRow(table, row)) as T[]));
     return out;
+  }
+
+  /** An explicit id would otherwise be handed out again by the sequence: the app's next insert would collide. */
+  async #insertRow(table: string, row: Row) {
+    const stored = await this.#driver.insert(table, row);
+    await this.#driver.syncSequences?.(table, Object.keys(row));
+    return stored;
   }
 
   /**
@@ -199,8 +206,7 @@ export class Db {
       for (const seed of this.#seeds) {
         if (typeof seed === "string") await this.#driver.exec(seed);
         else {
-          for (const [table, rows] of seed) for (const row of rows) await this.#driver.insert(table, row);
-          for (const [table] of seed) await this.#driver.syncSequences?.(table);
+          for (const [table, rows] of seed) for (const row of rows) await this.#insertRow(table, row);
         }
       }
       this.#start = await this.#snapshot();

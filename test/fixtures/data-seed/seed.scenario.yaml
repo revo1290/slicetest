@@ -16,3 +16,12 @@ scenarios:
     steps:
       - request: POST /plans?name=team
         expect: { status: 201, json: { id: 3 } }
+
+  - name: rows a scenario inserts with explicit ids don't collide with the app's next insert
+    steps:
+      - insert: plans
+        rows: [{ id: 3, name: team }, { id: 4, name: biz }]
+      - make: plans
+        rows: { id: 5 }
+      - request: POST /plans?name=enterprise
+        expect: { status: 201, json: { id: 6 } }
