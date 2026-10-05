@@ -21,6 +21,8 @@ Fixes:
 - `submit` sent line breaks in a urlencoded form as a bare `\n`; browsers send `\r\n` (multipart bodies were already converted by fetch). An app that compares what was typed into a textarea saw a different value than from a browser.
 - OpenAPI contract checks failed every response of an operation whose spec writes the media type with parameters (`"application/json; charset=utf-8":`), with `content-type "application/json" is not one of application/json; charset=utf-8`, and didn't validate the body as JSON either. The type alone is compared now (and `exampleResponse` / `autoReply` keep the spec's key as the content type).
 - A required query parameter sent the way its `style` says was reported missing: `deepObject` (`created[gte]=1700000000`, as Stripe's spec has them) and an exploded object in the default `form` style (`?lat=1&lng=2` for `point`). Both count as sent now; leaving them out is still reported.
+- Recordings (`upstream`, `slicetest import`) kept only the last value of a repeated query parameter, so `?ids=1&ids=2` was recorded as `ids: "2"` and replayed the answer recorded for `?ids=2`. A repeated parameter is now recorded as a list (`ids: ["1", "2"]`) and only matches the same values in the same order; files written before still load.
+- A recorded reply whose JSON is a string (`"ok"`) was replayed without its quotes, as the text `ok`, which isn't JSON. It is sent as JSON now.
 - A multipart field named `constructor` or `toString` arrived in a stub's `call.form` as a list starting with Object's own function, and one named `__proto__` replaced the object's prototype instead of showing up. They are read as sent now, like form-encoded fields already were.
 
 ## 0.10.0

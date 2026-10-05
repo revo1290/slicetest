@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { mergeRecordings, redactRequest, type Recording } from "./recording.js";
+import { mergeRecordings, queryOf, redactRequest, type Recording } from "./recording.js";
 
 /**
  * `slicetest import session.har`: turn a HAR file (saved from the browser's
@@ -46,7 +46,7 @@ export function toRecording(entry: HarEntry, upstream: string): Recording | "els
   // Preflights are the browser's; aborted and blocked requests (status 0) have no answer to replay.
   if (method === "OPTIONS" || !entry.response || !entry.response.status) return "skipped";
 
-  const query = Object.fromEntries([...url.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b)));
+  const query = queryOf(url.searchParams);
   const sent = entry.request.postData?.text;
   const json = parse(sent);
   const request: Recording["request"] = redactRequest({

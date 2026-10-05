@@ -6,7 +6,8 @@ import type { RecordedCall, StubResponse } from "./stub.js";
 
 /** One recorded exchange with the real service, as stored in the recordings file. */
 export interface Recording {
-  request: { method: string; path: string; query?: Record<string, string>; json?: unknown; body?: string };
+  /** A parameter sent more than once (`?ids=1&ids=2`) is a list of its values, in order. */
+  request: { method: string; path: string; query?: Record<string, string | string[]>; json?: unknown; body?: string };
   response: { status: number; headers?: Record<string, string>; json?: unknown; body?: string };
 }
 
@@ -101,8 +102,18 @@ export class Recorder {
   }
 }
 
+/** Query parameters by name, sorted; a repeated one as the list of its values. */
+export function queryOf(params: URLSearchParams): Record<string, string | string[]> {
+  return Object.fromEntries(
+    [...new Set(params.keys())].sort((a, b) => a.localeCompare(b)).map((k) => {
+      const all = params.getAll(k);
+      return [k, all.length > 1 ? all : all[0]!];
+    }),
+  );
+}
+
 function requestOf(call: RecordedCall): Recording["request"] {
-  const query = Object.fromEntries([...call.query.entries()].sort(([a], [b]) => a.localeCompare(b)));
+  const query = queryOf(call.query);
   return redactRequest({
     method: call.method,
     path: call.path,
@@ -125,7 +136,7 @@ const FORM_BODY = /^[^\s=&]+=[^\s&]*(&[^\s=&]+=[^\s&]*)*$/;
  */
 export function redactRequest(r: Recording["request"]): Recording["request"] {
   const out = { ...r };
-  if (r.query) out.query = Object.fromEntries(Object.entries(r.query).map(([k, v]) => [k, SECRET.test(k) ? REDACTED : v]));
+  if (r.query) out.query = Object.fromEntries(Object.entries(r.query).map(([k, v]) => [k, !SECRET.test(k) ? v : Array.isArray(v) ? v.map(() => REDACTED) : REDACTED]));
   if (r.json !== undefined) out.json = redactJson(r.json);
   if (r.body && FORM_BODY.test(r.body)) {
     const form = new URLSearchParams(r.body);
@@ -155,7 +166,10 @@ function sortKeys(v: unknown): unknown {
 }
 
 function toResponse(e: Recording): StubResponse {
-  return { status: e.response.status, headers: e.response.headers, body: e.response.json !== undefined ? e.response.json : (e.response.body ?? "") };
+  const { status, headers, json, body } = e.response;
+  // A string is sent as it is; a JSON string reply (`"ok"`) needs its quotes back.
+  if (typeof json === "string") return { status, headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(json) };
+  return { status, headers, body: json !== undefined ? json : (body ?? "") };
 }
 
 function parse(text: string) {

@@ -160,3 +160,31 @@ test("a fixture records against the real service once, then replays with the ser
   expect(seen.length).toBe(before);
   expect(await readFile(file, "utf8")).toBe(saved);
 }, 120_000);
+
+test("a repeated query parameter is recorded with every value and tells requests apart; a JSON string reply stays JSON", async () => {
+  const file = path.join(dir, "repeat.yaml");
+  await mergeRecordings(file, upstreamUrl, [
+    { request: { method: "GET", path: "/items", query: { ids: ["1", "2"] } }, response: { status: 200, json: [1, 2] } },
+    { request: { method: "GET", path: "/items", query: { ids: "2" } }, response: { status: 200, json: [2] } },
+    { request: { method: "GET", path: "/status" }, response: { status: 200, headers: { "content-type": "application/json" }, json: "ok" } },
+  ]);
+  const recorder = await Recorder.load("svc", file, upstreamUrl, false);
+  const stub = await stubWith(recorder);
+  try {
+    expect(await (await fetch(`${stub.url}/items?ids=1&ids=2`)).json()).toEqual([1, 2]);
+    expect(await (await fetch(`${stub.url}/items?ids=2`)).json()).toEqual([2]);
+    expect((await fetch(`${stub.url}/items?ids=2&ids=1`)).status).toBe(501);
+    expect(await (await fetch(`${stub.url}/status`)).text()).toBe('"ok"');
+  } finally {
+    await stub.close();
+  }
+
+  const recording = await Recorder.load("svc", path.join(dir, "repeat-rec.yaml"), upstreamUrl, true);
+  const live = await stubWith(recording);
+  try {
+    await fetch(`${live.url}/forecast?city=a&city=b`);
+    expect(recording.added()[0]!.request.query).toEqual({ city: ["a", "b"] });
+  } finally {
+    await live.close();
+  }
+});
