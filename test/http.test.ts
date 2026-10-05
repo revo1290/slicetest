@@ -23,6 +23,7 @@ beforeAll(async () => {
     if (req.url === "/stale") return res.writeHead(204, { "set-cookie": "late=1; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT" }).end();
     if (req.url === "/endless") return void res.writeHead(200, { "content-type": "text/event-stream" }).write("data: 1\n\n");
     if (req.url === "/slow") return void setTimeout(() => res.writeHead(200).end("late"), 500);
+    if (req.url === "/short") return res.writeHead(204, { "set-cookie": ["brief=1; Max-Age=1; Path=/", "dated=1; Path=/; Expires=" + new Date(Date.now() + 1000).toUTCString()] }).end();
     if (req.url === "/logout") return res.writeHead(204, { "set-cookie": "sid=; Max-Age=0; Path=/" }).end();
     res.writeHead(200, { "content-type": "application/json" }).end(
       JSON.stringify({ url: req.url, cookie: req.headers.cookie ?? null, type: req.headers["content-type"] ?? null, body }),
@@ -252,4 +253,14 @@ test("a body that doesn't finish within the timeout fails naming the request", a
     "slicetest: GET /endless: answered 200 (text/event-stream) but the body didn't finish within 200ms (http timeout); the event stream has to end for its events to be checked",
   );
   expect(client.history.at(-1)).toMatchObject({ method: "GET", url: "/endless", status: 200 });
+});
+
+test("a cookie stops being sent once its Max-Age or Expires has passed, as a browser drops it", async () => {
+  const client = new HttpClient(baseUrl);
+  await client.get("/short");
+  expect((await client.get("/me")).json.cookie).toContain("brief=1");
+  await new Promise((r) => setTimeout(r, 2100));
+  expect((await client.get("/me")).json.cookie).toBeNull();
+  expect(client.cookies.has("brief")).toBe(false);
+  expect(client.cookies.has("dated")).toBe(false);
 });

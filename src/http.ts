@@ -76,6 +76,8 @@ class Session {
   cookies = new Map<string, string>();
   /** The Path each cookie was set for; a cookie without one (added by hand) goes everywhere. */
   cookiePaths = new Map<string, string>();
+  /** When a cookie set with Max-Age or Expires stops being sent (epoch ms). */
+  cookieExpiry = new Map<string, number>();
   history: HttpResponse[] = [];
   listeners: ((res: HttpResponse) => void)[] = [];
 }
@@ -320,14 +322,27 @@ export class HttpClient {
     this.#session.external.set(host.toLowerCase(), stubUrl);
   }
 
-  /** Cookies the app has set during this scenario. Mutations are sent with later requests. */
+  /** Cookies the app has set during this scenario (minus expired ones). Mutations are sent with later requests. */
   get cookies() {
+    this.#dropExpired();
     return this.#session.cookies;
   }
 
   clearCookies() {
     this.#session.cookies.clear();
     this.#session.cookiePaths.clear();
+    this.#session.cookieExpiry.clear();
+  }
+
+  #dropExpired() {
+    const { cookies, cookiePaths, cookieExpiry } = this.#session;
+    const now = Date.now();
+    for (const [name, at] of cookieExpiry) {
+      if (at > now) continue;
+      cookies.delete(name);
+      cookiePaths.delete(name);
+      cookieExpiry.delete(name);
+    }
   }
 
   /** Requests made during the current scenario, oldest first (last 20). */
@@ -343,6 +358,7 @@ export class HttpClient {
 
   /** Cookies whose Path covers `requestPath`, longest Path first as browsers send them (RFC 6265 5.4). */
   #cookieHeader(requestPath: string) {
+    this.#dropExpired();
     const { cookies, cookiePaths } = this.#session;
     return [...cookies]
       .map(([name, value]) => ({ name, value, path: cookiePaths.get(name) ?? "/" }))
@@ -374,9 +390,13 @@ export class HttpClient {
     if (expired) {
       this.#session.cookies.delete(name);
       this.#session.cookiePaths.delete(name);
+      this.#session.cookieExpiry.delete(name);
     } else {
       this.#session.cookies.set(name, pair!.slice(eq + 1).trim());
       this.#session.cookiePaths.set(name, cookiePath ?? defaultCookiePath(requestPath));
+      const until = maxAge !== undefined && !Number.isNaN(maxAge) ? Date.now() + maxAge * 1000 : expires !== undefined && !Number.isNaN(expires) ? expires : undefined;
+      if (until === undefined) this.#session.cookieExpiry.delete(name);
+      else this.#session.cookieExpiry.set(name, until);
     }
   }
 }
