@@ -908,7 +908,7 @@ Every wait (`within`, `log`, `mail`) ends shortly before the scenario's own time
   | `{ $len: 3 }` | a string or list of that length; `{ $len: { $gte: 1 } }` |
   | `{ $oneOf: [paid, pending] }` | any of the values (or matchers) |
   | `{ $not: "" }` | anything the value or matcher doesn't match |
-  | `{ $format: uuid }` | `uuid`, `email`, `date`, `date-time`, `uri`, `integer` (a string of digits) |
+  | `{ $format: uuid }` | `uuid`, `email`, `date`, `date-time`, `time`, `uri`, `hostname`, `ipv4`, `ipv6`, `ulid`, `integer` (a string of digits), `jwt` (three base64url parts with a JSON header naming its `alg`; the signature isn't checked) |
   | `{ $any: true }` | anything but `null` / missing |
 
   Several `$` keys in one mapping must all hold.

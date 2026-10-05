@@ -232,3 +232,25 @@ test("$regex takes $options as flags, and a bad pattern or flag names $regex", (
   expect(() => toMatchers({ $regex: "a", $options: "z" })).toThrow('$options "z" has a flag JavaScript doesn\'t know');
   expect(() => toMatchers({ $options: "i" })).toThrow("$options belongs with $regex");
 });
+
+test("$format: jwt, ipv4, ipv6, hostname, time and ulid", () => {
+  const jwt = `${Buffer.from('{"alg":"RS256","typ":"JWT"}').toString("base64url")}.${Buffer.from('{"sub":"1"}').toString("base64url")}.c2ln`;
+  const good: Record<string, string[]> = {
+    jwt: [jwt],
+    ipv4: ["192.0.2.1", "10.0.0.255"],
+    ipv6: ["2001:db8::1", "::1"],
+    hostname: ["example.com", "a-b.example.co.jp", "localhost"],
+    time: ["09:30", "09:30:15", "09:30:15.123Z", "23:59:59+09:00"],
+    ulid: ["01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+  };
+  const bad: Record<string, string[]> = {
+    jwt: ["a.b", "not a jwt", `${Buffer.from("plain").toString("base64url")}.x.y`],
+    ipv4: ["256.0.0.1", "1.2.3", "01.2.3.4"],
+    ipv6: ["2001:db8:::1", "192.0.2.1"],
+    hostname: ["-a.com", "a..com", "http://a.com"],
+    time: ["24:00", "9:30", "09:60"],
+    ulid: ["01ARZ3NDEKTSV4RRFFQ69G5FA", "01ARZ3NDEKTSV4RRFFQ69G5FAU".replace("U", "I")],
+  };
+  for (const [format, values] of Object.entries(good)) for (const v of values) expect(v, `${format} ${v}`).toEqual(toMatchers({ $format: format }));
+  for (const [format, values] of Object.entries(bad)) for (const v of values) expect(v, `${format} ${v}`).not.toEqual(toMatchers({ $format: format }));
+});

@@ -13,6 +13,7 @@ import { signWebhook, webhookBody, type WebhookOptions } from "./webhook.js";
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
 import path from "node:path";
+import { isIPv4, isIPv6 } from "node:net";
 import { graphqlErrors } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
 import { sse, type MatchOptions, type RecordedCall, type RouteBuilder, type ServerSentEvent, type StubResponse } from "./stub.js";
@@ -534,13 +535,29 @@ const TYPES: Record<string, unknown> = {
   object: expect.any(Object),
 };
 
-const FORMATS: Record<string, RegExp> = {
+const FORMATS: Record<string, RegExp | ((v: string) => boolean)> = {
   uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   date: /^\d{4}-\d{2}-\d{2}$/,
   "date-time": /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/i,
+  time: /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/i,
   uri: /^[a-z][a-z0-9+.-]*:\/\/\S+$/i,
   integer: /^-?\d+$/,
+  ipv4: (v) => isIPv4(v),
+  ipv6: (v) => isIPv6(v),
+  hostname: /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i,
+  // Crockford's base32: no I, L, O or U.
+  ulid: /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/i,
+  // Three base64url parts whose first is a JSON header with `alg`; the signature isn't checked.
+  jwt: (v) => {
+    const parts = v.split(".");
+    if (parts.length !== 3 || !parts.slice(0, 2).every((p) => /^[A-Za-z0-9_-]+$/.test(p)) || !/^[A-Za-z0-9_-]*$/.test(parts[2]!)) return false;
+    try {
+      return typeof JSON.parse(Buffer.from(parts[0]!, "base64url").toString()).alg === "string";
+    } catch {
+      return false;
+    }
+  },
 };
 
 const MATCHERS = ["$type", "$regex", "$options", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$closeTo", "$len", "$not", "$oneOf", "$format"];
@@ -631,9 +648,9 @@ function single(key: string, arg: unknown, options?: unknown): unknown {
       return matcher(`$oneOf ${JSON.stringify(arg)}`, (v) => options.some((o) => equalsMatcher(o, v)));
     }
     case "$format": {
-      const re = FORMATS[String(arg)];
-      if (!re) throw new Error(`$format must be one of ${Object.keys(FORMATS).join(", ")}`);
-      return matcher(`$format ${arg}`, (v) => typeof v === "string" && re.test(v));
+      const f = Object.hasOwn(FORMATS, String(arg)) ? FORMATS[String(arg)] : undefined;
+      if (!f) throw new Error(`$format must be one of ${Object.keys(FORMATS).join(", ")}`);
+      return matcher(`$format ${arg}`, (v) => typeof v === "string" && (typeof f === "function" ? f(v) : f.test(v)));
     }
     default:
       throw new Error(`unknown matcher ${key} (expected one of ${MATCHERS.join(", ")})`);
