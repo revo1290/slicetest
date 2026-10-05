@@ -149,6 +149,11 @@ test("a list in query repeats the parameter", async () => {
   expect(res.json.url).toBe("/q?tag=a&tag=b&page=2");
 });
 
+test("a null query value is left out, as form() leaves it out, instead of sending the text null", async () => {
+  const res = await new HttpClient(baseUrl).get("/q", { query: { cursor: null, tag: ["a", null, "b"], page: 2 } });
+  expect(res.json.url).toBe("/q?tag=a&tag=b&page=2");
+});
+
 test("timeout fails the request by name; a refused connection says the app isn't listening", async () => {
   const client = new HttpClient(baseUrl, { timeout: 100 });
 

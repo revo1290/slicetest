@@ -259,7 +259,7 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
       const signed = webhookBody(body, hook.provider);
       body = signed.body;
       const url = new URL(path, ctx.http.baseUrl);
-      for (const [k, v] of Object.entries(opts.query ?? {})) url.searchParams.set(k, String(v));
+      for (const [k, v] of Object.entries(opts.query ?? {})) for (const item of [v].flat()) if (item !== null && item !== undefined) url.searchParams.append(k, String(item));
       opts.headers = { "content-type": signed.type, ...signWebhook(signed.body, { url: url.href, ...hook }), ...opts.headers };
     }
     const e = step.expect;

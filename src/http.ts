@@ -61,8 +61,8 @@ type QueryValue = string | number | boolean;
 
 export interface RequestOptions {
   headers?: Record<string, string>;
-  /** A list repeats the parameter: `{ tag: ["a", "b"] }` is `?tag=a&tag=b`. */
-  query?: Record<string, QueryValue | QueryValue[] | undefined>;
+  /** A list repeats the parameter: `{ tag: ["a", "b"] }` is `?tag=a&tag=b`. `null` and `undefined` are left out. */
+  query?: Record<string, QueryValue | null | (QueryValue | null)[] | undefined>;
   /** Follow redirects instead of returning the 3xx response. Default false. */
   follow?: boolean;
   /** Fail the request when the app hasn't answered within this many ms, naming it, instead of the whole test timing out. */
@@ -208,10 +208,11 @@ export class HttpClient {
       throw new Error(`slicetest: http only talks to the app under test; "${path}" resolves to ${url.origin}`);
     }
     for (const [k, v] of Object.entries(opts.query ?? {})) {
-      if (v === undefined) continue;
+      // `null` too: a value captured from JSON (`next_cursor: null`) would otherwise go out as the text "null".
+      if (v === undefined || v === null) continue;
       if (Array.isArray(v)) {
         url.searchParams.delete(k);
-        for (const item of v) url.searchParams.append(k, String(item));
+        for (const item of v) if (item !== null && item !== undefined) url.searchParams.append(k, String(item));
       } else url.searchParams.set(k, String(v));
     }
 
