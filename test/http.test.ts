@@ -269,3 +269,13 @@ test("a cookie stops being sent once its Max-Age or Expires has passed, as a bro
   expect(client.cookies.has("brief")).toBe(false);
   expect(client.cookies.has("dated")).toBe(false);
 });
+
+test("requests keeps every request of the scenario for trace() and diagrams; history only the last 20", async () => {
+  const client = new HttpClient(baseUrl);
+  for (let i = 0; i < 25; i++) await client.get(`/n/${i}`);
+  expect(client.history).toHaveLength(20);
+  expect(client.requests).toHaveLength(25);
+  expect(client.requests[0]!.url).toBe("/n/0");
+  client.reset();
+  expect(client.requests).toHaveLength(0);
+});

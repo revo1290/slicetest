@@ -233,7 +233,7 @@ export class Runtime {
         if (!c) throw new Error(`slicetest: unknown container "${name}". Declared containers: ${[...this.containers.keys()].join(", ") || "(none)"}`);
         return c;
       },
-      trace: async (opts) => mask(buildTrace(this.http.history, this.stubs.values(), await this.db.changesSinceStart(), this.mailbox), opts),
+      trace: async (opts) => mask(buildTrace(this.http.requests, this.stubs.values(), await this.db.changesSinceStart(), this.mailbox), opts),
       diagram: () => this.diagram(),
       get mail(): Mailbox {
         if (!mailbox) throw new Error("slicetest: mail is off. Add `mail: true` to the config and point the app's SMTP settings at {{mail.host}} / {{mail.port}}.");
@@ -432,7 +432,7 @@ export class Runtime {
   /** The current scenario as a Mermaid sequence diagram. */
   async diagram() {
     const changes = this.opts.db.none ? undefined : await this.db.changesSinceStart().catch(() => undefined);
-    return sequenceDiagram(this.http.history, this.stubs.values(), changes, this.mailbox);
+    return sequenceDiagram(this.http.requests, this.stubs.values(), changes, this.mailbox);
   }
 
   /**

@@ -79,6 +79,8 @@ class Session {
   /** When a cookie set with Max-Age or Expires stops being sent (epoch ms). */
   cookieExpiry = new Map<string, number>();
   history: HttpResponse[] = [];
+  /** Every request of the scenario, for trace() and diagrams; `history` keeps only the last few for failure output. */
+  requests: HttpResponse[] = [];
   listeners: ((res: HttpResponse) => void)[] = [];
 }
 
@@ -314,6 +316,7 @@ export class HttpClient {
   }
 
   #record(res: HttpResponse) {
+    this.#session.requests.push(res);
     this.#session.history.push(res);
     if (this.#session.history.length > HISTORY) this.#session.history.shift();
   }
@@ -351,10 +354,16 @@ export class HttpClient {
     return this.#session.history;
   }
 
+  /** Every request made during the current scenario, oldest first. */
+  get requests(): readonly HttpResponse[] {
+    return this.#session.requests;
+  }
+
   /** Start a new scenario: forget cookies and history. */
   reset() {
     this.clearCookies();
     this.#session.history = [];
+    this.#session.requests = [];
   }
 
   /** Cookies whose Path covers `requestPath`, longest Path first as browsers send them (RFC 6265 5.4). */
