@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Changes that can alter an existing suite:
+
+- `submit` refuses a select, radio or checkbox value the page doesn't offer; send such a value with a plain request and `http.form()` / YAML `form:`.
+
 Fixes:
 
 - An `env` value written as a YAML number or boolean (`DEBUG: true`, `WORKERS: 2`) in `app`, `services`, `containers` or `db.migrate` stopped every scenario with `template.replace is not a function`. Such values are now passed as the strings the process sees (`"true"`, `"2"`); anything else (a list, a mapping, `null`) fails before the run, naming the key: `app.env.DEBUG must be a string, a number or true/false, got null`.
@@ -9,6 +13,8 @@ Fixes:
 - A wait that outlasted the scenario's timeout ended in Vitest's bare `Test timed out in 5000ms`, never in its own message: the YAML `log` and `mail` steps and `mail.waitFor()` / `waitForLog()` wait 5000 ms by default, as long as Vitest's default test timeout, and a `within` longer than the timeout had the same effect. Waits now end shortly before the scenario's timeout and say what they waited for and why they stopped: `app printed no line matching /shipped/ within 4695ms (the scenario's timeout of 5000ms ends then; raise it with \`timeout:\`)`.
 - `include` in `slicetest.config.yaml` had no effect on `npx slicetest`: the plugin added `**/*.scenario.{yaml,yml}` to whatever the CLI passed, so every scenario file ran (checked: `include: ["b.*.yaml"]` ran three files). The CLI's `include` is now the list of files that run.
 - `slicetest list` disagreed with what a run does: it ignored the config's `include`, matched `-t` against the raw title of an `each` scenario (`vote {{c}}`) instead of the titles its rows run under (`vote a`, `vote b`), and counted the other scenarios of a file with an `only:` scenario as selected, though Vitest runs only the focused ones in that file. All three now follow the run (checked against the CLI's own results).
+- `submit` sent a select, radio or checkbox value the page doesn't offer (`fields: { plan: team }` with options `free` and `pro`) without a word, which no browser can do, so a typo passed as a valid choice. It now fails listing what the page offers. A select option may also be given by its label (`plan: Pro plan`), and is sent as its value.
+- `submit` sent line breaks in a urlencoded form as a bare `\n`; browsers send `\r\n` (multipart bodies were already converted by fetch). An app that compares what was typed into a textarea saw a different value than from a browser.
 - A multipart field named `constructor` or `toString` arrived in a stub's `call.form` as a list starting with Object's own function, and one named `__proto__` replaced the object's prototype instead of showing up. They are read as sent now, like form-encoded fields already were.
 
 ## 0.10.0

@@ -158,3 +158,23 @@ test("a browser fills in _charset_ and the dirname fields of text controls", () 
   ]);
   expect(entries(formRequest(html, { fields: { q: "b" } }).body)).toContainEqual(["q.dir", "ltr"]);
 });
+
+test("a typed choice must be one the page offers: a select by value or label, radios and checkboxes by value", () => {
+  const html = `<form method="post">
+    <select name="plan"><option value="free">Free</option><option value="pro">Pro plan</option><option value="old" disabled>Old</option></select>
+    <input type="radio" name="size" value="s" checked><input type="radio" name="size" value="l">
+    <input type="checkbox" name="t" value="a"><button>Go</button></form>`;
+
+  expect(entries(formRequest(html, { fields: { plan: "Pro plan" } }).body)).toEqual([["plan", "pro"], ["size", "s"]]);
+  expect(() => formRequest(html, { fields: { plan: "team" } })).toThrow('submit: the select "plan" has no option "team" (options: free "Free", pro "Pro plan"; disabled: old)');
+  expect(() => formRequest(html, { fields: { plan: "old" } })).toThrow('has no option "old"');
+  expect(() => formRequest(html, { fields: { size: "xl" } })).toThrow('submit: no radio button "size" has the value "xl" (values: s, l)');
+  expect(() => formRequest(html, { fields: { t: ["b"] } })).toThrow('submit: no checkbox "t" has the value "b" (values: a)');
+});
+
+test("line breaks are sent as CRLF, as browsers send them", () => {
+  const html = `<form method="post"><textarea name="note">a\nb</textarea><input name="x"><button>Go</button></form>`;
+  expect(entries(formRequest(html, { fields: { x: "c\nd\re" } }).body)).toEqual([["note", "a\r\nb"], ["x", "c\r\nd\r\ne"]]);
+  const multipart = html.replace('method="post"', 'method="post" enctype="multipart/form-data"');
+  expect(entries(formRequest(multipart).body)).toEqual([["note", "a\r\nb"], ["x", ""]]);
+});

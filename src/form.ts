@@ -34,7 +34,7 @@ interface Control {
   /** Text content: a button's label, a textarea's value. */
   text: string;
   /** For select: its options. */
-  options: { value: string; selected: boolean; disabled: boolean }[];
+  options: { value: string; label: string; selected: boolean; disabled: boolean }[];
 }
 
 interface ParsedForm {
@@ -89,8 +89,8 @@ export function parseForms(html: string): ParsedForm[] {
   };
   const closeOption = (end: number) => {
     if (!option || !select) return;
-    const value = option.attrs.value ?? textOf(html.slice(option.start, end));
-    select.options.push({ value, selected: "selected" in option.attrs, disabled: "disabled" in option.attrs || groupDisabled });
+    const label = textOf(html.slice(option.start, end));
+    select.options.push({ value: option.attrs.value ?? label, label, selected: "selected" in option.attrs, disabled: "disabled" in option.attrs || groupDisabled });
     option = undefined;
   };
 
@@ -221,7 +221,7 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
       );
     }
     if (value instanceof Blob) files.set(name, value);
-    else typed.set(name, typeof value === "boolean" ? value : (Array.isArray(value) ? value : [value]).map(String));
+    else typed.set(name, typeof value === "boolean" ? value : offered(form, name, (Array.isArray(value) ? value : [value]).map(String)));
   }
 
   // The successful controls, in document order (HTML's "constructing the entry list").
@@ -282,6 +282,11 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
     throw new Error(`slicetest: submit: the form sends ${method === "GET" ? "a GET" : "urlencoded"} data, which can't carry files; a browser would send only the file name. Upload forms need method="post" enctype="multipart/form-data"`);
   }
   // Outside multipart, a file field is sent as its file name (empty when none was chosen), as browsers do.
+  // Browsers send line breaks as CRLF; URLSearchParams would keep a bare "\n".
+  for (const e of entries) {
+    e[0] = crlf(e[0]);
+    if (typeof e[1] === "string") e[1] = crlf(e[1]);
+  }
   const plain = () => new URLSearchParams(entries.map(([k, v]) => [k, typeof v === "string" ? v : ((v as File).name ?? "")]));
   if (method === "GET") return { method, action: `${action.replace(/[?#].*$/, "")}?${plain()}` };
   if (!multipart) return { method, action, body: plain() };
@@ -291,6 +296,34 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
     else body.append(k, v, (v as File).name ?? "blob");
   }
   return { method, action, body };
+}
+
+const crlf = (s: string) => s.replace(/\r\n|\r|\n/g, "\r\n");
+
+/**
+ * Typed values for a select, radios or checkboxes, checked against what the page offers: a browser can't pick
+ * anything else. A select option may be named by its label too; it is sent as its value.
+ */
+function offered(form: ParsedForm, name: string, values: string[]): string[] {
+  const controls = form.controls.filter((c) => c.attrs.name === name && !("disabled" in c.attrs));
+  const select = controls.find((c) => c.tag === "select");
+  if (select) {
+    const usable = select.options.filter((o) => !o.disabled);
+    return values.map((v) => {
+      const o = usable.find((x) => x.value === v) ?? usable.find((x) => x.label === v);
+      if (o) return o.value;
+      const off = select.options.filter((x) => x.disabled).map((x) => x.value);
+      throw new Error(`slicetest: submit: the select "${name}" has no option ${JSON.stringify(v)} (options: ${usable.map((x) => `${x.value} ${JSON.stringify(x.label)}`).join(", ") || "none"}${off.length ? `; disabled: ${off.join(", ")}` : ""})`);
+    });
+  }
+  for (const type of ["radio", "checkbox"]) {
+    const boxes = controls.filter((c) => c.tag === "input" && c.attrs.type?.toLowerCase() === type);
+    if (!boxes.length) continue;
+    const have = boxes.map((c) => c.attrs.value ?? "on");
+    const bad = values.find((v) => !have.includes(v));
+    if (bad !== undefined) throw new Error(`slicetest: submit: no ${type === "radio" ? "radio button" : "checkbox"} "${name}" has the value ${JSON.stringify(bad)} (values: ${have.join(", ")})`);
+  }
+  return values;
 }
 
 /** Fields as `application/x-www-form-urlencoded`: lists repeat the key, nested objects use bracket keys (`metadata[order]`). */

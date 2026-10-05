@@ -246,7 +246,7 @@ await http.submit(await http.get("/settings"), {
 
 File inputs take a `File` (`fields: { avatar: new File([bytes], "me.png", { type: "image/png" }) }`, YAML `{ file: me.png }` relative to the scenario), and one left alone is sent as the empty file a browser sends; the form must be `multipart/form-data`. An image button (`<input type="image">`) sends its click position.
 
-`button` matches a submit button's text, `value`, `name` or `id`, and picks its form; its `formaction` / `formmethod` / `formenctype` apply. `fields` replace what the page had and must name existing fields, so a typo fails. When nothing matches, the error lists the page's forms and their buttons. In YAML, `submit:` uses the page the previous step requested.
+`button` matches a submit button's text, `value`, `name` or `id`, and picks its form; its `formaction` / `formmethod` / `formenctype` apply. `fields` replace what the page had and must name existing fields, so a typo fails. A select, radio or checkbox value must be one the page offers (a select option by its value or its label), as a browser can't send anything else; to send what the page doesn't offer, use a plain request with `http.form()`. Line breaks go out as CRLF, as browsers send them. When nothing matches, the error lists the page's forms and their buttons. In YAML, `submit:` uses the page the previous step requested.
 
 ### `db` — arrange and inspect the real database
 
