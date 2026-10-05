@@ -348,9 +348,32 @@ function expectRows(e: { rows?: unknown[]; count?: number } | undefined, rows: u
 
 /** Subset comparison with Vitest's diff: objects may have extra keys, arrays must have the same length. */
 function check(actual: unknown, expected: unknown, vars: Vars, what: string) {
-  const want = toMatchers(interpolate(expected, vars));
+  checkSubset(actual, interpolate(expected, vars), what);
+}
+
+/** `expected` (with matchers) contained in `actual`; keys set to `{ $absent: true }` must not be there. */
+export function checkSubset(actual: unknown, expected: unknown, what: string) {
+  const absent: string[] = [];
+  const want = withoutAbsent(toMatchers(expected), [], absent);
   if (want && typeof want === "object" && !isAsymmetric(want)) expect(actual, what).toMatchObject(want as object);
   else expect(actual, what).toEqual(want);
+  for (const p of absent) {
+    const v = lookup(actual, p);
+    if (v !== undefined) throw new Error(`${what}: expected no ${p}, got ${JSON.stringify(v)}`);
+  }
+}
+
+/** `toMatchObject` never calls a matcher for a key that is missing, so `$absent` keys are taken out and checked apart. */
+function withoutAbsent(v: unknown, at: string[], out: string[]): unknown {
+  if (Array.isArray(v)) return v.map((x, i) => withoutAbsent(x, [...at, String(i)], out));
+  if (!v || typeof v !== "object" || isAsymmetric(v)) return v;
+  return Object.fromEntries(
+    Object.entries(v).flatMap(([k, x]) => {
+      if (x !== ABSENT) return [[k, withoutAbsent(x, [...at, k], out)]];
+      out.push([...at, k].join("."));
+      return [];
+    }),
+  );
 }
 
 function conditions(when: Conditions | undefined, vars: Vars): MatchOptions {
@@ -560,7 +583,10 @@ const FORMATS: Record<string, RegExp | ((v: string) => boolean)> = {
   },
 };
 
-const MATCHERS = ["$type", "$regex", "$options", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$closeTo", "$len", "$not", "$oneOf", "$format"];
+/** `{ $absent: true }`: the key isn't there (a value of `null` is there). */
+const ABSENT = matcher("$absent", (v) => v === undefined);
+
+const MATCHERS = ["$absent", "$type", "$regex", "$options", "$contains", "$any", "$gt", "$gte", "$lt", "$lte", "$closeTo", "$len", "$not", "$oneOf", "$format"];
 
 /** An asymmetric matcher Vitest's `toEqual` / `toMatchObject` call, with a readable name in diffs. */
 function matcher(name: string, test: (v: unknown) => boolean) {
@@ -591,7 +617,7 @@ function subsetEquals(expected: unknown, actual: unknown): boolean {
   if (isAsymmetric(expected)) return (expected as { asymmetricMatch(v: unknown): boolean }).asymmetricMatch(actual);
   if (Array.isArray(expected)) return Array.isArray(actual) && actual.length === expected.length && expected.every((e, i) => subsetEquals(e, actual[i]));
   if (expected && typeof expected === "object") {
-    return !!actual && typeof actual === "object" && Object.entries(expected).every(([k, v]) => k in actual && subsetEquals(v, (actual as Record<string, unknown>)[k]));
+    return !!actual && typeof actual === "object" && Object.entries(expected).every(([k, v]) => (v === ABSENT ? (actual as Record<string, unknown>)[k] === undefined : k in actual && subsetEquals(v, (actual as Record<string, unknown>)[k])));
   }
   return Object.is(expected, actual) || expected === actual;
 }
@@ -620,6 +646,9 @@ function single(key: string, arg: unknown, options?: unknown): unknown {
       );
     case "$any":
       return expect.anything();
+    case "$absent":
+      if (arg !== true) throw new Error(`$absent takes true, got ${JSON.stringify(arg)}`);
+      return ABSENT;
     case "$gt":
       return compare(key, arg, (c) => c > 0);
     case "$gte":

@@ -910,6 +910,7 @@ Every wait (`within`, `log`, `mail`) ends shortly before the scenario's own time
   | `{ $not: "" }` | anything the value or matcher doesn't match |
   | `{ $format: uuid }` | `uuid`, `email`, `date`, `date-time`, `time`, `uri`, `hostname`, `ipv4`, `ipv6`, `ulid`, `integer` (a string of digits), `jwt` (three base64url parts with a JSON header naming its `alg`; the signature isn't checked) |
   | `{ $any: true }` | anything but `null` / missing |
+  | `{ $absent: true }` | the key isn't there at all (`null` is there): `password_hash: { $absent: true }` checks a response doesn't leak it. Expected JSON is otherwise a subset, so extra keys pass unless named this way |
 
   Several `$` keys in one mapping must all hold.
 - A file-level `setup:` list runs at the start of every scenario. `skip`, `only`, `timeout` and `tags` work per scenario.

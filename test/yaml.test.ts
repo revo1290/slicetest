@@ -254,3 +254,19 @@ test("$format: jwt, ipv4, ipv6, hostname, time and ulid", () => {
   for (const [format, values] of Object.entries(good)) for (const v of values) expect(v, `${format} ${v}`).toEqual(toMatchers({ $format: format }));
   for (const [format, values] of Object.entries(bad)) for (const v of values) expect(v, `${format} ${v}`).not.toEqual(toMatchers({ $format: format }));
 });
+
+test("$absent: true fails when the key is there, at any depth, and passes when it isn't", async () => {
+  const { checkSubset } = await import("../src/yaml-runtime.js");
+  const want = { id: 1, user: { name: "a", password_hash: { $absent: true } }, items: [{ sku: "x", cost: { $absent: true } }] };
+  expect(() => checkSubset({ id: 1, user: { name: "a" }, items: [{ sku: "x" }] }, want, "response JSON")).not.toThrow();
+  expect(() => checkSubset({ id: 1, user: { name: "a", password_hash: "$2b$10$abc" }, items: [{ sku: "x" }] }, want, "response JSON")).toThrow(
+    'response JSON: expected no user.password_hash, got "$2b$10$abc"',
+  );
+  expect(() => checkSubset({ id: 1, user: { name: "a" }, items: [{ sku: "x", cost: null }] }, want, "response JSON")).toThrow("response JSON: expected no items.0.cost, got null");
+  // The rest is still compared as a subset.
+  expect(() => checkSubset({ id: 2, user: { name: "a" }, items: [{ sku: "x" }] }, want, "response JSON")).toThrow();
+  expect(() => toMatchers({ $absent: false })).toThrow("$absent takes true");
+  // Inside $contains and events (subset matching), too.
+  expect({ lines: [{ sku: "a", secret: 1 }, { sku: "b" }] }).toEqual(toMatchers({ lines: { $contains: { sku: "b", secret: { $absent: true } } } }));
+  expect({ lines: [{ sku: "b", secret: 1 }] }).not.toEqual(toMatchers({ lines: { $contains: { sku: "b", secret: { $absent: true } } } }));
+});

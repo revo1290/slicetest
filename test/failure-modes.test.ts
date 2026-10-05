@@ -60,3 +60,8 @@ test("expect.headers with null: the header must be absent", () => {
   expect(output).toMatch(/[✓√] .*yaml header null passes when the header is absent/);
   expect(output).toMatch(/yaml header null fails when the header is sent, step 1: GET \/json\)\nGET \/json: expected no content-type header, got "application\/json"/);
 });
+
+test("$absent in expected JSON: passes without the key, fails naming its path", () => {
+  expect(output).toMatch(/[✓√] .*yaml absent key passes when the key is missing/);
+  expect(output).toMatch(/yaml absent key fails when the key is there, step 1: GET \/json\)\nresponse JSON: expected no user\.name, got "alice"/);
+});

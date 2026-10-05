@@ -49,3 +49,15 @@ scenarios:
       - request: GET /json
         expect:
           headers: { content-type: null }
+
+  - name: yaml absent key passes when the key is missing
+    steps:
+      - request: GET /json
+        expect:
+          json: { user: { name: alice, password: { $absent: true } } }
+
+  - name: yaml absent key fails when the key is there
+    steps:
+      - request: GET /json
+        expect:
+          json: { user: { name: { $absent: true } } }
