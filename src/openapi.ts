@@ -302,7 +302,7 @@ export class OpenApiSpec {
     ];
     for (const [p, at] of listed) {
       if (p?.in === "query") {
-        if (p.required && !req.query?.has(p.name)) errors.push(`${method} ${template}: required query parameter "${p.name}" is missing`);
+        if (p.required && !this.#sentQuery(p, req.query)) errors.push(`${method} ${template}: required query parameter "${p.name}" is missing`);
         const values = req.query?.getAll(p.name) ?? [];
         if (values.length && p.schema) errors.push(...this.#checkValues(`${method} ${template}`, `query parameter "${p.name}"`, values, p.schema, [...at, "schema"]));
       }
@@ -319,6 +319,17 @@ export class OpenApiSpec {
       return errors;
     }
     return [...errors, ...this.#checkContent(body.content, req, [...at, "content"], `${method} ${template} request`)];
+  }
+
+  /** Whether the request carries query parameter `p`, also as `name[key]` (deepObject) or as its properties (an exploded form object). */
+  #sentQuery(p: any, query: URLSearchParams | undefined) {
+    if (!query) return false;
+    if (query.has(p.name)) return true;
+    const keys = [...query.keys()];
+    if (p.style === "deepObject") return keys.some((k) => k.startsWith(`${p.name}[`));
+    const schema = this.#deref(p.schema);
+    const props = schema?.type === "object" && (p.style ?? "form") === "form" && p.explode !== false ? Object.keys(schema.properties ?? {}) : [];
+    return props.some((k) => query.has(k));
   }
 
   /** A query parameter's or header's values as strings, held to its schema after reading them as the type it declares. */
@@ -361,10 +372,12 @@ export class OpenApiSpec {
     const type = (msg.contentType ?? "").split(";")[0]!.trim().toLowerCase();
     // Without a content-type (e.g. a stub replying with a bare string) there's nothing to hold the body to.
     if (!type) return [];
+    // A spec may write the key with parameters (`application/json; charset=utf-8`); the type alone decides.
+    const bare = (k: string) => k.split(";")[0]!.trim().toLowerCase();
     const media =
-      Object.keys(content).find((k) => k.toLowerCase() === type) ??
-      Object.keys(content).find((k) => k.endsWith("/*") && type.startsWith(k.slice(0, -1))) ??
-      Object.keys(content).find((k) => k === "*/*");
+      Object.keys(content).find((k) => bare(k) === type) ??
+      Object.keys(content).find((k) => bare(k).endsWith("/*") && type.startsWith(bare(k).slice(0, -1))) ??
+      Object.keys(content).find((k) => bare(k) === "*/*");
     if (!media) return [`${label}: content-type "${type || "(none)"}" is not one of ${Object.keys(content).join(", ")}`];
     if (!content[media]?.schema || !isJson(media)) return [];
     if (typeof msg.body === "string") return [`${label}: body is not valid JSON`];
@@ -480,7 +493,8 @@ export function formatCoverage(spec: OpenApiSpec, hits: Set<string>) {
 }
 
 function isJson(media: string) {
-  return /[/+]json$/i.test(media) || media === "*/*";
+  const type = media.split(";")[0]!.trim();
+  return /[/+]json$/i.test(type) || type === "*/*";
 }
 
 function escape(s: string) {

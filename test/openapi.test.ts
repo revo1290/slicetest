@@ -291,3 +291,36 @@ test("an example response carries the headers the spec requires, so autoReply sa
   const lower = Object.fromEntries(Object.entries(example.headers!).map(([k, v]) => [k.toLowerCase(), v]));
   expect(s.checkResponse("GET", "/items", { status: 200, contentType: lower["content-type"], body: example.body, headers: lower })).toEqual([]);
 });
+
+test("a media type written with parameters in the spec still matches and its JSON is checked", async () => {
+  const s = await spec({
+    openapi: "3.0.3",
+    paths: { "/a": { get: { responses: { "200": { description: "", content: { "application/json; charset=utf-8": { schema: { type: "object", required: ["id"] } } } } } } } },
+  });
+  expect(s.checkResponse("GET", "/a", ok({ id: 1 }))).toEqual([]);
+  expect(s.checkResponse("GET", "/a", ok({}))).toEqual(["GET /a → 200: body must have required property 'id'"]);
+  expect(s.exampleResponse("GET", "/a")).toMatchObject({ headers: { "content-type": "application/json; charset=utf-8" }, body: {} });
+});
+
+test("a required deepObject query parameter is sent as name[key]; its absence is still reported", async () => {
+  const s = await spec({
+    openapi: "3.0.3",
+    paths: {
+      "/charges": {
+        get: {
+          parameters: [{ name: "created", in: "query", required: true, style: "deepObject", explode: true, schema: { type: "object", properties: { gte: { type: "integer" } } } }],
+          responses: { "200": { description: "" } },
+        },
+      },
+    },
+  });
+  expect(s.checkRequest("GET", "/charges", { body: "", query: new URLSearchParams("created[gte]=1700000000") })).toEqual([]);
+  expect(s.checkRequest("GET", "/charges", { body: "", query: new URLSearchParams("limit=1") })).toEqual(['GET /charges: required query parameter "created" is missing']);
+  // An object in the default form style, exploded, is sent as its properties: ?lat=1&lng=2.
+  const form = await spec({
+    openapi: "3.0.3",
+    paths: { "/near": { get: { parameters: [{ name: "point", in: "query", required: true, schema: { type: "object", properties: { lat: { type: "number" }, lng: { type: "number" } } } }], responses: { "200": { description: "" } } } } },
+  });
+  expect(form.checkRequest("GET", "/near", { body: "", query: new URLSearchParams("lat=1&lng=2") })).toEqual([]);
+  expect(form.checkRequest("GET", "/near", { body: "", query: new URLSearchParams("q=x") })).toEqual(['GET /near: required query parameter "point" is missing']);
+});
