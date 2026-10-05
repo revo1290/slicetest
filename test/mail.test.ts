@@ -115,7 +115,12 @@ test("multipart messages with encoded words, base64 and quoted-printable parts a
 
 test("an HTML-only message gets a text version", () => {
   const mail = parseMail("Content-Type: text/html\r\n\r\n<p>Hello&nbsp;<b>you</b></p><p>Bye</p>", "a@x", ["b@x"]);
-  expect(mail.text).toBe("Hello&nbsp;you\nBye");
+  expect(mail.text).toBe("Hello\u00a0you\nBye");
+});
+
+test("an HTML-only message's text decodes each entity once, numeric ones too", () => {
+  const mail = parseMail("Content-Type: text/html\r\n\r\n<p>Use &amp;lt;b&amp;gt; for bold &#8212; &#x3042;&#12356; &copy;</p>", "a@x", ["b@x"]);
+  expect(mail.text).toBe("Use &lt;b&gt; for bold — あい ©");
 });
 
 test("a real SMTP client (Python's smtplib, with login and a UTF-8 HTML message) is understood", async () => {

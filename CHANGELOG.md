@@ -27,6 +27,7 @@ Fixes:
 - A recorded reply whose JSON is a string (`"ok"`) was replayed without its quotes, as the text `ok`, which isn't JSON. It is sent as JSON now.
 - `submit` with `fields: { remember: true }` on Rails' `check_box` (a hidden `remember=0` followed by a checkbox `remember=1`) replaced the hidden field's value with `on`, sending `remember=on&remember=1`; a browser sends `remember=0&remember=1`. A typed value now applies to the checkboxes and radios of that name, and other fields of the same name keep their values.
 - A cookie set with `Max-Age` or `Expires` was sent for the rest of the scenario, so a test of session expiry (`Max-Age=1`, wait, expect a 401) passed a request a browser would send without it. Cookies now stop being sent, and leave `http.cookies`, once that time has passed.
+- The text version of an HTML-only mail decoded entities one after another, so the text `&lt;b&gt;` (sent as `&amp;lt;b&amp;gt;`) came out as `<b>`, and left numeric and most named entities (`&#12354;`, `&mdash;`, `&nbsp;`, `&copy;`) as they were. Each entity is now decoded once, numeric ones included; `&nbsp;` becomes a no-break space, as a browser's text has it. `submit` reads the same entities in attribute values.
 - A multipart field named `constructor` or `toString` arrived in a stub's `call.form` as a list starting with Object's own function, and one named `__proto__` replaced the object's prototype instead of showing up. They are read as sent now, like form-encoded fields already were.
 
 ## 0.10.0

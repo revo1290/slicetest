@@ -1,4 +1,5 @@
 import { waitBudget } from "./deadline.js";
+import { decodeEntities } from "./form.js";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 
@@ -335,11 +336,8 @@ function htmlToText(html: string) {
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
     .replace(/<br\s*\/?>|<\/p>/gi, "\n")
     .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    // One pass: replacing `&amp;` first turned the text `&lt;` (sent as `&amp;lt;`) into `<`.
+    .replace(/&[^;\s]+;/g, (e) => decodeEntities(e))
     .trim();
 }
 
