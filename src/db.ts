@@ -205,9 +205,7 @@ export class Db {
     if (this.#seeds.length) {
       for (const seed of this.#seeds) {
         if (typeof seed === "string") await this.#driver.exec(seed);
-        else {
-          for (const [table, rows] of seed) for (const row of rows) await this.#insertRow(table, row);
-        }
+        else for (const [table, rows] of seed) for (const row of rows) await this.#insertRow(table, row);
       }
       this.#start = await this.#snapshot();
     }
