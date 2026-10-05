@@ -7,3 +7,10 @@ scenarios:
         expect: { statuses: { 201: 1, 409: 7 } }
       - db: bookings
         expect: { count: 1 }
+
+  - name: yaml concurrency counts status classes
+    steps:
+      - request: POST /book
+        query: { seat: 4 }
+        concurrency: 6
+        expect: { statuses: { 2xx: 1, 4xx: 5 } }

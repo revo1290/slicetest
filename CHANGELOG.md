@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `toHaveStatuses` and YAML `expect.statuses` take status classes, like `status` already did: `{ 201: 1, 4xx: 9 }` counts every 4xx response the listed codes don't take, so a race test doesn't need to know whether the losers get 409 or 422. The failure lists the counts in status order.
 - YAML `expect.headers` takes `null` for a header the response must not send (`x-powered-by: null`, `server: null`), as `cookies` already did; the failure shows the value that was sent. Before, `null` failed whether or not the header was there.
 - `schema/config.schema.json`: a JSON Schema for `slicetest.config.yaml`, so editors complete and check the config as they already did scenarios (`# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/config.schema.json`). `slicetest init` writes that line. A test keeps its keys equal to what the config loader accepts.
 

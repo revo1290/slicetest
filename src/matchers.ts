@@ -38,8 +38,8 @@ interface SlicetestMatchers<R = unknown> {
   toSetCookie(name: string, attributes?: Record<string, unknown>): R;
   /** The response arrived within `ms` milliseconds (measured from sending the request to reading the whole body). */
   toRespondWithin(ms: number): R;
-  /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`. */
-  toHaveStatuses(counts: Record<number, number>): R;
+  /** An array of responses has exactly these status counts, e.g. `{ 201: 1, 409: 9 }`; classes count the rest: `{ 201: 1, "4xx": 9 }`. */
+  toHaveStatuses(counts: Partial<Record<number | `${1 | 2 | 3 | 4 | 5}xx`, number>>): R;
   /** Async: the table has at least one row matching `where` (`count` for an exact number). */
   toHaveRow(table: string, where?: Where, count?: number): Promise<void>;
 }
@@ -85,14 +85,21 @@ function describeStatus(expected: ExpectedStatus): string {
   return Array.isArray(expected) ? `one of ${expected.join(", ")}` : String(expected);
 }
 
-export function statusCounts(responses: HttpResponse[]) {
-  const out: Record<number, number> = {};
-  for (const r of responses) out[r.status] = (out[r.status] ?? 0) + 1;
+/** Responses counted under their code when `keys` lists it, else under their class (`4xx`) when that is listed. */
+export function statusCounts(responses: HttpResponse[], keys: string[] = []) {
+  const out: Record<string, number> = {};
+  for (const r of responses) {
+    const code = String(r.status);
+    const key = keys.includes(code) ? code : keys.includes(`${code[0]}xx`) ? `${code[0]}xx` : code;
+    out[key] = (out[key] ?? 0) + 1;
+  }
   return out;
 }
 
-function fmtCounts(c: Record<number, number>) {
-  return `{ ${Object.entries(c).map(([k, n]) => `${k}: ${n}`).join(", ")} }`;
+function fmtCounts(c: Record<string, number>) {
+  // In status order, a class before its codes; object order would put every code before every class.
+  const rank = (k: string) => (/xx$/.test(k) ? Number(k[0]) * 100 - 0.5 : Number(k));
+  return `{ ${Object.entries(c).sort(([a], [b]) => rank(a) - rank(b)).map(([k, n]) => `${k}: ${n}`).join(", ")} }`;
 }
 
 /** One example response per status, which is usually what explains the odd one out. */
@@ -263,10 +270,15 @@ expect.extend({
     };
   },
 
-  toHaveStatuses(received: HttpResponse[], counts: Record<number, number>) {
+  toHaveStatuses(received: HttpResponse[], counts: Partial<Record<number | string, number>>) {
     if (!Array.isArray(received)) throw new TypeError("slicetest: toHaveStatuses expects an array of responses, e.g. from http.concurrently()");
-    const actual = statusCounts(received);
-    const expected = Object.fromEntries(Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => [Number(k), n]));
+    const keys = Object.keys(counts).map((k) => {
+      const key = k.trim().toLowerCase();
+      if (!/^\d{3}$|^[1-5]xx$/.test(key)) throw new TypeError(`slicetest: a status is a code (201) or a class ("2xx"), got ${JSON.stringify(k)}`);
+      return key;
+    });
+    const actual = statusCounts(received, keys);
+    const expected = Object.fromEntries(Object.entries(counts).filter((entry): entry is [string, number] => (entry[1] ?? 0) > 0).map(([k, n]) => [k.trim().toLowerCase(), n]));
     const pass = this.equals(actual, expected);
     return {
       pass,

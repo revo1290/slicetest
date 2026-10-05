@@ -598,8 +598,8 @@ function parseStep(node: unknown, fail: (node: unknown, msg: string) => never, l
         const statuses = (raw.expect as Record<string, unknown> | undefined)?.statuses;
         if (statuses !== undefined) {
           if (raw.concurrency === undefined) fail(at("expect"), "`expect.statuses` needs `concurrency`");
-          if (!statuses || typeof statuses !== "object" || Object.entries(statuses).some(([k, v]) => !/^\d{3}$/.test(k) || !Number.isInteger(v))) {
-            fail(at("expect"), "`expect.statuses` maps status codes to counts, e.g. { 201: 1, 409: 9 }");
+          if (!statuses || typeof statuses !== "object" || Object.entries(statuses).some(([k, v]) => !/^(\d{3}|[1-5]xx)$/i.test(k) || !Number.isInteger(v))) {
+            fail(at("expect"), "`expect.statuses` maps status codes or classes to counts, e.g. { 201: 1, 409: 9 } or { 2xx: 1, 4xx: 9 }");
           }
         }
       }

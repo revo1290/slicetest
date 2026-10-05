@@ -708,13 +708,13 @@
                 "statuses": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^\\d{3}$"
+                    "pattern": "^(\\d{3}|[1-5][xX][xX])$"
                   },
                   "additionalProperties": {
                     "type": "integer",
                     "minimum": 0
                   },
-                  "description": "With `concurrency`: how many responses have each status, e.g. { 201: 1, 409: 9 }"
+                  "description": "With `concurrency`: how many responses have each status or class, e.g. { 201: 1, 409: 9 } or { 2xx: 1, 4xx: 9 }"
                 },
                 "queries": {
                   "type": "integer",
