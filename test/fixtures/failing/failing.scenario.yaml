@@ -33,3 +33,7 @@ scenarios:
     steps:
       - use: open home
         with: { status: 418 }
+
+  - name: yaml log wait gives up before the test timeout
+    steps:
+      - log: this line is never printed

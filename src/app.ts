@@ -1,3 +1,4 @@
+import { waitBudget } from "./deadline.js";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
@@ -160,7 +161,8 @@ export class App {
    * await service("worker").waitForLog(/order \d+ shipped/);
    * ```
    */
-  async waitForLog(pattern: string | RegExp, timeout = 5000): Promise<string> {
+  async waitForLog(pattern: string | RegExp, within = 5000): Promise<string> {
+    const { ms: timeout, note } = waitBudget(within);
     const re = typeof pattern === "string" ? new RegExp(escapeRegExp(pattern)) : new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
     const n = Math.min(this.#lineCount - this.#scenarioMark, this.#log.length);
     const seen = n > 0 ? this.#log.slice(-n).find((l) => re.test(l)) : undefined;
@@ -175,7 +177,7 @@ export class App {
         if (re.test(line)) done(() => resolve(line));
       };
       const timer = setTimeout(
-        () => done(() => reject(new Error(`slicetest: ${this.label} printed no line matching ${re} within ${timeout}ms. Output during this scenario:\n${this.logs(this.#scenarioMark) || "(none)"}`))),
+        () => done(() => reject(new Error(`slicetest: ${this.label} printed no line matching ${re} within ${timeout}ms${note}. Output during this scenario:\n${this.logs(this.#scenarioMark) || "(none)"}`))),
         timeout,
       );
       this.#listeners.add(listener);

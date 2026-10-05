@@ -886,6 +886,8 @@ scenarios:
   capture: { file: json.url }
 ```
 
+Every wait (`within`, `log`, `mail`) ends shortly before the scenario's own timeout, which is Vitest's 5000 ms unless the scenario sets `timeout:`; the failure then names what it waited for and says the timeout cut it short. A `within: 10000` needs a scenario `timeout:` above it.
+
 - `reply: { file: replies/charge.json }` answers with a file relative to the scenario file: `.json` and `.yaml` are sent as JSON and may still use `{{call.*}}`, other files as they are (images, PDFs, CSV), with a content type from the extension unless `headers` set one. Large provider payloads stay out of the scenario.
 - `multipart:` sends `multipart/form-data`: plain values are fields, `{ file: fixtures/avatar.png }` uploads a file (relative to the scenario file, content type from its extension, or `type` / `filename`), `{ content: ..., filename: notes.json }` an inline one, and a list sends a field several times.
 - `request:` also takes a captured URL of the app, e.g. `GET {{link}}` after capturing a link from a mail.

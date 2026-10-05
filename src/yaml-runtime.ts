@@ -1,3 +1,4 @@
+import { waitBudget } from "./deadline.js";
 import { expect, inject } from "vitest";
 import { recordYamlFailure } from "./ci.js";
 import "./provided.js";
@@ -92,15 +93,16 @@ function describeStep(step: Step) {
 }
 
 /** Run `fn` until it passes or `within` ms have passed, then rethrow its last error. */
-async function retry(within: number | undefined, fn: () => Promise<void>, every = 50) {
-  if (!within) return fn();
+async function retry(wanted: number | undefined, fn: () => Promise<void>, every = 50) {
+  if (!wanted) return fn();
+  const { ms: within, note } = waitBudget(wanted);
   const deadline = Date.now() + within;
   for (;;) {
     try {
       return await fn();
     } catch (e) {
       if (Date.now() >= deadline) {
-        if (e instanceof Error) e.message = `${e.message}\n(still failing after retrying for ${within}ms)`;
+        if (e instanceof Error) e.message = `${e.message}\n(still failing after retrying for ${within}ms${note})`;
         throw e;
       }
       await new Promise((r) => setTimeout(r, every));

@@ -49,3 +49,9 @@ test("YAML steps fail with the file, line and step that failed", () => {
   expect(output).toMatch(/failing\.scenario\.yaml:5 \(yaml failing inside use, step 1: use open home → step 1: GET \/\)\n.*expected GET \/ to respond 418, got 200/);
   expect(output).toMatch(/failing\.scenario\.yaml:29 \(yaml stub never called, step 2: received mail POST \/send\)\nexpected stub "mail" to have received POST \/send\n/);
 });
+
+test("a wait that would outlast the test's timeout gives up first and says what it waited for", () => {
+  const block = output.slice(output.indexOf("yaml log wait gives up before the test timeout"));
+  expect(block).toMatch(/app printed no line matching \/this line is never printed\/ within \d+ms \(the scenario's timeout of 5000ms ends then; raise it with `timeout:`\)/);
+  expect(block.split("⎯⎯⎯")[0]).not.toContain("Test timed out");
+});

@@ -6,6 +6,7 @@ Fixes:
 
 - An `env` value written as a YAML number or boolean (`DEBUG: true`, `WORKERS: 2`) in `app`, `services`, `containers` or `db.migrate` stopped every scenario with `template.replace is not a function`. Such values are now passed as the strings the process sees (`"true"`, `"2"`); anything else (a list, a mapping, `null`) fails before the run, naming the key: `app.env.DEBUG must be a string, a number or true/false, got null`.
 - A YAML `mail` field with `{ $regex, $options: i }` ignored `$options`, so a case-insensitive pattern never matched, and any other mapping (`{ $contains: x }`) was compared as the text `[object Object]`. Flags now apply, and another mapping fails naming the field.
+- A wait that outlasted the scenario's timeout ended in Vitest's bare `Test timed out in 5000ms`, never in its own message: the YAML `log` and `mail` steps and `mail.waitFor()` / `waitForLog()` wait 5000 ms by default, as long as Vitest's default test timeout, and a `within` longer than the timeout had the same effect. Waits now end shortly before the scenario's timeout and say what they waited for and why they stopped: `app printed no line matching /shipped/ within 4695ms (the scenario's timeout of 5000ms ends then; raise it with \`timeout:\`)`.
 - A multipart field named `constructor` or `toString` arrived in a stub's `call.form` as a list starting with Object's own function, and one named `__proto__` replaced the object's prototype instead of showing up. They are read as sent now, like form-encoded fields already were.
 
 ## 0.10.0

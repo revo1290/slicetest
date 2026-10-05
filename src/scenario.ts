@@ -1,3 +1,4 @@
+import { clearScenarioDeadline, setScenarioDeadline } from "./deadline.js";
 import { test } from "vitest";
 import type { Runtime, ScenarioContext } from "./runtime.js";
 
@@ -53,7 +54,12 @@ function define(register: typeof test | typeof test.only | typeof test.skip) {
         });
         const started = Date.now();
         await runtime.beforeScenario();
-        await body(runtime.context());
+        setScenarioDeadline(started, task.timeout);
+        try {
+          await body(runtime.context());
+        } finally {
+          clearScenarioDeadline();
+        }
         // Leaves a margin for the checks after the wait, so `idle` reports before Vitest's timeout does.
         await runtime.afterScenario(task.timeout ? started + task.timeout - 500 : undefined);
         await runtime.reportDiagram(file, task.name, false);

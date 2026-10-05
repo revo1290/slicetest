@@ -1,3 +1,4 @@
+import { waitBudget } from "./deadline.js";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 
@@ -78,13 +79,14 @@ export class Mailbox {
    * The first message matching `filter`, waiting up to `within` ms for the app
    * to send it. Fails with the messages that did arrive.
    */
-  async waitFor(filter: MailFilter = {}, { within = 5000 } = {}): Promise<Mail> {
+  async waitFor(filter: MailFilter = {}, { within: wanted = 5000 } = {}): Promise<Mail> {
+    const { ms: within, note } = waitBudget(wanted);
     const deadline = Date.now() + within;
     for (;;) {
       const found = this.messages(filter)[0];
       if (found) return found;
       const left = deadline - Date.now();
-      if (left <= 0) throw new Error(`slicetest: no mail matching ${describeFilter(filter)} within ${within}ms\n${this.describe()}`);
+      if (left <= 0) throw new Error(`slicetest: no mail matching ${describeFilter(filter)} within ${within}ms${note}\n${this.describe()}`);
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(timer);
