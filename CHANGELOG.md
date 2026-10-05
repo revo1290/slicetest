@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Fixes:
+
+- An `env` value written as a YAML number or boolean (`DEBUG: true`, `WORKERS: 2`) in `app`, `services`, `containers` or `db.migrate` stopped every scenario with `template.replace is not a function`. Such values are now passed as the strings the process sees (`"true"`, `"2"`); anything else (a list, a mapping, `null`) fails before the run, naming the key: `app.env.DEBUG must be a string, a number or true/false, got null`.
+
 ## 0.10.0
 
 Honest scope for what slicetest checks, and a way to isolate what the database reset can't: the app's memory and background work. Contract checks that reach further (query values, required headers, response headers), a `record` that works with Vitest 4, a clear error when containers can't load on an old Node.js, and fixes found along the way, among them apps left running after every `app.scope: worker` run, redirects that changed a `PUT` into a `GET`, `//` paths and encoded stub routes. Some checks got stricter, so read "Changes that can alter an existing suite" below.

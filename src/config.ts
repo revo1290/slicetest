@@ -269,6 +269,7 @@ export const CONFIG_NAMES = ["slicetest.config.yaml", "slicetest.config.yml", "s
 
 export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOptions {
   validate(opts);
+  opts = withStringEnv(opts);
   return {
     root,
     app: { ...opts.app, ready: resolveReady(opts.app.ready ?? { path: "/" }) },
@@ -293,6 +294,19 @@ export function resolveOptions(opts: SlicetestOptions, root: string): ResolvedOp
     recordings: resolveRecordings(opts.stubs ?? []),
     intercept: Object.fromEntries((opts.stubs ?? []).flatMap((s) => (typeof s === "object" ? (s.hosts ?? []).map((h) => [h.toLowerCase(), s.name]) : []))),
     http: opts.http,
+  };
+}
+
+/** YAML reads `DEBUG: true` and `WORKERS: 2` as a boolean and a number; a process only takes strings. */
+function withStringEnv(opts: SlicetestOptions): SlicetestOptions {
+  const str = <T extends { env?: Record<string, string> }>(p: T): T => (p.env ? { ...p, env: Object.fromEntries(Object.entries(p.env).map(([k, v]) => [k, String(v)])) } : p);
+  const db = opts.db && opts.db.migrate && "command" in opts.db.migrate ? { ...opts.db, migrate: str(opts.db.migrate) } : opts.db;
+  return {
+    ...opts,
+    app: str(opts.app),
+    ...(opts.services ? { services: Object.fromEntries(Object.entries(opts.services).map(([n, s]) => [n, str(s)])) } : {}),
+    ...(opts.containers ? { containers: Object.fromEntries(Object.entries(opts.containers).map(([n, c]) => [n, str(c)])) } : {}),
+    ...(db !== undefined ? { db } : {}),
   };
 }
 
@@ -384,6 +398,16 @@ function validate(opts: SlicetestOptions) {
     if (ready !== undefined && !("path" in ready) && !("log" in ready)) fail(`${where}.ready must be { path } or { log }`);
     if (ready && "path" in ready && !ready.path.startsWith("/")) fail(`${where}.ready.path must start with "/", got "${ready.path}"`);
   };
+  const checkEnv = (env: unknown, where: string) => {
+    if (env === undefined) return;
+    if (!env || typeof env !== "object" || Array.isArray(env)) fail(`${where} maps variable names to values, e.g. { NODE_ENV: test }, got ${JSON.stringify(env)}`);
+    for (const [k, v] of Object.entries(env as object)) {
+      if (!["string", "number", "boolean"].includes(typeof v)) fail(`${where}.${k} must be a string, a number or true/false, got ${JSON.stringify(v)}`);
+    }
+  };
+  checkEnv(opts.app.env, "app.env");
+  for (const [name, s] of Object.entries(opts.services ?? {})) checkEnv(s?.env, `services.${name}.env`);
+  for (const [name, c] of Object.entries(opts.containers ?? {})) checkEnv(c?.env, `containers.${name}.env`);
   checkReady(opts.app.ready, "app");
   const checkTimeout = (v: unknown, where: string) => {
     if (v !== undefined && !(typeof v === "number" && v > 0)) fail(`${where} must be a positive number of milliseconds, got ${JSON.stringify(v)}`);
@@ -467,7 +491,7 @@ function validate(opts: SlicetestOptions) {
     const menv = (migrate as { env?: unknown }).env;
     if (menv !== undefined) {
       if (!("command" in migrate)) fail("db.migrate.env is for a migration `command`; atlas and sql get the database URL themselves");
-      if (!menv || typeof menv !== "object" || Array.isArray(menv) || Object.values(menv).some((v) => typeof v !== "string")) fail('db.migrate.env maps variable names to strings, e.g. { DB_HOST: "{{db.host}}" }');
+      checkEnv(menv, "db.migrate.env");
     }
   }
   const oas = opts.openapi;

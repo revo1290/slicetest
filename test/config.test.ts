@@ -130,3 +130,23 @@ test("app.restart, app.reset and app.idle are validated, for the app and for ser
   expect(() => resolveOptions({ app: { command: "x", reset: { path: "/r", method: "TRACE" } } }, "/")).toThrow("method must be GET, POST, PUT, PATCH, DELETE or HEAD");
   expect(resolveOptions({ app: { command: "x", reset: { path: "/r/a?b=c", method: "put" } } }, "/").app.reset).toEqual({ path: "/r/a?b=c", method: "put" });
 });
+
+test("env values written as YAML numbers or booleans become the strings a process sees", () => {
+  const out = resolveOptions(
+    {
+      app: { command: "x", env: { PORT: "{{app.port}}", DEBUG: true, WORKERS: 2 as never } as never },
+      services: { worker: { command: "y", env: { CONCURRENCY: 4 } as never } },
+      containers: { cache: { image: "redis", port: 6379, env: { MAXMEMORY: 0 } as never } },
+      db: { migrate: { command: "make migrate", env: { VERBOSE: false } as never } },
+    },
+    "/",
+  );
+  expect(out.app.env).toEqual({ PORT: "{{app.port}}", DEBUG: "true", WORKERS: "2" });
+  expect(out.services.worker!.env).toEqual({ CONCURRENCY: "4" });
+  expect(out.containers.cache!.env).toEqual({ MAXMEMORY: "0" });
+  expect((out.db.migrate as { env?: unknown }).env).toEqual({ VERBOSE: "false" });
+  expect(() => resolveOptions({ app: { command: "x", env: { DEBUG: null } as never } }, "/")).toThrow("app.env.DEBUG must be a string, a number or true/false, got null");
+  expect(() => resolveOptions({ app: { command: "x", env: { A: { b: 1 } } as never } }, "/")).toThrow('app.env.A must be a string, a number or true/false, got {"b":1}');
+  expect(() => resolveOptions({ app: { command: "x", env: ["PORT=1"] as never } }, "/")).toThrow("app.env maps variable names to values");
+  expect(() => resolveOptions({ ...valid, containers: { cache: { image: "redis", port: 6379, env: { A: [] } as never } } }, "/")).toThrow("containers.cache.env.A must be");
+});
