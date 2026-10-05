@@ -55,3 +55,8 @@ test("a wait that would outlast the test's timeout gives up first and says what 
   expect(block).toMatch(/app printed no line matching \/this line is never printed\/ within \d+ms \(the scenario's timeout of 5000ms ends then; raise it with `timeout:`\)/);
   expect(block.split("⎯⎯⎯")[0]).not.toContain("Test timed out");
 });
+
+test("expect.headers with null: the header must be absent", () => {
+  expect(output).toMatch(/[✓√] .*yaml header null passes when the header is absent/);
+  expect(output).toMatch(/yaml header null fails when the header is sent, step 1: GET \/json\)\nGET \/json: expected no content-type header, got "application\/json"/);
+});

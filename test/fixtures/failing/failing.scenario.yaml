@@ -37,3 +37,15 @@ scenarios:
   - name: yaml log wait gives up before the test timeout
     steps:
       - log: this line is never printed
+
+  - name: yaml header null passes when the header is absent
+    steps:
+      - request: GET /json
+        expect:
+          headers: { content-type: { $regex: json }, x-powered-by: null }
+
+  - name: yaml header null fails when the header is sent
+    steps:
+      - request: GET /json
+        expect:
+          headers: { content-type: null }

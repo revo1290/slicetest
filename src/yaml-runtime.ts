@@ -668,8 +668,13 @@ function isAsymmetric(v: unknown) {
 function verifyResponse(res: HttpResponse, e: { events?: Record<string, unknown>[]; cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {
   if (e?.status !== undefined) expect(res).toHaveStatus(interpolate(e.status, vars) as never);
   if (e?.headers !== undefined) {
-    const expected = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
-    check(Object.fromEntries(res.headers), expected, vars, "response headers");
+    // `null`: the response must not send that header (`x-powered-by: null`), as in `cookies`.
+    const entries = Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v] as const);
+    for (const [name] of entries.filter(([, v]) => v === null)) {
+      const sent = res.headers.get(name);
+      if (sent !== null) throw new Error(`${res.method} ${res.url}: expected no ${name} header, got ${JSON.stringify(sent)}`);
+    }
+    check(Object.fromEntries(res.headers), Object.fromEntries(entries.filter(([, v]) => v !== null)), vars, "response headers");
   }
   if (e?.json !== undefined) check(res.json, e.json, vars, "response JSON");
   if (e?.text !== undefined) check(res.text, e.text, vars, "response text");
