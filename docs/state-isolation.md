@@ -67,7 +67,7 @@ For a job the scenario itself needs to see finished, wait for the effect: `expec
 
 ## Scenario order
 
-With the reset in place, scenarios in a file give the same result in file order and in a shuffled order: `test/fixtures/isolation/order.scenario.ts` runs four scenarios that each leave rows, a cookie, a stub route and a cached count behind, in file order and with three seeded shuffles (`--sequence.shuffle.tests --sequence.seed=N`). With the default process reuse and an app that caches, the same file fails from the second scenario on, which is the intended signal: that suite depends on order. To check your own suite, run `npx slicetest --shuffle` (Vitest: `--sequence.shuffle`) a few times; a failure prints the seed, and `--shuffle --seed <n>` repeats that order.
+With the reset in place, scenarios in a file give the same result in file order and in a shuffled order: `test/fixtures/isolation/order.scenario.ts` runs four scenarios that each leave rows, a cookie, a stub route and a cached count behind, in file order and with three seeded shuffles (`--sequence.shuffle.tests --sequence.seed=N`). With the default process reuse and an app that caches, the same file fails from the second scenario on, which is the intended signal: that suite depends on order. To check your own suite, run `npx slicetest --shuffle` (Vitest: `--sequence.shuffle`) a few times; each run prints its seed (`Running tests with seed "…"`), and `--shuffle --seed <n>` repeats that order.
 
 ## Running in parallel
 
