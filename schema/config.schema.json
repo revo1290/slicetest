@@ -1,0 +1,675 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/slicetest/schema/config.schema.json",
+  "title": "slicetest config (slicetest.config.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "app"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command that starts it, run through the shell"
+        },
+        "build": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command run once per run before any worker starts it, e.g. npm run build"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Working directory, relative to the config file"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables. Values may use {{app.port}}, {{db.url}}, {{stub.<name>}}, {{service.<name>}}, {{container.<name>}}, {{mail.*}} and {{auth.*}}.",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "ready": {
+          "description": "How to tell the process is up",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^/",
+                  "description": "Polled until it answers below 500"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "log"
+              ],
+              "properties": {
+                "log": {
+                  "type": "string",
+                  "description": "A line the process prints when ready"
+                }
+              }
+            }
+          ]
+        },
+        "readyTimeout": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Milliseconds to wait for readiness (default 30000)"
+        },
+        "restart": {
+          "enum": [
+            "never",
+            "scenario"
+          ],
+          "description": "scenario: stop before each reset, start after"
+        },
+        "reset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path"
+          ],
+          "description": "Endpoint called after the database reset to drop in-process state",
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^/(?![/\\\\])[^\\s\\\\]*$",
+              "description": "A path on the process, e.g. /__test/reset"
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "HEAD",
+                "get",
+                "post",
+                "put",
+                "patch",
+                "delete",
+                "head"
+              ]
+            },
+            "timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000,
+              "description": "Milliseconds (default 5000)"
+            }
+          }
+        },
+        "idle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path"
+          ],
+          "description": "Endpoint polled after each scenario until it answers 2xx (no background work left)",
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^/(?![/\\\\])[^\\s\\\\]*$",
+              "description": "A path on the process, e.g. /__test/reset"
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "HEAD",
+                "get",
+                "post",
+                "put",
+                "patch",
+                "delete",
+                "head"
+              ]
+            },
+            "timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000,
+              "description": "Milliseconds (default 5000)"
+            }
+          }
+        },
+        "scope": {
+          "enum": [
+            "file",
+            "worker"
+          ],
+          "description": "worker: start the app once per Vitest worker instead of per test file"
+        }
+      }
+    },
+    "db": {
+      "description": "The database, or false for an app without one",
+      "oneOf": [
+        {
+          "const": false
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "engine": {
+              "enum": [
+                "postgres",
+                "mysql",
+                "sqlite"
+              ]
+            },
+            "image": {
+              "type": "string",
+              "description": "Default postgres:17-alpine, or mysql:8.4"
+            },
+            "url": {
+              "type": "string",
+              "description": "An existing server (superuser) instead of a container; default SLICETEST_DATABASE_URL"
+            },
+            "migrate": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "atlas"
+                  ],
+                  "properties": {
+                    "atlas": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "dir"
+                      ],
+                      "properties": {
+                        "dir": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sql"
+                  ],
+                  "properties": {
+                    "sql": {
+                      "type": "string",
+                      "description": "A SQL file or a directory of them"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "command"
+                  ],
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "env": {
+                      "type": "object",
+                      "description": "Environment variables. Values may use {{app.port}}, {{db.url}}, {{stub.<name>}}, {{service.<name>}}, {{container.<name>}}, {{mail.*}} and {{auth.*}}.",
+                      "additionalProperties": {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "seed": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              ],
+              "description": "SQL file(s) run after every reset"
+            },
+            "schemas": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "keep": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreChanges": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^.]"
+              },
+              "description": "updated_at, orders.synced_at, sessions.*"
+            },
+            "reuse": {
+              "type": "boolean"
+            },
+            "queries": {
+              "type": "boolean"
+            },
+            "neon": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "stubs": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "^[\\w-]+$"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[\\w-]+$"
+              },
+              "openapi": {
+                "type": "string",
+                "description": "The provider's OpenAPI spec"
+              },
+              "autoReply": {
+                "type": "boolean",
+                "description": "Answer unmatched calls from the spec"
+              },
+              "upstream": {
+                "type": "string",
+                "pattern": "^https?://[^/]",
+                "description": "The real service, for recordings"
+              },
+              "recordings": {
+                "type": "string"
+              },
+              "hosts": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "Hosts the app calls directly, answered by this stub"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "openapi": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "spec": {
+              "type": "string"
+            },
+            "fromApp": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "minCoverage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      ]
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "type": "object"
+        },
+        "follow": {
+          "type": "boolean"
+        },
+        "timeout": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[\\w-]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Command that starts it, run through the shell"
+          },
+          "build": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Command run once per run before any worker starts it, e.g. npm run build"
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Working directory, relative to the config file"
+          },
+          "env": {
+            "type": "object",
+            "description": "Environment variables. Values may use {{app.port}}, {{db.url}}, {{stub.<name>}}, {{service.<name>}}, {{container.<name>}}, {{mail.*}} and {{auth.*}}.",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          },
+          "ready": {
+            "description": "How to tell the process is up",
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Polled until it answers below 500"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "log"
+                ],
+                "properties": {
+                  "log": {
+                    "type": "string",
+                    "description": "A line the process prints when ready"
+                  }
+                }
+              }
+            ]
+          },
+          "readyTimeout": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Milliseconds to wait for readiness (default 30000)"
+          },
+          "restart": {
+            "enum": [
+              "never",
+              "scenario"
+            ],
+            "description": "scenario: stop before each reset, start after"
+          },
+          "reset": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path"
+            ],
+            "description": "Endpoint called after the database reset to drop in-process state",
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^/(?![/\\\\])[^\\s\\\\]*$",
+                "description": "A path on the process, e.g. /__test/reset"
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE",
+                  "HEAD",
+                  "get",
+                  "post",
+                  "put",
+                  "patch",
+                  "delete",
+                  "head"
+                ]
+              },
+              "timeout": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600000,
+                "description": "Milliseconds (default 5000)"
+              }
+            }
+          },
+          "idle": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path"
+            ],
+            "description": "Endpoint polled after each scenario until it answers 2xx (no background work left)",
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^/(?![/\\\\])[^\\s\\\\]*$",
+                "description": "A path on the process, e.g. /__test/reset"
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE",
+                  "HEAD",
+                  "get",
+                  "post",
+                  "put",
+                  "patch",
+                  "delete",
+                  "head"
+                ]
+              },
+              "timeout": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600000,
+                "description": "Milliseconds (default 5000)"
+              }
+            }
+          }
+        }
+      }
+    },
+    "containers": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[\\w-]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "image",
+          "port"
+        ],
+        "properties": {
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "env": {
+            "type": "object",
+            "description": "Environment variables. Values may use {{app.port}}, {{db.url}}, {{stub.<name>}}, {{service.<name>}}, {{container.<name>}}, {{mail.*}} and {{auth.*}}.",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "ready": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "log"
+            ],
+            "properties": {
+              "log": {
+                "type": "string"
+              }
+            }
+          },
+          "reset": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Run inside the container before each scenario"
+          }
+        }
+      }
+    },
+    "mail": {
+      "type": "boolean"
+    },
+    "offline": {
+      "type": "boolean"
+    },
+    "strictStubs": {
+      "type": "boolean"
+    },
+    "workers": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "auth": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "claims": {
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "CLI only: scenario files to run (default **/*.scenario.{yaml,yml})"
+    }
+  }
+}

@@ -76,6 +76,7 @@ test("init writes a config with the detections as comments, and refuses to overw
 
   expect(files).toEqual(["slicetest.config.yaml", path.join("scenarios", "smoke.scenario.yaml")]);
   const text = await readFile(path.join(root, "slicetest.config.yaml"), "utf8");
+  expect(text.split("\n")[0]).toBe("# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/config.schema.json");
   expect(text).toContain("# - db: schema.sql");
   expect(parse(text)).toMatchObject({ app: { command: "npm start", env: { PORT: "{{app.port}}" } }, db: { migrate: { sql: "schema.sql" } } });
   await expect(init(root)).rejects.toThrow("already exists. Use --force to overwrite.");

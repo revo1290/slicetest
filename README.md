@@ -771,6 +771,8 @@ Tags select scenarios across files: `npx slicetest --tag smoke` (repeat `--tag` 
 
 ### Configuration reference
 
+`slicetest.config.yaml` has a JSON Schema for editor completion and checks: put `# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/config.schema.json` on its first line (VS Code with the YAML extension, JetBrains IDEs), as `slicetest init` does. In YAML, `env` values may be numbers or booleans; they reach the process as strings.
+
 | Option | Default | |
 |---|---|---|
 | `app.command` | (required) | Shell command. May use `{{app.port}}` and the other placeholders. |

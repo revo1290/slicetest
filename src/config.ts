@@ -347,11 +347,11 @@ function resolveDb(db: DbOptions): ResolvedOptions["db"] {
   };
 }
 
-const TOP_LEVEL_KEYS = ["app", "db", "stubs", "openapi", "http", "services", "containers", "mail", "offline", "strictStubs", "workers", "auth", "include"] as const satisfies readonly (keyof SlicetestOptions | "include")[];
-const APP_KEYS = ["command", "build", "cwd", "env", "ready", "readyTimeout", "scope", "restart", "reset", "idle", "baseEnv"] as const;
-const STUB_KEYS = ["name", "openapi", "autoReply", "upstream", "recordings", "hosts"] as const satisfies readonly (keyof StubOptions)[];
-const CONTAINER_KEYS = ["image", "port", "env", "command", "ready", "reset"] as const satisfies readonly (keyof ContainerOptions)[];
-const DB_KEYS = ["engine", "image", "url", "migrate", "seed", "schemas", "keep", "ignoreChanges", "reuse", "queries", "neon"] as const satisfies readonly (keyof DbOptions)[];
+export const TOP_LEVEL_KEYS = ["app", "db", "stubs", "openapi", "http", "services", "containers", "mail", "offline", "strictStubs", "workers", "auth", "include"] as const satisfies readonly (keyof SlicetestOptions | "include")[];
+export const APP_KEYS = ["command", "build", "cwd", "env", "ready", "readyTimeout", "scope", "restart", "reset", "idle", "baseEnv"] as const;
+export const STUB_KEYS = ["name", "openapi", "autoReply", "upstream", "recordings", "hosts"] as const satisfies readonly (keyof StubOptions)[];
+export const CONTAINER_KEYS = ["image", "port", "env", "command", "ready", "reset"] as const satisfies readonly (keyof ContainerOptions)[];
+export const DB_KEYS = ["engine", "image", "url", "migrate", "seed", "schemas", "keep", "ignoreChanges", "reuse", "queries", "neon"] as const satisfies readonly (keyof DbOptions)[];
 
 export function editDistance(a: string, b: string) {
   const row = Array.from({ length: b.length + 1 }, (_, i) => i);

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `schema/config.schema.json`: a JSON Schema for `slicetest.config.yaml`, so editors complete and check the config as they already did scenarios (`# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/config.schema.json`). `slicetest init` writes that line. A test keeps its keys equal to what the config loader accepts.
+
 Changes that can alter an existing suite:
 
 - `submit` refuses a select, radio or checkbox value the page doesn't offer; send such a value with a plain request and `http.form()` / YAML `form:`.
