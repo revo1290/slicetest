@@ -279,7 +279,7 @@ export class Db {
 }
 
 /** A data seed file: `table: [rows]`, in file order; each row a mapping of columns. */
-function seedRows(file: string, text: string): [string, Row[]][] {
+export function seedRows(file: string, text: string): [string, Row[]][] {
   let doc: unknown;
   try {
     doc = path.extname(file).toLowerCase() === ".json" ? JSON.parse(text) : parseYaml(text);

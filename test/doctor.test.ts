@@ -102,3 +102,17 @@ test("without a config only the machine is checked", async () => {
   const checks = await doctor(undefined, healthy);
   expect(summary(checks).slice(1)).toEqual(["warn no slicetest.config.yaml", "ok container runtime: Docker 27 at localhost"]);
 });
+
+test("a YAML or JSON seed is read, and one that isn't rows per table fails with what is wrong", async () => {
+  const config = await project("app: { command: node server.js }\ndb: { migrate: { sql: schema.sql }, seed: [ok.yaml, bad.json, broken.yaml] }\n", {
+    "schema.sql": "",
+    "ok.yaml": "plans: [{ id: 1 }]\n",
+    "bad.json": '{ "plans": { "id": 1 } }',
+    "broken.yaml": "plans: [\n",
+  });
+  const checks = await doctor(config, healthy);
+  const seeds = checks.filter((c) => c.label.startsWith("seed"));
+  expect(seeds.map((c) => c.status)).toEqual(["ok", "fail", "fail"]);
+  expect(seeds[1]!.detail).toContain('"plans" must be a list of rows');
+  expect(seeds[2]!.label).toMatch(/broken\.yaml isn't valid/);
+});

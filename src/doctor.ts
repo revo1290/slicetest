@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { promisify } from "node:util";
 import { parse } from "yaml";
+import { seedRows } from "./db.js";
 import { resolveOptions, seedFiles, type ResolvedOptions, type SlicetestOptions } from "./config.js";
 import { configureContainerRuntime, loadContainers } from "./container-runtime.js";
 import { engineFor } from "./drivers/index.js";
@@ -129,7 +130,27 @@ export async function doctor(configPath: string | undefined, probes: Probes = ma
     }
   } else if ("sql" in m) await checkPath(add, "migrations", m.sql, root, rel);
   else for (const input of m.inputs ?? []) await checkPath(add, "migration input", input, root, rel);
-  for (const file of seedFiles(opts.db.seed)) await checkPath(add, "seed", file, root, rel);
+  for (const file of seedFiles(opts.db.seed)) {
+    if (!/\.(ya?ml|json)$/i.test(file)) {
+      await checkPath(add, "seed", file, root, rel);
+      continue;
+    }
+    // A data seed is read here, so a broken one is reported before any container starts.
+    let text: string;
+    try {
+      text = await readFile(path.resolve(root, file), "utf8");
+    } catch {
+      await checkPath(add, "seed", file, root, rel);
+      continue;
+    }
+    try {
+      const tables = seedRows(file, text);
+      add("ok", `seed ${rel(file)} (${tables.map(([t, rows]) => `${t} ×${rows.length}`).join(", ") || "no tables"})`);
+    } catch (e) {
+      const why = (e as Error).message.replace(/^slicetest: seed [^:]+: /, "");
+      add("fail", /must be a list|must map/.test(why) ? `seed ${rel(file)} isn't rows per table` : `seed ${rel(file)} isn't valid ${path.extname(file).slice(1).toUpperCase()}`, why);
+    }
+  }
 
   for (const [label, p] of [["app", opts.app], ...Object.entries(opts.services).map(([n, s]) => [`service ${n}`, s] as const)] as const) {
     if (p.cwd) await checkPath(add, `${label} cwd`, p.cwd, root, rel);
