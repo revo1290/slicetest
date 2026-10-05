@@ -47,8 +47,8 @@ export async function listScenarios(root: string, opts: { filters?: string[]; na
     if (opts.filters?.length && !opts.filters.some((f) => rel.includes(f))) continue;
     try {
       const doc = parseScenarioFile(await readFile(file, "utf8"), rel);
-      // Vitest's `.only` runs only the focused tests of that file.
-      const focused = doc.scenarios.some((sc) => sc.only && !sc.skip);
+      // Vitest's `.only` runs only the focused tests of that file; one the tag filter leaves out is registered as skipped.
+      const focused = doc.scenarios.some((sc) => sc.only && !sc.skip && tagsSelected(sc.tags ?? [], opts.tags));
       for (const sc of doc.scenarios) {
         const tags = sc.tags ?? [];
         // `-t` is matched against the title each row runs under (`vote {{c}}` → `vote a`).

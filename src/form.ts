@@ -229,6 +229,8 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
   // checkboxes and radios (true / false, or the values to check), the options of a select.
   const entries: [string, string | Blob][] = [];
   const done = new Set<string>();
+  // A name shared by checkboxes and a hidden field (Rails' check_box sends `0` unless the box is checked): typing checks the boxes.
+  const boxed = new Set(form.controls.filter((c) => c.tag === "input" && ["checkbox", "radio"].includes(c.attrs.type?.toLowerCase() ?? "")).map((c) => c.attrs.name));
   for (const c of form.controls) {
     const name = c.attrs.name;
     if (c === button && c.attrs.type?.toLowerCase() === "image") {
@@ -251,7 +253,7 @@ export function formRequest(html: string, opts: SubmitOptions = {}): FormRequest
       done.add(name);
       continue;
     }
-    const want = typed.get(name);
+    const want = type === "checkbox" || type === "radio" || !boxed.has(name) ? typed.get(name) : undefined;
     if (type === "checkbox" || type === "radio") {
       const value = c.attrs.value ?? "on";
       const checked = want === undefined ? "checked" in c.attrs : typeof want === "boolean" ? want : want.includes(value);

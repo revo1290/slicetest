@@ -58,3 +58,13 @@ test("-t matches the titles each row runs under, and only leaves out the rest of
   const focused = await listScenarios(root, { filters: ["focus"] });
   expect(focused.scenarios.map((s) => [s.name, s.status])).toEqual([["a", "filtered"], ["b", "only"]]);
 });
+
+test("an only: scenario the tag filter leaves out doesn't focus its file", async () => {
+  const root = await project();
+  await writeFile(
+    path.join(root, "scenarios/focus.scenario.yaml"),
+    "scenarios:\n  - name: a\n    steps: [{ checkpoint: true }]\n  - name: b\n    only: true\n    tags: [slow]\n    steps: [{ checkpoint: true }]\n",
+  );
+  const listed = await listScenarios(root, { filters: ["focus"], tags: "!slow" });
+  expect(listed.scenarios.map((s) => [s.name, s.status])).toEqual([["a", "run"], ["b", "filtered"]]);
+});

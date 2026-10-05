@@ -17,9 +17,9 @@ import { graphqlErrors } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
 import { sse, type MatchOptions, type RecordedCall, type RouteBuilder, type ServerSentEvent, type StubResponse } from "./stub.js";
 import { lookup, scenarioTitle, type ChangeSpec, type Conditions, type FilePart, type Step, type YamlFile, type YamlScenario } from "./yaml.js";
+import type { SubmitOptions } from "./form.js";
 
 export { lookup };
-import type { SubmitOptions } from "./form.js";
 
 type Vars = Record<string, unknown>;
 

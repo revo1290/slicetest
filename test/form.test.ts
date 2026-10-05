@@ -178,3 +178,11 @@ test("line breaks are sent as CRLF, as browsers send them", () => {
   const multipart = html.replace('method="post"', 'method="post" enctype="multipart/form-data"');
   expect(entries(formRequest(multipart).body)).toEqual([["note", "a\r\nb"], ["x", ""]]);
 });
+
+test("Rails' check_box pair: the hidden field of the same name keeps its value; typing applies to the checkbox", () => {
+  const html = `<form method="post"><input name="remember" type="hidden" value="0"><input type="checkbox" value="1" name="remember"><button>Go</button></form>`;
+  expect(entries(formRequest(html).body)).toEqual([["remember", "0"]]);
+  expect(entries(formRequest(html, { fields: { remember: true } }).body)).toEqual([["remember", "0"], ["remember", "1"]]);
+  expect(entries(formRequest(html, { fields: { remember: ["1"] } }).body)).toEqual([["remember", "0"], ["remember", "1"]]);
+  expect(entries(formRequest(html, { fields: { remember: false } }).body)).toEqual([["remember", "0"]]);
+});

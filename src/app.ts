@@ -161,8 +161,8 @@ export class App {
    * await service("worker").waitForLog(/order \d+ shipped/);
    * ```
    */
-  async waitForLog(pattern: string | RegExp, within = 5000): Promise<string> {
-    const { ms: timeout, note } = waitBudget(within);
+  async waitForLog(pattern: string | RegExp, timeout = 5000): Promise<string> {
+    const { ms, note } = waitBudget(timeout);
     const re = typeof pattern === "string" ? new RegExp(escapeRegExp(pattern)) : new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
     const n = Math.min(this.#lineCount - this.#scenarioMark, this.#log.length);
     const seen = n > 0 ? this.#log.slice(-n).find((l) => re.test(l)) : undefined;
@@ -177,8 +177,8 @@ export class App {
         if (re.test(line)) done(() => resolve(line));
       };
       const timer = setTimeout(
-        () => done(() => reject(new Error(`slicetest: ${this.label} printed no line matching ${re} within ${timeout}ms${note}. Output during this scenario:\n${this.logs(this.#scenarioMark) || "(none)"}`))),
-        timeout,
+        () => done(() => reject(new Error(`slicetest: ${this.label} printed no line matching ${re} within ${ms}ms${note}. Output during this scenario:\n${this.logs(this.#scenarioMark) || "(none)"}`))),
+        ms,
       );
       this.#listeners.add(listener);
     });
