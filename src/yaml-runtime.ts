@@ -16,7 +16,9 @@ import path from "node:path";
 import { graphqlErrors } from "./graphql.js";
 import { schemaProblems } from "./schema.js";
 import { sse, type MatchOptions, type RecordedCall, type RouteBuilder, type ServerSentEvent, type StubResponse } from "./stub.js";
-import type { ChangeSpec, Conditions, FilePart, Step, YamlFile, YamlScenario } from "./yaml.js";
+import { lookup, scenarioTitle, type ChangeSpec, type Conditions, type FilePart, type Step, type YamlFile, type YamlScenario } from "./yaml.js";
+
+export { lookup };
 import type { SubmitOptions } from "./form.js";
 
 type Vars = Record<string, unknown>;
@@ -27,7 +29,7 @@ export function defineYamlScenarios(doc: YamlFile) {
     const register = sc.only ? scenario.only : sc.skip ? scenario.skip : scenario;
     const rows = sc.each ?? [undefined];
     rows.forEach((row, i) => {
-      const title = row ? interpolateTitle(sc.name, row, i) : sc.name;
+      const title = row ? scenarioTitle(sc.name, row, i) : sc.name;
       register(title, (ctx) => {
         seq = 0;
         return runSteps(doc, sc, [...doc.setup, ...sc.steps], ctx, { ...row });
@@ -461,15 +463,6 @@ function splitCall(s: string): [string, string] {
   return [s.slice(0, i).toUpperCase(), s.slice(i).trim()];
 }
 
-/** `json.items[0].id` or `json.items.0.id` */
-export function lookup(obj: unknown, path: string): unknown {
-  return path
-    .replace(/\[(\d+)\]/g, ".$1")
-    .split(".")
-    .filter(Boolean)
-    .reduce<unknown>((cur, key) => (cur == null ? undefined : (cur as Record<string, unknown>)[key]), obj);
-}
-
 const WHOLE = /^\{\{\s*([^{}]+?)\s*\}\}$/;
 const PART = /\{\{\s*([^{}]+?)\s*\}\}/g;
 
@@ -670,14 +663,6 @@ export function toMatchers(value: unknown): unknown {
 
 function isAsymmetric(v: unknown) {
   return !!v && typeof v === "object" && typeof (v as { asymmetricMatch?: unknown }).asymmetricMatch === "function";
-}
-
-function interpolateTitle(name: string, row: Record<string, unknown>, index: number) {
-  return name.replace(PART, (m, key: string) => {
-    if (key.trim() === "#") return String(index);
-    const v = lookup(row, key);
-    return v === undefined ? m : typeof v === "object" ? JSON.stringify(v) : String(v);
-  });
 }
 
 function verifyResponse(res: HttpResponse, e: { events?: Record<string, unknown>[]; cookies?: Record<string, Record<string, unknown> | null>; duration?: number | Record<string, unknown>; status?: ExpectedStatus; headers?: Record<string, unknown>; json?: unknown; text?: unknown; schema?: string | object } | undefined, vars: Vars, base?: string) {

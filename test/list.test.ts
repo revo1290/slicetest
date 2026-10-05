@@ -37,3 +37,24 @@ test("filters by file and name like a run does", async () => {
   expect(listed.scenarios.map((s) => [s.name, s.status])).toEqual([["create", "filtered"], ["vote {{c}}", "run"], ["later", "skip"]]);
   expect(listed.errors).toEqual([]);
 });
+
+test("lists only the files the config's include selects, as a run does", async () => {
+  const root = await project();
+  await mkdir(path.join(root, "drafts"));
+  await writeFile(path.join(root, "drafts/wip.scenario.yaml"), "scenarios:\n  - name: wip\n    steps: [{ checkpoint: true }]\n");
+  const listed = await listScenarios(root, { include: ["scenarios/**/*.scenario.yaml"] });
+  expect([...new Set(listed.scenarios.map((s) => s.file))]).toEqual(["scenarios/polls.scenario.yaml"]);
+  expect((await listScenarios(root)).scenarios.map((s) => s.file)).toContain("drafts/wip.scenario.yaml");
+});
+
+test("-t matches the titles each row runs under, and only leaves out the rest of its file", async () => {
+  const root = await project();
+  const byRow = await listScenarios(root, { name: "vote b" });
+  expect(byRow.scenarios.find((s) => s.line === 7)).toMatchObject({ status: "run", rows: 1 });
+  await writeFile(
+    path.join(root, "scenarios/focus.scenario.yaml"),
+    "scenarios:\n  - name: a\n    steps: [{ checkpoint: true }]\n  - name: b\n    only: true\n    steps: [{ checkpoint: true }]\n",
+  );
+  const focused = await listScenarios(root, { filters: ["focus"] });
+  expect(focused.scenarios.map((s) => [s.name, s.status])).toEqual([["a", "filtered"], ["b", "only"]]);
+});

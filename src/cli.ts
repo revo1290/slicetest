@@ -154,7 +154,8 @@ export async function main(argv = process.argv.slice(2)) {
   if (positionals[0] === "list") {
     const root = configPath && existsSync(configPath) ? path.dirname(configPath) : process.cwd();
     const { listScenarios, formatList } = await import("./list.js");
-    const listed = await listScenarios(root, { filters: positionals.slice(1), name: values.name, tags: values.tag?.join(",") });
+    const config = configPath && existsSync(configPath) ? ((parse(await readFile(configPath, "utf8")) ?? {}) as CliConfig) : undefined;
+    const listed = await listScenarios(root, { filters: positionals.slice(1), name: values.name, tags: values.tag?.join(","), include: config?.include });
     process.stdout.write(values.json ? `${JSON.stringify(listed, null, 2)}\n` : formatList(listed));
     if (listed.errors.length) process.exitCode = 1;
     return;
@@ -181,7 +182,7 @@ export async function main(argv = process.argv.slice(2)) {
     process.exitCode = 1;
     return;
   }
-  const { slicetest, YAML_SCENARIOS } = await import("./vitest.js");
+  const { slicetestPlugin, YAML_SCENARIOS } = await import("./vitest.js");
   const start = compatStart(vitestNode);
   const run = runOptions(values);
   const vitest = await start(
@@ -195,7 +196,7 @@ export async function main(argv = process.argv.slice(2)) {
       testNamePattern: values.name,
       ...run,
     },
-    { plugins: [slicetest(options)] },
+    { plugins: [slicetestPlugin(options, { include: include ?? [YAML_SCENARIOS] })] },
   );
   if (!values.watch) await vitest?.close();
 }

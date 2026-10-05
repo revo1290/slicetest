@@ -35,6 +35,11 @@ const ext = path.extname(fileURLToPath(import.meta.url));
  * Vitest root), or nothing to read the slicetest.config.yaml next to the Vitest config.
  */
 export function slicetest(options?: SlicetestOptions | string): Plugin {
+  return slicetestPlugin(options);
+}
+
+/** @internal `include`: the CLI's test files, used as they are instead of extending Vitest's. */
+export function slicetestPlugin(options?: SlicetestOptions | string, cli: { include?: string[] } = {}): Plugin {
   let root: string | undefined;
   return {
     name: "slicetest",
@@ -42,8 +47,8 @@ export function slicetest(options?: SlicetestOptions | string): Plugin {
       const root = path.resolve(config.root ?? process.cwd());
       // Mutated rather than returned: a returned list would replace Vitest's default include instead of extending it.
       const test = ((config as { test?: { include?: string[] } }).test ??= {});
-      // `slicetest record` runs only its session file.
-      if (!process.env[SESSION_ENV]) test.include = [...(test.include ?? configDefaults.include), YAML_SCENARIOS];
+      // `slicetest record` runs only its session file. Extending the CLI's include would run every scenario file.
+      if (!process.env[SESSION_ENV]) test.include = cli.include ?? [...(test.include ?? configDefaults.include), YAML_SCENARIOS];
       const resolved = resolveOptions(typeof options === "object" ? options : loadConfigFile(root, options), root);
       return {
         test: {

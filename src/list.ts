@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { tagsSelected } from "./scenario.js";
-import { parseScenarioFile } from "./yaml.js";
+import { parseScenarioFile, scenarioTitle } from "./yaml.js";
 
 export interface ListedScenario {
   file: string;
@@ -13,6 +13,12 @@ export interface ListedScenario {
   /** Rows of `each`: the scenario runs once per row. */
   rows: number;
   steps: number;
+}
+
+function matchesGlob(file: string, glob: string) {
+  const match = (path as { matchesGlob?: (p: string, g: string) => boolean }).matchesGlob;
+  if (!match) throw new Error("slicetest list: the config's include needs Node.js 20.17 or later (path.matchesGlob)");
+  return match(file, glob.replace(/^\.\//, ""));
 }
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "target", "vendor", ".venv", "venv"]);
@@ -31,25 +37,31 @@ async function scenarioFiles(dir: string, out: string[] = []): Promise<string[]>
  * would do, which `--tag` / `-t` select, and for tools (`--json`). Files that don't parse are
  * reported in `errors` with their line, as a run would report them.
  */
-export async function listScenarios(root: string, opts: { filters?: string[]; name?: string; tags?: string } = {}) {
+export async function listScenarios(root: string, opts: { filters?: string[]; name?: string; tags?: string; include?: string[] } = {}) {
   const scenarios: ListedScenario[] = [];
   const errors: string[] = [];
   const pattern = opts.name ? new RegExp(opts.name) : undefined;
   for (const file of await scenarioFiles(root)) {
     const rel = path.relative(root, file).split(path.sep).join("/");
+    if (opts.include && !opts.include.some((glob) => matchesGlob(rel, glob))) continue;
     if (opts.filters?.length && !opts.filters.some((f) => rel.includes(f))) continue;
     try {
       const doc = parseScenarioFile(await readFile(file, "utf8"), rel);
+      // Vitest's `.only` runs only the focused tests of that file.
+      const focused = doc.scenarios.some((sc) => sc.only && !sc.skip);
       for (const sc of doc.scenarios) {
         const tags = sc.tags ?? [];
-        const selected = tagsSelected(tags, opts.tags) && (!pattern || pattern.test(sc.name));
+        // `-t` is matched against the title each row runs under (`vote {{c}}` → `vote a`).
+        const titles = sc.each ? sc.each.map((row, i) => scenarioTitle(sc.name, row, i)) : [sc.name];
+        const rows = pattern ? titles.filter((t) => pattern.test(t)).length : titles.length;
+        const selected = tagsSelected(tags, opts.tags) && rows > 0 && (!focused || !!sc.only);
         scenarios.push({
           file: rel,
           line: sc.line,
           name: sc.name,
           tags,
           status: sc.skip ? "skip" : !selected ? "filtered" : sc.only ? "only" : "run",
-          rows: sc.each?.length ?? 1,
+          rows: selected ? rows : titles.length,
           steps: doc.setup.length + sc.steps.length,
         });
       }

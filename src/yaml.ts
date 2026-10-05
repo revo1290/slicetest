@@ -8,6 +8,24 @@ import { WEBHOOK_PROVIDERS as PROVIDERS } from "./webhook.js";
  * known); yaml-runtime.ts runs the result inside a worker.
  */
 
+/** `json.items[0].id` or `json.items.0.id` */
+export function lookup(obj: unknown, path: string): unknown {
+  return path
+    .replace(/\[(\d+)\]/g, ".$1")
+    .split(".")
+    .filter(Boolean)
+    .reduce<unknown>((cur, key) => (cur == null ? undefined : (cur as Record<string, unknown>)[key]), obj);
+}
+
+/** The title a row of `each` runs under: `{{field}}` from the row, `{{#}}` its index. */
+export function scenarioTitle(name: string, row: Record<string, unknown>, index: number) {
+  return name.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, key: string) => {
+    if (key.trim() === "#") return String(index);
+    const v = lookup(row, key);
+    return v === undefined ? m : typeof v === "object" ? JSON.stringify(v) : String(v);
+  });
+}
+
 export interface YamlFile {
   file: string;
   /** Absolute path, for CI annotations. */
