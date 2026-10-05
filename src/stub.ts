@@ -798,8 +798,9 @@ async function parseMultipart(raw: Buffer, contentType: string): Promise<Record<
             size: value.size,
             ...(TEXTUAL.test(value.type) ? { text: await value.text() } : {}),
           } satisfies UploadedFile);
-    const prev = out[key];
-    out[key] = prev === undefined ? v : Array.isArray(prev) ? [...prev, v] : [prev, v];
+    // `out[key]` would read Object's `constructor` and set the prototype for `__proto__`.
+    const prev = Object.hasOwn(out, key) ? out[key] : undefined;
+    Object.defineProperty(out, key, { value: prev === undefined ? v : Array.isArray(prev) ? [...prev, v] : [prev, v], enumerable: true, writable: true, configurable: true });
   }
   return out;
 }

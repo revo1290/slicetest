@@ -363,3 +363,19 @@ test("a * segment matches the rest of the path, slashes included, and is capture
   expect((await fetch(`${stub.url}/bucket/`, { method: "PUT" })).status).toBe(501);
   expect(stub.calls("PUT", "/bucket/*")).toHaveLength(1);
 });
+
+test("multipart fields named like Object's own properties are read as sent", async () => {
+  stub.on("POST", "/files").reply(201);
+  const body = new FormData();
+  body.append("constructor", "a");
+  body.append("toString", "b");
+  body.append("__proto__", new Blob(["x"], { type: "text/plain" }), "p.txt");
+  await fetch(`${stub.url}/files`, { method: "POST", body });
+
+  const form = stub.calls()[0]!.form!;
+  expect(Object.keys(form)).toEqual(["constructor", "toString", "__proto__"]);
+  expect(form.constructor).toBe("a");
+  expect(form.toString).toBe("b");
+  expect(Object.getOwnPropertyDescriptor(form, "__proto__")?.value).toEqual({ filename: "p.txt", type: "text/plain", size: 1, text: "x" });
+  expect(Object.getPrototypeOf(form)).toBe(Object.prototype);
+});
