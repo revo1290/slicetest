@@ -8,6 +8,9 @@ export interface RunFlags {
   reporter?: string[];
   "output-file"?: string;
   shard?: string;
+  retry?: string;
+  shuffle?: boolean;
+  seed?: string;
 }
 
 /** Vitest options for the run flags of `npx slicetest`; paths are taken from where the command runs, like `--diagrams`. */
@@ -16,8 +19,13 @@ export function runOptions(flags: RunFlags, cwd = process.cwd()) {
     const m = /^(\d+)\/(\d+)$/.exec(flags.shard);
     if (!m || Number(m[1]) < 1 || Number(m[1]) > Number(m[2])) throw new Error(`slicetest: --shard takes <index>/<count> with 1 ≤ index ≤ count, e.g. --shard 1/3, got "${flags.shard}"`);
   }
+  if (flags.retry !== undefined && !/^\d+$/.test(flags.retry)) throw new Error(`slicetest: --retry takes a whole number of retries, e.g. --retry 2, got "${flags.retry}"`);
+  if (flags.seed !== undefined && !flags.shuffle) throw new Error("slicetest: --seed goes with --shuffle (--shuffle --seed 1234 repeats a shuffled order)");
+  if (flags.seed !== undefined && !/^[1-9]\d*$/.test(flags.seed)) throw new Error(`slicetest: --seed takes a positive whole number, got "${flags.seed}"`);
   return {
     ...(flags.update ? { update: true } : {}),
+    ...(flags.retry !== undefined ? { retry: Number(flags.retry) } : {}),
+    ...(flags.shuffle ? { sequence: { shuffle: true, ...(flags.seed ? { seed: Number(flags.seed) } : {}) } } : {}),
     ...(flags.reporter?.length ? { reporters: flags.reporter } : {}),
     ...(flags["output-file"] ? { outputFile: path.resolve(cwd, flags["output-file"]) } : {}),
     ...(flags.shard ? { shard: flags.shard } : {}),
@@ -44,6 +52,9 @@ const OPTIONS = {
   reporter: { type: "string", multiple: true },
   "output-file": { type: "string" },
   shard: { type: "string" },
+  retry: { type: "string" },
+  shuffle: { type: "boolean" },
+  seed: { type: "string" },
 } as const;
 
 /** parseArgs, with its errors worded for this CLI (and a guess at a misspelt option). */

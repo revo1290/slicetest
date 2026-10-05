@@ -967,6 +967,9 @@ npx slicetest list --tag smoke # what would run: file, line, tags, steps (--json
 npx slicetest -u              # rewrite `snapshot: true` snapshots that no longer match
 npx slicetest --reporter junit --output-file reports/slicetest.xml   # GitLab, Jenkins, CircleCI test reports
 npx slicetest --shard 2/4     # the second of four parts, for parallel CI jobs
+npx slicetest --shuffle       # scenarios in a random order (the seed is printed): a scenario that only passes after another one leans on state the reset doesn't clear
+npx slicetest --shuffle --seed 1791208846  # that order again
+npx slicetest --retry 2       # run a failing scenario up to twice more (each attempt after a fresh reset)
 npx slicetest --version       # the installed version; an unknown option names the nearest one
 ```
 

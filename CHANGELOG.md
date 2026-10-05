@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `npx slicetest --shuffle` runs scenarios in a random order and prints the seed; `--seed <n>` repeats that order. A scenario that passes in file order and fails shuffled depends on what another one left behind (see [state between scenarios](docs/state-isolation.md)). `--retry <n>` runs a failing scenario again, after a fresh reset. Checked with the CLI: the same seed gives the same order, another seed another one, and a scenario that fails once passes with `--retry 1` (`retry x1`).
 - YAML matcher `$absent: true`: the key must not be in the response (or row, or event), at any depth, e.g. `user: { password_hash: { $absent: true } }`. Expected JSON is a subset, so there was no way to say a key mustn't be there: even `{ $not: { $any: true } }` failed on a missing key, because a subset match never looks at keys it doesn't find. The failure names the path and the value that was there.
 - YAML matcher `$format` knows `jwt` (three base64url parts whose header is JSON naming its `alg`, for an endpoint that returns a token), `ipv4`, `ipv6`, `hostname`, `time` and `ulid`.
 - `toHaveStatuses` and YAML `expect.statuses` take status classes, like `status` already did: `{ 201: 1, 4xx: 9 }` counts every 4xx response the listed codes don't take, so a race test doesn't need to know whether the losers get 409 or 422. The failure lists the counts in status order.

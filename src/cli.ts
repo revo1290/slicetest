@@ -53,6 +53,10 @@ Options:
                        github-actions (repeat for several)
       --output-file <file> Where junit / json / tap reporters write
       --shard <i/n>    Run the i-th of n parts of the suite (split CI jobs)
+      --shuffle        Run scenarios in a random order (the seed is printed), to find
+                       ones that depend on another's leftovers
+      --seed <n>       With --shuffle: repeat the order of that seed
+      --retry <n>      Run a failing scenario up to n more times
       --diagrams <dir> Write a Mermaid sequence diagram of every scenario to <dir>,
                        one Markdown page per scenario file
   -v, --version        Show the version

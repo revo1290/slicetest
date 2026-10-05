@@ -42,3 +42,13 @@ test("startVitest is called the way the installed Vitest takes it: 4 wants the m
 
   expect(seen).toEqual([["test", ["a"], { run: true }], [["a"], { run: true }]]);
 });
+
+test("--retry, --shuffle and --seed become Vitest's retry and sequence options", () => {
+  expect(runOptions({ retry: "2" })).toEqual({ retry: 2 });
+  expect(runOptions({ shuffle: true })).toEqual({ sequence: { shuffle: true } });
+  expect(runOptions({ shuffle: true, seed: "1234" })).toEqual({ sequence: { shuffle: true, seed: 1234 } });
+  expect(() => runOptions({ retry: "x" })).toThrow('--retry takes a whole number of retries, e.g. --retry 2, got "x"');
+  expect(() => runOptions({ seed: "1" })).toThrow("--seed goes with --shuffle");
+  expect(() => runOptions({ shuffle: true, seed: "-1" })).toThrow('--seed takes a positive whole number, got "-1"');
+  expect(parseCliArgs(["--shuffle", "--seed", "7", "--retry", "1"]).values).toMatchObject({ shuffle: true, seed: "7", retry: "1" });
+});
