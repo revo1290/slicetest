@@ -5,6 +5,8 @@
 Fixes:
 
 - An `env` value written as a YAML number or boolean (`DEBUG: true`, `WORKERS: 2`) in `app`, `services`, `containers` or `db.migrate` stopped every scenario with `template.replace is not a function`. Such values are now passed as the strings the process sees (`"true"`, `"2"`); anything else (a list, a mapping, `null`) fails before the run, naming the key: `app.env.DEBUG must be a string, a number or true/false, got null`.
+- A YAML `mail` field with `{ $regex, $options: i }` ignored `$options`, so a case-insensitive pattern never matched, and any other mapping (`{ $contains: x }`) was compared as the text `[object Object]`. Flags now apply, and another mapping fails naming the field.
+- A multipart field named `constructor` or `toString` arrived in a stub's `call.form` as a list starting with Object's own function, and one named `__proto__` replaced the object's prototype instead of showing up. They are read as sent now, like form-encoded fields already were.
 
 ## 0.10.0
 

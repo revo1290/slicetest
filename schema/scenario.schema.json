@@ -1563,6 +1563,10 @@
                       "properties": {
                         "$regex": {
                           "type": "string"
+                        },
+                        "$options": {
+                          "type": "string",
+                          "description": "Flags for $regex, e.g. i"
                         }
                       }
                     }
@@ -1582,6 +1586,10 @@
                       "properties": {
                         "$regex": {
                           "type": "string"
+                        },
+                        "$options": {
+                          "type": "string",
+                          "description": "Flags for $regex, e.g. i"
                         }
                       }
                     }
@@ -1601,6 +1609,10 @@
                       "properties": {
                         "$regex": {
                           "type": "string"
+                        },
+                        "$options": {
+                          "type": "string",
+                          "description": "Flags for $regex, e.g. i"
                         }
                       }
                     }
@@ -1620,6 +1632,10 @@
                       "properties": {
                         "$regex": {
                           "type": "string"
+                        },
+                        "$options": {
+                          "type": "string",
+                          "description": "Flags for $regex, e.g. i"
                         }
                       }
                     }
@@ -1639,6 +1655,10 @@
                       "properties": {
                         "$regex": {
                           "type": "string"
+                        },
+                        "$options": {
+                          "type": "string",
+                          "description": "Flags for $regex, e.g. i"
                         }
                       }
                     }

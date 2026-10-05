@@ -870,7 +870,7 @@ scenarios:
 | `changes: { <table>: { inserted, updated, deleted } }` | Each is a count or a list of subset rows (`updated` matches the row after the update). Tables that aren't listed must be unchanged. `ignore: [updated_at, sessions.*]` leaves out columns and tables. |
 | `checkpoint: true` | Later `changes` steps only see what happens after this step. |
 | `set: { name: value }` | Defines variables for later steps, e.g. `{ orderId: "{{$uuid}}", expires: "{{$now+1d}}" }`. |
-| `mail: { to, from, subject, text, html }` | `times` (exact; default at least one), `within` (ms, default 5000), `capture` from the last match (`subject`, `text`, `links.0`). Waits for mail the app sends. `{}` matches any message. |
+| `mail: { to, from, subject, text, html }` | `times` (exact; default at least one), `within` (ms, default 5000), `capture` from the last match (`subject`, `text`, `links.0`). Waits for mail the app sends. `{}` matches any message. A field takes a string or `{ $regex, $options }`. |
 | `use: <definition>` | `with: { param: value }`. Runs the steps of a `define:` entry. |
 | `snapshot: true` | The scenario's [trace](#snapshot-the-whole-scenario-trace) so far must match its stored snapshot. `mask: [keys]` hides more values. |
 

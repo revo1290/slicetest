@@ -9,3 +9,11 @@ scenarios:
         capture: { link: links.0 }
       - request: GET {{link}}
         expect: { text: confirmed tok123 }
+
+  - name: yaml mail step takes $regex flags from $options
+    steps:
+      - request: POST /signup
+        query: { email: dave@example.com }
+        expect: { status: 202 }
+      - mail: { to: { $regex: "@EXAMPLE\\.com$", $options: i }, subject: { $regex: "^confirm", $options: i } }
+        times: 1

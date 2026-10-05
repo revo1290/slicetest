@@ -142,8 +142,10 @@ async function runStep(step: Step, ctx: ScenarioContext, vars: Vars, base?: stri
   if ("mail" in step) {
     const filter = Object.fromEntries(
       Object.entries(interpolate(step.mail, vars) as Record<string, unknown>).map(([k, v]) => {
-        const re = v && typeof v === "object" && "$regex" in v ? new RegExp(String((v as { $regex: unknown }).$regex)) : undefined;
-        return [k, re ?? String(v)];
+        if (!v || typeof v !== "object") return [k, String(v)];
+        const { $regex, $options, ...rest } = v as Record<string, unknown>;
+        if ($regex === undefined || Object.keys(rest).length) throw new Error(`mail ${k}: takes a string or { $regex, $options }, got ${JSON.stringify(v)}`);
+        return [k, regexOf($regex, $options)];
       }),
     ) as MailFilter;
     const box = ctx.mail;
