@@ -36,9 +36,10 @@ http
       }
       if (route === "POST /items/later") {
         const { delayMs = 150, body = "late" } = await readJson(req);
+        // Pending until the row is written: on a slow disk the insert itself took most of a second.
         const timer = setTimeout(() => {
-          pending.delete(timer);
           db.prepare("INSERT INTO items (owner, body) VALUES ('', ?)").run(body);
+          pending.delete(timer);
         }, delayMs);
         pending.add(timer);
         return send(res, 202, {});

@@ -156,7 +156,7 @@ export default defineConfig({
 2. **Once per worker.** It clones the template into the worker's own database.
 3. **Once per test file.** It starts the stub servers, your `services` and your app.
 4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app or a service crashed in the previous scenario, or has `restart: scenario`, it is stopped before the reset and started after it.
-5. **After each scenario.** The scenario fails if the app or a service crashed (a process that no longer accepts connections on its port is given up to 3 s to report its exit, so a slow machine doesn't blame the crash on the next scenario), the app called a stub route you didn't register, or (with `openapi`) any traffic didn't match the spec. With `idle`, it waits for the app's background work to finish before those checks.
+5. **After each scenario.** The scenario fails if the app or a service crashed (a process that stopped serving connections on its port is given up to 3 s to report its exit, so a slow machine doesn't blame the crash on the next scenario), the app called a stub route you didn't register, or (with `openapi`) any traffic didn't match the spec. With `idle`, it waits for the app's background work to finish before those checks.
 
 Database names are unique per run, so several projects or CI jobs can share one Postgres server via `db.url`.
 

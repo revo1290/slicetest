@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- A crash of the app or a service now fails the scenario that caused it on a slow machine too. After each scenario slicetest waited 20 ms (100 ms on Windows) for the exit event; on a loaded Windows runner it came later, and the crash was reported in the next scenario. A process that accepted connections on its port and now refuses them is given up to 3 s.
+- SQLite on Windows: with `app.restart: scenario`, the first scenario could fail with `disk I/O error` (`SQLITE_IOERR_TRUNCATE`) in the database reset. slicetest's connection now reads as soon as it connects, before the app starts, instead of first reading right after the app was stopped.
+- A crash of the app or a service now fails the scenario that caused it on a slow machine too. After each scenario slicetest waited 20 ms (100 ms on Windows) for the exit event; on a loaded Windows runner it came later, and the crash was reported in the next scenario. A process that accepted connections on its port and now refuses or drops them is given up to 3 s; one still serving is not waited for any longer than before.
 
 ## 0.10.0
 

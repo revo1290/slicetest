@@ -107,7 +107,7 @@ export class App {
     running.add(app);
     try {
       await app.#waitReady(opts);
-      app.#listened = (await probePort(port)) === "open";
+      app.#listened = (await probePort(port, 0)) === "open";
     } catch (e) {
       await app.stop();
       if (app.#exit && ADDRESS_IN_USE.test(app.logs())) throw new PortInUse((e as Error).message);
@@ -127,13 +127,17 @@ export class App {
    */
   async settle(ms = WINDOWS ? 100 : 20) {
     if (this.#exit) return this.#exit;
-    // A crashed process closes its port before its exit event arrives, which took over 100 ms on a loaded
-    // Windows runner; the crash was then blamed on the next scenario.
-    if (this.#listened && (await probePort(this.port)) === "refused") ms = Math.max(ms, KILL_GRACE_MS);
+    // A crashed process stops serving its port before its exit event arrives, which took over 100 ms on a
+    // loaded Windows runner; the crash was then blamed on the next scenario.
+    const [, port] = await Promise.all([this.#waitExit(ms), this.#listened ? probePort(this.port, ms) : undefined]);
+    if (!this.#exit && port === "gone") await this.#waitExit(KILL_GRACE_MS);
+    return this.#exit;
+  }
+
+  async #waitExit(ms: number) {
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([this.#exited, new Promise((r) => (timer = setTimeout(r, ms)))]);
     clearTimeout(timer);
-    return this.#exit;
   }
 
   /** The app's recent output (last 200 lines), or only what it printed after `since` (a value from `mark()`). */
@@ -305,17 +309,26 @@ const ADDRESS_IN_USE = /EADDRINUSE|address already in use|Address in use|BindExc
 
 class PortInUse extends Error {}
 
-/** "refused" only when nothing listens; a slow or odd answer counts as open, so a live process is never waited for. */
-function probePort(port: number): Promise<"open" | "refused"> {
+/**
+ * Connects and holds the connection for `holdMs`: "gone" if it is refused, reset or closed meanwhile (a dying
+ * process may still accept for a moment). A slow connect counts as "open", so a live process is never waited for.
+ */
+function probePort(port: number, holdMs: number): Promise<"open" | "gone"> {
   return new Promise((resolve) => {
     const socket = connect({ port, host: "127.0.0.1" });
-    const done = (result: "open" | "refused") => {
+    let timer: NodeJS.Timeout | undefined;
+    const done = (result: "open" | "gone") => {
+      clearTimeout(timer);
       socket.destroy();
       resolve(result);
     };
     socket.setTimeout(500, () => done("open"));
-    socket.on("connect", () => done("open"));
-    socket.on("error", (e: NodeJS.ErrnoException) => done(e.code === "ECONNREFUSED" ? "refused" : "open"));
+    socket.on("connect", () => {
+      socket.setTimeout(0);
+      timer = setTimeout(() => done("open"), holdMs);
+    });
+    socket.on("error", () => done("gone"));
+    socket.on("close", () => done("gone"));
   });
 }
 

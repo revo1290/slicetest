@@ -86,7 +86,11 @@ export class SqliteDriver implements Driver {
   private constructor(private readonly db: DatabaseSync) {}
 
   static async connect(url: string) {
-    return new SqliteDriver(await openDb(sqlitePath(url)));
+    const db = await openDb(sqlitePath(url));
+    // Read now, before the app starts: the first connection to open the -shm file truncates it, and on Windows
+    // that failed (SQLITE_IOERR_TRUNCATE) when it was slicetest's first read right after app.restart killed the app.
+    db.prepare("SELECT count(*) FROM sqlite_master").get();
+    return new SqliteDriver(db);
   }
 
   async query<T extends Row = Row>(sql: string, params: unknown[] = []): Promise<T[]> {
