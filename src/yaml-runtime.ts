@@ -64,7 +64,7 @@ async function runSteps(doc: YamlFile, sc: YamlScenario, steps: Step[], ctx: Sce
       const ciDir = inject("slicetestDb")?.ciDir;
       if (ciDir && doc.path) {
         const message = (e instanceof Error ? e.message : String(e)).replace(/\x1b\[[0-9;]*m/g, "");
-        await recordYamlFailure(ciDir, { file: doc.path, line: step.line, scenario: sc.name, step: [...trail, `step ${i + 1}: ${label}`].join(" → "), message }).catch(() => {});
+        recordYamlFailure(ciDir, { file: doc.path, line: step.line, scenario: sc.name, step: [...trail, `step ${i + 1}: ${label}`].join(" → "), message });
       }
       if (e instanceof Error) {
         e.message = `${where}\n${e.message}`;

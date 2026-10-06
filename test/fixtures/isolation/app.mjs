@@ -3,7 +3,8 @@ import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
 
 const db = new DatabaseSync(process.env.DATABASE_PATH);
-db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000");
+// synchronous OFF: with fsync on each commit, the delayed insert blocked the app for up to 2.5 s on Windows.
+db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = OFF");
 
 let cachedCount;
 const pending = new Set();
@@ -36,9 +37,10 @@ http
       }
       if (route === "POST /items/later") {
         const { delayMs = 150, body = "late" } = await readJson(req);
+        // Pending until the row is written, so app.idle doesn't report idle while the insert runs.
         const timer = setTimeout(() => {
-          pending.delete(timer);
           db.prepare("INSERT INTO items (owner, body) VALUES ('', ?)").run(body);
+          pending.delete(timer);
         }, delayMs);
         pending.add(timer);
         return send(res, 202, {});

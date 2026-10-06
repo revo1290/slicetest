@@ -1,6 +1,6 @@
 import { waitBudget } from "./deadline.js";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { ResolvedProcess } from "./config.js";
@@ -24,6 +24,8 @@ export class App {
   #lineCount = 0;
   #exit?: Exit;
   #stopped = false;
+  /** It accepted a connection on its port once, so a refused one means it is going away. */
+  #listened = false;
   #exited: Promise<Exit>;
   #listeners = new Set<(line: string) => void>();
   /** `mark()` at the start of the current scenario. */
@@ -105,6 +107,7 @@ export class App {
     running.add(app);
     try {
       await app.#waitReady(opts);
+      app.#listened = (await probePort(port, 0)) === "open";
     } catch (e) {
       await app.stop();
       if (app.#exit && ADDRESS_IN_USE.test(app.logs())) throw new PortInUse((e as Error).message);
@@ -124,10 +127,17 @@ export class App {
    */
   async settle(ms = WINDOWS ? 100 : 20) {
     if (this.#exit) return this.#exit;
+    // A crashed process stops serving its port before its exit event arrives, which took over 100 ms on a
+    // loaded Windows runner; the crash was then blamed on the next scenario.
+    const [, port] = await Promise.all([this.#waitExit(ms), this.#listened ? probePort(this.port, ms) : undefined]);
+    if (!this.#exit && port === "gone") await this.#waitExit(KILL_GRACE_MS);
+    return this.#exit;
+  }
+
+  async #waitExit(ms: number) {
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([this.#exited, new Promise((r) => (timer = setTimeout(r, ms)))]);
     clearTimeout(timer);
-    return this.#exit;
   }
 
   /** The app's recent output (last 200 lines), or only what it printed after `since` (a value from `mark()`). */
@@ -298,6 +308,29 @@ const PORT_ATTEMPTS = 3;
 const ADDRESS_IN_USE = /EADDRINUSE|address already in use|Address in use|BindException/i;
 
 class PortInUse extends Error {}
+
+/**
+ * Connects and holds the connection for `holdMs`: "gone" if it is refused, reset or closed meanwhile (a dying
+ * process may still accept for a moment). A slow connect counts as "open", so a live process is never waited for.
+ */
+function probePort(port: number, holdMs: number): Promise<"open" | "gone"> {
+  return new Promise((resolve) => {
+    const socket = connect({ port, host: "127.0.0.1" });
+    let timer: NodeJS.Timeout | undefined;
+    const done = (result: "open" | "gone") => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(500, () => done("open"));
+    socket.on("connect", () => {
+      socket.setTimeout(0);
+      timer = setTimeout(() => done("open"), holdMs);
+    });
+    socket.on("error", () => done("gone"));
+    socket.on("close", () => done("gone"));
+  });
+}
 
 /** Ports this process has handed out; the OS may offer one again before the app has bound it. */
 const handedOut = new Set<number>();

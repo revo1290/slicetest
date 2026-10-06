@@ -35,9 +35,23 @@ export function repoPath(file: string, env = process.env) {
   return path.relative(env.GITHUB_WORKSPACE ?? process.cwd(), file).replace(/\\/g, "/");
 }
 
-/** Called in a worker: one JSON line per failed YAML step, printed by the main process at the end. */
-export async function recordYamlFailure(dir: string, failure: YamlFailure) {
-  await appendFile(path.join(dir, `${process.pid}.jsonl`), `${JSON.stringify(failure)}\n`);
+const writes = new Set<Promise<void>>();
+
+/**
+ * Called in a worker: one JSON line per failed YAML step, printed by the main process at the end.
+ * Not awaited by the step: on a loaded Windows runner the append took up to 781 ms, and the step's
+ * error then came after the scenario's timeout.
+ */
+export function recordYamlFailure(dir: string, failure: YamlFailure): void {
+  const write = appendFile(path.join(dir, `${process.pid}.jsonl`), `${JSON.stringify(failure)}\n`)
+    .catch(() => {})
+    .finally(() => writes.delete(write));
+  writes.add(write);
+}
+
+/** Before the file's runtime goes away, so the main process finds every failure. */
+export async function flushYamlFailures() {
+  await Promise.all(writes);
 }
 
 export async function yamlFailures(dir: string): Promise<YamlFailure[]> {

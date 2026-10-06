@@ -19,7 +19,8 @@ scenario("delayed write: a scenario schedules a write and ends before it happens
   expect(await http.post("/items/later", { delayMs: 1500 })).toHaveStatus(202);
 });
 
+// Polled, not one look after a fixed sleep: the write landed 2.4 s after it was scheduled on a Windows runner.
 scenario("delayed write: the next scenario doesn't receive the previous one's write", async ({ db }) => {
-  await sleep(2200);
+  for (const start = Date.now(); Date.now() - start < 5000 && (await db.count("items")) === 0; ) await sleep(50);
   expect(await db.count("items")).toBe(0);
-});
+}, 15_000);

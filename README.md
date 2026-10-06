@@ -116,7 +116,7 @@ slicetest({
 });
 ```
 
-`{{db.url}}` is `sqlite:///absolute/path.db` (the form SQLAlchemy, dj-database-url and many others read) and `{{db.path}}` the plain path. The files are in WAL mode, so the app keeps its connection while slicetest resets tables between scenarios (`DELETE` plus resetting `AUTOINCREMENT` counters, foreign keys off for that moment only). `db.changes()`, `trace()` and every other helper work the same; SQLite has no boolean type, so booleans you insert are stored and read back as `1` / `0`. Migrations with `sql`, `command` or Atlas (`sqlite://` URLs). `db.url`, `db.image` and `SLICETEST_DATABASE_URL` don't apply. With the default `reuse`, the migrated template stays in the system temp directory between runs.
+`{{db.url}}` is `sqlite:///absolute/path.db` (the form SQLAlchemy, dj-database-url and many others read) and `{{db.path}}` the plain path. The files are in WAL mode, so the app keeps its connection while slicetest resets tables between scenarios (`DELETE` plus resetting `AUTOINCREMENT` counters, foreign keys off for that moment only). slicetest's own connection doesn't wait for the disk on commit (`PRAGMA synchronous = OFF`): the database is thrown away after the run, and on a Windows CI runner a reset with the default took up to 5.6 s. Your app's connection keeps its own setting. `db.changes()`, `trace()` and every other helper work the same; SQLite has no boolean type, so booleans you insert are stored and read back as `1` / `0`. Migrations with `sql`, `command` or Atlas (`sqlite://` URLs). `db.url`, `db.image` and `SLICETEST_DATABASE_URL` don't apply. With the default `reuse`, the migrated template stays in the system temp directory between runs.
 
 Works on macOS, Linux and Windows. On Windows the app's process tree is stopped with `taskkill /T`, and `app.command` / `db.migrate.command` run through `cmd.exe`.
 
@@ -156,7 +156,7 @@ export default defineConfig({
 2. **Once per worker.** It clones the template into the worker's own database.
 3. **Once per test file.** It starts the stub servers, your `services` and your app.
 4. **Before each scenario.** It truncates every table except migration bookkeeping tables (`atlas_schema_revisions`, `_prisma_migrations`, `alembic_version`, `django_migrations`, …) and extension-owned tables such as PostGIS's `spatial_ref_sys`, re-runs the seed, and clears the stubs, cookies and request history. If the app or a service crashed in the previous scenario, or has `restart: scenario`, it is stopped before the reset and started after it.
-5. **After each scenario.** The scenario fails if the app or a service crashed, the app called a stub route you didn't register, or (with `openapi`) any traffic didn't match the spec. With `idle`, it waits for the app's background work to finish before those checks.
+5. **After each scenario.** The scenario fails if the app or a service crashed (a process that stopped serving connections on its port is given up to 3 s to report its exit, so a slow machine doesn't blame the crash on the next scenario), the app called a stub route you didn't register, or (with `openapi`) any traffic didn't match the spec. With `idle`, it waits for the app's background work to finish before those checks.
 
 Database names are unique per run, so several projects or CI jobs can share one Postgres server via `db.url`.
 
