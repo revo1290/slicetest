@@ -1,6 +1,6 @@
 import { waitBudget } from "./deadline.js";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { ResolvedProcess } from "./config.js";
@@ -24,6 +24,8 @@ export class App {
   #lineCount = 0;
   #exit?: Exit;
   #stopped = false;
+  /** It accepted a connection on its port once, so a refused one means it is going away. */
+  #listened = false;
   #exited: Promise<Exit>;
   #listeners = new Set<(line: string) => void>();
   /** `mark()` at the start of the current scenario. */
@@ -105,6 +107,7 @@ export class App {
     running.add(app);
     try {
       await app.#waitReady(opts);
+      app.#listened = (await probePort(port)) === "open";
     } catch (e) {
       await app.stop();
       if (app.#exit && ADDRESS_IN_USE.test(app.logs())) throw new PortInUse((e as Error).message);
@@ -124,6 +127,9 @@ export class App {
    */
   async settle(ms = WINDOWS ? 100 : 20) {
     if (this.#exit) return this.#exit;
+    // A crashed process closes its port before its exit event arrives, which took over 100 ms on a loaded
+    // Windows runner; the crash was then blamed on the next scenario.
+    if (this.#listened && (await probePort(this.port)) === "refused") ms = Math.max(ms, KILL_GRACE_MS);
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([this.#exited, new Promise((r) => (timer = setTimeout(r, ms)))]);
     clearTimeout(timer);
@@ -298,6 +304,20 @@ const PORT_ATTEMPTS = 3;
 const ADDRESS_IN_USE = /EADDRINUSE|address already in use|Address in use|BindException/i;
 
 class PortInUse extends Error {}
+
+/** "refused" only when nothing listens; a slow or odd answer counts as open, so a live process is never waited for. */
+function probePort(port: number): Promise<"open" | "refused"> {
+  return new Promise((resolve) => {
+    const socket = connect({ port, host: "127.0.0.1" });
+    const done = (result: "open" | "refused") => {
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(500, () => done("open"));
+    socket.on("connect", () => done("open"));
+    socket.on("error", (e: NodeJS.ErrnoException) => done(e.code === "ECONNREFUSED" ? "refused" : "open"));
+  });
+}
 
 /** Ports this process has handed out; the OS may offer one again before the app has bound it. */
 const handedOut = new Set<number>();
