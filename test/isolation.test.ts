@@ -34,22 +34,36 @@ let concurrent: FixtureRun;
 let parallel: FixtureRun;
 let serial: FixtureRun;
 
+// Not all at once: every nested Vitest run together starved the Windows runner, and fixture scenarios hit the 5 s timeout.
+const slots = { free: 4, waiting: [] as (() => void)[] };
+async function run(...args: Parameters<typeof runFixture>) {
+  if (slots.free === 0) await new Promise<void>((r) => slots.waiting.push(r));
+  else slots.free--;
+  try {
+    return await runFixture(...args);
+  } finally {
+    const next = slots.waiting.shift();
+    if (next) next();
+    else slots.free++;
+  }
+}
+
 beforeAll(async () => {
   const barrier = await mkdtemp(path.join(os.tmpdir(), "slicetest-barrier-"));
   const serialBarrier = await mkdtemp(path.join(os.tmpdir(), "slicetest-barrier-"));
   try {
     await Promise.all([
-      ...modes.map(async (m) => (leak[m] = await runFixture("isolation", { env: { ISOLATION_MODE: m, ISOLATION_FILES: "leak" } }))),
-      ...(["idle", "restart", "reset+idle"] as const).map(async (m) => (afterFailure[m] = await runFixture("isolation", { env: { ISOLATION_MODE: m, ISOLATION_FILES: "after-failure" } }))),
-      (async () => (idleTimeout = await runFixture("isolation", { env: { ISOLATION_MODE: "idle", ISOLATION_IDLE_TIMEOUT: "300", ISOLATION_FILES: "idle-timeout" } })))(),
-      (async () => (idleDefault = await runFixture("isolation", { env: { ISOLATION_MODE: "idle", ISOLATION_IDLE_TIMEOUT: "default", ISOLATION_FILES: "idle-timeout" } })))(),
-      (async () => (twoBusy = await runFixture("isolation", { env: { ISOLATION_MODE: "idle", ISOLATION_IDLE_TIMEOUT: "300", ISOLATION_SERVICE: "1", ISOLATION_FILES: "two-busy" } })))(),
+      ...modes.map(async (m) => (leak[m] = await run("isolation", { env: { ISOLATION_MODE: m, ISOLATION_FILES: "leak" } }))),
+      ...(["idle", "restart", "reset+idle"] as const).map(async (m) => (afterFailure[m] = await run("isolation", { env: { ISOLATION_MODE: m, ISOLATION_FILES: "after-failure" } }))),
+      (async () => (idleTimeout = await run("isolation", { env: { ISOLATION_MODE: "idle", ISOLATION_IDLE_TIMEOUT: "300", ISOLATION_FILES: "idle-timeout" } })))(),
+      (async () => (idleDefault = await run("isolation", { env: { ISOLATION_MODE: "idle", ISOLATION_IDLE_TIMEOUT: "default", ISOLATION_FILES: "idle-timeout" } })))(),
+      (async () => (twoBusy = await run("isolation", { env: { ISOLATION_MODE: "idle", ISOLATION_IDLE_TIMEOUT: "300", ISOLATION_SERVICE: "1", ISOLATION_FILES: "two-busy" } })))(),
       (async () => (order = await Promise.all([undefined, 1, 2, 3].map((seed) =>
-        runFixture("isolation", { env: { ISOLATION_MODE: "reset", ISOLATION_FILES: "order" }, args: seed ? ["--sequence.shuffle.tests", `--sequence.seed=${seed}`] : [] })))))(),
-      (async () => (orderDefault = await runFixture("isolation", { env: { ISOLATION_MODE: "default", ISOLATION_FILES: "order" } })))(),
-      (async () => (concurrent = await runFixture("isolation", { env: { ISOLATION_MODE: "reset", ISOLATION_FILES: "order" }, args: ["--sequence.concurrent"] })))(),
-      (async () => (parallel = await runFixture("isolation", { env: { ISOLATION_FILES: "parallel-a,parallel-b", ISOLATION_WORKERS: "2", ISOLATION_BARRIER: barrier } })))(),
-      (async () => (serial = await runFixture("isolation", { env: { ISOLATION_FILES: "parallel-a,parallel-b", ISOLATION_WORKERS: "1", ISOLATION_BARRIER: serialBarrier } })))(),
+        run("isolation", { env: { ISOLATION_MODE: "reset", ISOLATION_FILES: "order" }, args: seed ? ["--sequence.shuffle.tests", `--sequence.seed=${seed}`] : [] })))))(),
+      (async () => (orderDefault = await run("isolation", { env: { ISOLATION_MODE: "default", ISOLATION_FILES: "order" } })))(),
+      (async () => (concurrent = await run("isolation", { env: { ISOLATION_MODE: "reset", ISOLATION_FILES: "order" }, args: ["--sequence.concurrent"] })))(),
+      (async () => (parallel = await run("isolation", { env: { ISOLATION_FILES: "parallel-a,parallel-b", ISOLATION_WORKERS: "2", ISOLATION_BARRIER: barrier } })))(),
+      (async () => (serial = await run("isolation", { env: { ISOLATION_FILES: "parallel-a,parallel-b", ISOLATION_WORKERS: "1", ISOLATION_BARRIER: serialBarrier } })))(),
     ]);
   } finally {
     await Promise.all([rm(barrier, { recursive: true, force: true }), rm(serialBarrier, { recursive: true, force: true })]);
