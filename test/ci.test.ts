@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { annotation, failureAnnotations, failureSummary } from "../src/ci.js";
+import { annotation, failureAnnotations, failureSummary, flushYamlFailures, recordYamlFailure, yamlFailures } from "../src/ci.js";
 import { runFailingFixture } from "./run-fixture.js";
 
 test("annotations escape what the runner would otherwise misread", () => {
@@ -16,6 +16,14 @@ test("failed YAML steps become annotations on their line and a table in the job 
   expect(failureAnnotations(failures, env)).toEqual(["::error file=scenarios/a.scenario.yaml,line=12,title=votes | counts%3A step 2%3A GET /::expected 200%0Agot 500"]);
   expect(failureSummary(failures, env)).toContain("| `scenarios/a.scenario.yaml:12` | votes \\| counts | step 2: GET / | expected 200 |");
   expect(failureSummary([], env)).toBe("");
+});
+
+test("a failed YAML step is recorded without holding up its error, and written by the time the file ends", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "slicetest-ci-"));
+  const failure = { file: "/repo/a.scenario.yaml", line: 3, scenario: "s", step: "step 1: GET /", message: "boom" };
+  expect(recordYamlFailure(dir, failure)).toBeUndefined();
+  await flushYamlFailures();
+  expect(await yamlFailures(dir)).toEqual([failure]);
 });
 
 test("on GitHub Actions, a failing YAML scenario is annotated at its file and line, and summarised", async () => {

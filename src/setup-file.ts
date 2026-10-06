@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, inject } from "vitest";
 import { setRuntime } from "./scenario.js";
 import { Runtime } from "./runtime.js";
+import { flushYamlFailures } from "./ci.js";
 import "./provided.js";
 import "./matchers.js";
 
@@ -24,6 +25,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await flushYamlFailures();
   setRuntime(undefined);
   if (inject("slicetestOptions").app.scope === "worker") await runtime?.flush();
   else await runtime?.stop();
