@@ -8,11 +8,19 @@ import { runFixture, type FixtureRun } from "./run-fixture.js";
 
 const CACHE = "cache: the next scenario starts from an empty database, and so does the app's view of it";
 const DELAYED = "delayed write: the next scenario doesn't receive the previous one's write";
+const FILL_CACHE = "cache: the first scenario fills the app's cache";
+const SCHEDULE_WRITE = "delayed write: a scenario schedules a write and ends before it happens";
 const FAILED = "a scenario leaves state behind and fails";
 const CLEAN = "the next scenario starts clean";
 
 const passed = (run: FixtureRun, name: string) => expect(run.tests.get(name)?.status, run.tests.get(name)?.message).toBe("passed");
 const failed = (run: FixtureRun, name: string) => expect(run.tests.get(name)?.status).toBe("failed");
+
+// Without this, a first scenario that failed before leaving its state lets the second one pass for the wrong reason.
+const leftState = (run: FixtureRun) => {
+  passed(run, FILL_CACHE);
+  passed(run, SCHEDULE_WRITE);
+};
 
 const modes = ["default", "restart", "reset", "idle", "reset+idle"] as const;
 const leak: Record<string, FixtureRun> = {};
@@ -50,6 +58,7 @@ beforeAll(async () => {
 
 describe("state inside the app process", () => {
   test("by default the process is reused, so its cache and its pending work reach the next scenario", () => {
+    leftState(leak.default!);
     failed(leak.default!, CACHE);
     expect(leak.default!.tests.get(CACHE)!.message).toMatch(/expected 2 to be \+?0|\{ count: 2 \}/);
     failed(leak.default!, DELAYED);
@@ -57,22 +66,26 @@ describe("state inside the app process", () => {
   });
 
   test("app.restart: scenario drops both, because the process is stopped before the reset", () => {
+    leftState(leak.restart!);
     passed(leak.restart!, CACHE);
     passed(leak.restart!, DELAYED);
   });
 
   test("app.reset clears what the app clears itself", () => {
+    leftState(leak.reset!);
     passed(leak.reset!, CACHE);
     passed(leak.reset!, DELAYED);
   });
 
   test("app.idle only waits for background work: late writes land in their own scenario, the cache stays", () => {
+    leftState(leak.idle!);
     passed(leak.idle!, DELAYED);
     failed(leak.idle!, CACHE);
     expect(leak.idle!.tests.get(CACHE)!.message).toMatch(/expected 2 to be \+?0|\{ count: 2 \}/);
   });
 
   test("reset and idle together cover both", () => {
+    leftState(leak["reset+idle"]!);
     passed(leak["reset+idle"]!, CACHE);
     passed(leak["reset+idle"]!, DELAYED);
   });
