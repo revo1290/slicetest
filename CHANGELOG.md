@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- SQLite: slicetest's own connection commits with `PRAGMA synchronous = OFF`. Resets, seeds and `db.insert` no longer wait for the disk; on a Windows runner a reset took up to 5.6 s before (0.9 s after), enough to run into the scenario's timeout.
 - On GitHub Actions, a failed YAML step no longer waits for its annotation to be written before failing. On a loaded Windows runner the write took up to 781 ms, so a wait that gave up just before the scenario's timeout was reported as Vitest's bare `Test timed out` instead of what it waited for. The annotations are written by the end of each file.
 - SQLite on Windows: with `app.restart: scenario`, the first scenario could fail with `disk I/O error` (`SQLITE_IOERR_TRUNCATE`) in the database reset. slicetest's connection now reads as soon as it connects, before the app starts, instead of first reading right after the app was stopped.
 - A crash of the app or a service now fails the scenario that caused it on a slow machine too. After each scenario slicetest waited 20 ms (100 ms on Windows) for the exit event; on a loaded Windows runner it came later, and the crash was reported in the next scenario. A process that accepted connections on its port and now refuses or drops them is given up to 3 s; one still serving is not waited for any longer than before.

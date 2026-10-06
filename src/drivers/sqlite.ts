@@ -79,6 +79,8 @@ async function openDb(file: string) {
   const db = new DatabaseSync(file);
   // The app may be writing; wait for its lock instead of failing with SQLITE_BUSY.
   db.exec("PRAGMA busy_timeout = 5000");
+  // No fsync on commit: the database is thrown away, and with it a reset took up to 5.6 s on a Windows runner.
+  db.exec("PRAGMA synchronous = OFF");
   return db;
 }
 
