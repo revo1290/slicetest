@@ -21,3 +21,9 @@ test("sqlite ignores SLICETEST_DATABASE_URL and rejects db.url", () => {
   }
   expect(() => resolveOptions({ app: { command: "x" }, db: { engine: "sqlite", url: "sqlite:///x.db" } }, "/")).toThrow(/db\.url doesn't apply to sqlite/);
 });
+
+test("{{db.url}} is absolute for the parsers apps use: SQLAlchemy and dj-database-url read three slashes as a relative path", () => {
+  if (process.platform !== "win32") expect(sqliteUrl("/tmp/x/a.db")).toBe("sqlite:////tmp/x/a.db");
+  expect(sqlitePath("sqlite:////tmp/x/a.db")).toBe("/tmp/x/a.db");
+  expect(sqlitePath("sqlite:///C:/Users/x/a.db")).toBe("C:/Users/x/a.db");
+});

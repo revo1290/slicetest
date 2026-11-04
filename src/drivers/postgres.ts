@@ -165,9 +165,11 @@ export class PostgresDriver implements Driver {
   }
 }
 
-function withDatabase(url: string, database: string) {
+export function withDatabase(url: string, database: string) {
   const u = new URL(url);
   u.pathname = `/${database}`;
+  // Testcontainers says postgres://, which SQLAlchemy refuses; every client we know reads postgresql://.
+  u.protocol = "postgresql:";
   return u.toString();
 }
 

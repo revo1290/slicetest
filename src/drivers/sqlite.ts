@@ -39,13 +39,14 @@ function load() {
 /** `sqlite:///tmp/a.db` → `/tmp/a.db`; `sqlite:///C:/x/a.db` → `C:/x/a.db`. Plain paths pass through. */
 export function sqlitePath(url: string) {
   if (!url.startsWith("sqlite:")) return url;
-  const p = decodeURIComponent(url.replace(/^sqlite:(\/\/)?/, "").replace(/[?#].*$/, ""));
+  const p = decodeURIComponent(url.replace(/^sqlite:(\/\/)?/, "").replace(/[?#].*$/, "")).replace(/^\/\/+/, "/");
   return /^\/[a-zA-Z]:[\\/]/.test(p) ? p.slice(1) : p;
 }
 
 export function sqliteUrl(file: string) {
   const p = path.resolve(file).replace(/\\/g, "/");
-  return `sqlite://${p.startsWith("/") ? "" : "/"}${p}`;
+  // Not `sqlite:///tmp/a.db`: SQLAlchemy and dj-database-url read three slashes as the relative path tmp/a.db.
+  return `sqlite:///${p}`;
 }
 
 /** Values node:sqlite can't bind are stored the way an app would store them. */
