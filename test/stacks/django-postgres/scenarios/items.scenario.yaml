@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
+scenarios:
+  - name: creating an item stores it
+    steps:
+      - request: POST /items
+        json: { name: tea }
+        expect: { status: 201, json: { id: 1, name: tea } }
+      - db: shop_item
+        expect: { count: 1 }
+      - changes: { shop_item: { inserted: 1 } }
+  - name: the next scenario starts empty, with ids from 1 again
+    steps:
+      - request: POST /items
+        json: { name: coffee }
+        expect: { status: 201, json: { id: 1 } }
+  - name: rows migrate creates are still there after a reset
+    steps:
+      - request: GET /permissions
+        expect: { status: 200, json: { permissions: { $gt: 0 }, content_types: { $gt: 0 } } }
+  - name: the admin login form works, CSRF token included
+    steps:
+      - make: auth_user
+        rows: { username: ada, password: x, is_staff: true, is_superuser: true, is_active: true }
+      - request: GET /admin/login/
+        expect: { status: 200 }
+      - submit: true
+        fields: { username: ada, password: wrong }
+        expect: { status: 200, text: { $contains: correct username } }

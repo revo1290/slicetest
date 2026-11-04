@@ -10,7 +10,7 @@ With `openapi: openapi.yaml`, every response the app gives to `http` during a sc
 |---|---|
 | A status the spec doesn't document for that operation (`GET /polls/{id} responded 500, which openapi.yaml doesn't document`). | A response with the right shape and the wrong value: `{ "total": 100 }` where it should be `120` passes if `total` is a number. |
 | A JSON body that breaks the schema: wrong type, missing required property, enum mismatch (`/id must be integer`). | Extra fields, unless the schema says `additionalProperties: false`: JSON Schema allows them by default. |
-| A content type the response doesn't list. | Response headers. Only the body and its content type are checked. |
+| A content type the response doesn't list. | Response headers the spec doesn't list for that response, and any response header's meaning. A header the spec lists is checked: it must be there when `required`, and its value must fit its schema. `Content-Type`, `Accept` and `Authorization` are left to the content check. |
 | A path or method that isn't in the spec at all. | A body that isn't JSON (HTML, CSV, files): only its content type is compared. A response without a content type isn't held to a body schema. |
 | | A spec that is wrong or incomplete. The check compares the app with the spec; if both are wrong the same way, it passes. A spec the app generates for itself (`openapi.fromApp`) often misses error responses and nullable fields, which shows up as failures, but it can also describe a bug as the contract. |
 
@@ -21,7 +21,7 @@ With `stubs: [{ name, openapi }]`, the app's calls to the stub and the stub's re
 | Catches | Can't catch |
 |---|---|
 | A stub reply with a status or body the spec doesn't document (`200 { ok: true }` where the spec documents `202 { messageId }`). | The real provider behaving differently from its published spec: undocumented errors, outdated spec, fields it stopped sending. |
-| A required query parameter the app didn't send; a missing required body; a body that breaks the request schema; a wrong request content type. | Required request headers (authorization), path and cookie parameters: only query parameters and the body are checked. |
+| A required query parameter the app didn't send, or a query value outside its schema (`?limit=abc` for an integer); a required header parameter it didn't send; a missing required body; a body that breaks the request schema; a wrong request content type. | `Authorization`, `Accept` and `Content-Type` as required headers, header values, and path and cookie parameters: those aren't checked. |
 | An operation that isn't in the spec (the call fails the scenario). | Whether the values make sense to the provider: a well-formed `customer: "cus_nope"` that doesn't exist, a currency it doesn't support, rate limits, idempotency. |
 | | A stub reply without a content type: its body isn't compared. |
 
@@ -46,7 +46,7 @@ To keep recordings honest, re-record on a schedule (delete the entries, run once
 | Catches | Can't catch |
 |---|---|
 | A change in what the trace holds, as a diff in review: a new outbound call, a different status or response body, an extra row, a column written differently. The trace has, per request to the app: method, path and query, status and response body; per stub call: method, path and query, request body and the reply's status; the mail; the database changes. | Whether the pinned behavior is right. A snapshot records what the app does today, bugs included; the first run and every `-u` accept whatever it shows. |
-| | Anything not in the trace: request bodies and headers sent to the app, response headers (a cookie attribute), reply bodies and headers of a stub, logs, files, other stores. Only the last 20 requests to the app are kept. Masked values (dates, UUIDs) aren't checked. |
+| | Anything not in the trace: request bodies and headers sent to the app, response headers (a cookie attribute), reply bodies and headers of a stub, logs, files, other stores. Masked values (dates, UUIDs) aren't checked. |
 
 A snapshot update is a change to what the tests expect, so review it like a change to an assertion. The same goes for scenarios produced by `slicetest gen` and `slicetest record`: they start from the spec or from what the app did, so a misunderstanding in either is copied into the expected values.
 

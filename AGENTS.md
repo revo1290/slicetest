@@ -20,7 +20,7 @@ Guidance for coding agents (and humans) contributing to this repository. For wha
   - `auth.ts` — the in-process OpenID Connect issuer (discovery, JWKS, RS256 tokens, client credentials) behind `auth`.
 - `docs/` — `guarantees.md` (what each check does and doesn't catch) and `state-isolation.md` (what is reset between scenarios, parallelism). Keep them in step with the code: `test/isolation.test.ts` pins the second.
 - `schema/scenario.schema.json` — JSON Schema for `*.scenario.yaml`. Published with the package.
-- `test/` — unit tests; `test/fixtures/` holds small apps used to test failure modes, contracts and services.
+- `test/` — unit tests; `test/fixtures/` holds small apps used to test failure modes, contracts and services. `test/stacks/` makes real projects with each framework's own generator and takes them from `slicetest init` to a passing run with the packed package.
 - `examples/` — a Node, a Python and a Spring Boot app with the same API. The same scenarios run against all three; the Spring one is separate (`test:spring`, its own CI job) so `npm test` needs no Java. `examples/comparison` has the same checks written with JUnit + Testcontainers + WireMock, a measurement script and the data; change either suite and rerun `measure.mjs` and `diagnose.mjs`, or the numbers in its README are stale.
 
 ## Commands
@@ -32,6 +32,7 @@ npm test            # unit tests + both example apps + services and MySQL fixtur
 npx vitest run --project unit   # unit tests only
 npm run test:dist   # build, then run the examples and the CLI against dist/
 npm run test:spring # the same scenarios against examples/spring-boot-api (needs JDK 21 and Maven)
+npm run test:stacks # `slicetest init` to a passing run on real Django, Rails, Laravel, FastAPI, Go, … projects (needs their toolchains and network; name the stacks you have, `npm run test:stacks -- django-stock go`)
 npm run test:comparison # examples/comparison: the JUnit + Testcontainers + WireMock suite and the slicetest one (with Podman, set DOCKER_HOST and TESTCONTAINERS_RYUK_DISABLED=true)
 ```
 
@@ -47,6 +48,7 @@ Prerequisites for the full suite: Docker or Podman (or `SLICETEST_DATABASE_URL` 
 ## Conventions
 
 - Every behaviour change comes with a test. Prefer a scenario against a fixture app over mocking internals.
+- A change to what `slicetest init` writes for a stack is also run on that stack in `test/stacks/` (and added there if it's missing): comparing the detected config can't tell whether it runs.
 - User-visible changes get a line in `CHANGELOG.md` under the upcoming version, and `README.md` is updated in the same change.
 - The YAML parser (`src/yaml.ts`) and `schema/scenario.schema.json` must accept exactly the same keys. Change both together; `test/schema.test.ts` checks this.
 - Keep Windows working: no POSIX-only shell syntax in commands the package runs, and process handling must go through the existing helpers in `app.ts`.

@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
+scenarios:
+  - name: the app answers with JSON
+    steps:
+      - request: GET /items
+        expect: { status: 200, json: [{ name: tea }] }
