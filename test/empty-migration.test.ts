@@ -6,4 +6,6 @@ test("a migration command that exits 0 but creates no tables stops the run, with
 
   expect(output).toContain("slicetest: db.migrate finished without error but created no tables. Check that it reaches the database at DATABASE_URL.");
   expect(output).toContain("Its output:\nError: connect ECONNREFUSED 127.0.0.1:443");
+  // The scenarios are there: what stopped the run is the migration, and that's all it should say.
+  expect(output).not.toContain("No test files found");
 }, 120_000);

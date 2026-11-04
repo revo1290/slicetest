@@ -17,6 +17,7 @@ import { appSpecFile, formatCoverage, formatUsage, OpenApiSpec } from "./openapi
 import { mergeRecordings, type Recording } from "./recording.js";
 import { applySqlFiles, sqlMigrationFiles } from "./sql-migrations.js";
 import "./provided.js";
+import { markSetupFailed } from "./setup-state.js";
 
 const exec = promisify(execFile);
 
@@ -27,7 +28,10 @@ export default async function setup(project: TestProject) {
   const builds = buildAll(opts);
   builds.catch(() => {});
   // No database (`db: false`): nothing to start or migrate, only the builds to wait for.
-  const database = opts.db.none ? (await builds, undefined) : await startDatabase(opts, builds);
+  const database = await (opts.db.none ? builds.then(() => undefined) : startDatabase(opts, builds)).catch((e: unknown) => {
+    markSetupFailed();
+    throw e;
+  });
 
   // Each worker writes the documented responses it saw here; they are merged when the run ends.
   const coverageDir = opts.openapi.app || opts.openapi.fromApp ? await mkdtemp(path.join(os.tmpdir(), "slicetest-coverage-")) : undefined;

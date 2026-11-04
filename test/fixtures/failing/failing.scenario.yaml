@@ -61,3 +61,8 @@ scenarios:
       - request: GET /json
         expect:
           json: { user: { name: { $absent: true } } }
+
+  - name: yaml matcher failure reads as written
+    steps:
+      - request: GET /json
+        expect: { json: { name: { $len: 99 } } }

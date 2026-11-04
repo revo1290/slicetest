@@ -37,6 +37,47 @@ jobs:
       - run: npm run test:spring
       - run: npm run test:comparison # the JUnit side needs Docker, which ubuntu runners have
 
+  stacks:
+    # Its own job, one per stack: it needs each framework's toolchain and package registry, which `npm test` shouldn't.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { stack: node-express }
+          - { stack: node-prisma }
+          - { stack: fastapi-alembic, python: "3.13" }
+          - { stack: fastapi-sqlite, python: "3.13" }
+          - { stack: flask-sqlite, python: "3.13" }
+          - { stack: django-stock, python: "3.13" }
+          - { stack: django-postgres, python: "3.13" }
+          - { stack: rails, ruby: "3.4" }
+          - { stack: laravel, php: "8.4" }
+          - { stack: go, go: "1.25" }
+          - { stack: dotnet, dotnet: "9.0.x" }
+    name: stack ${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - if: matrix.python
+        uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - if: matrix.ruby
+        uses: ruby/setup-ruby@v1
+        with: { ruby-version: "${{ matrix.ruby }}" }
+      - if: matrix.php
+        uses: shivammathur/setup-php@v2
+        with: { php-version: "${{ matrix.php }}", extensions: pdo_sqlite, tools: composer }
+      - if: matrix.go
+        uses: actions/setup-go@v5
+        with: { go-version: "${{ matrix.go }}", cache: false }
+      - if: matrix.dotnet
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "${{ matrix.dotnet }}" }
+      - run: npm ci
+      - run: npm run test:stacks -- ${{ matrix.stack }}
+
   windows:
     # Windows runners can't run Linux containers, so use the preinstalled Postgres via SLICETEST_DATABASE_URL.
     runs-on: windows-latest

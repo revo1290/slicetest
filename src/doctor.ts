@@ -157,8 +157,14 @@ export async function doctor(configPath: string | undefined, probes: Probes = ma
     const seen = new Set<string>();
     for (const command of [p.build, p.command]) {
       const program = command && firstWord(command);
-      if (!program || /^[.\\/]|\{\{|\$/.test(program) || seen.has(program)) continue;
+      if (!program || /\{\{|\$/.test(program) || seen.has(program)) continue;
       seen.add(program);
+      if (/[\\/]/.test(program)) {
+        const cwd = path.resolve(root, p.cwd ?? ".");
+        if (existsSync(path.resolve(cwd, program))) add("ok", `${label}: ${program} found`);
+        else add("warn", `${label}: ${program} not found`, `\`${command}\` runs it relative to ${rel(cwd)}, where it doesn't exist`);
+        continue;
+      }
       if (await onPath(program, env)) add("ok", `${label}: ${program} found`);
       else add("warn", `${label}: ${program} not found on PATH`, `\`${command}\` may fail to start. Fine if a shell alias or a relative script provides it`);
     }

@@ -15,6 +15,8 @@ export interface Detected {
   config: CliConfig;
   /** One line per guess, e.g. "app: package.json has a start script". */
   notes: string[];
+  /** Files the config needs, by path relative to the project. */
+  files?: Record<string, string>;
 }
 
 const TODO_COMMAND = "echo 'TODO: the command that starts your app' && exit 1";
@@ -149,7 +151,11 @@ export async function detect(root: string): Promise<Detected> {
   } catch {}
   // The package manager the lockfile belongs to runs the scripts (Bun scripts may call `bun` itself).
   const pm = has("bun.lock") || has("bun.lockb") ? "bun" : has("pnpm-lock.yaml") ? "pnpm" : has("yarn.lock") ? "yarn" : "npm";
-  const dotnet = !pkg?.scripts?.start && !pkg?.scripts?.dev ? await findWebProject(appRoot) : undefined;
+  // Laravel's skeleton ships `dev: vite`, and Rails or Django projects often keep their frontend's scripts here too.
+  const serverFramework = laravel || symfony || phoenix || has("manage.py") || /\brails\b/.test(gemfile);
+  const nodeStart = !serverFramework && !!pkg?.scripts?.start;
+  const nodeDev = !serverFramework && !!pkg?.scripts?.dev && !/^\s*(vite|webpack|encore|parcel|rollup|esbuild)\b/.test(pkg.scripts.dev);
+  const dotnet = !nodeStart && !nodeDev ? await findWebProject(appRoot) : undefined;
   const nuget = new Set([...(dotnet?.text.matchAll(/<PackageReference\s+Include="([^"]+)"/g) ?? [])].map((m) => m[1]!.toLowerCase()));
   let dotnetConnection: string | undefined;
 
@@ -162,15 +168,15 @@ export async function detect(root: string): Promise<Detected> {
   let workers: number | undefined;
   let readyTimeout: number | undefined;
   const env: Record<string, string> = { PORT: "{{app.port}}", DATABASE_URL: "{{db.url}}" };
-  if (pkg?.scripts?.start) {
+  if (nodeStart) {
     command = pm === "npm" ? "npm start" : `${pm} run start`;
     notes.push(`app: \`${command}\` (package.json start script${pm === "npm" ? "" : `, ${pm} from its lockfile`}). It must listen on $PORT.`);
-    if (pkg.scripts.build) {
+    if (pkg?.scripts?.build) {
       // Otherwise `next start` and the like serve whatever was built last, and scenarios pass against stale code.
       build = `${pm} run build`;
       notes.push(`app: \`${build}\` once per run, before starting (package.json build script).`);
     }
-  } else if (pkg?.scripts?.dev) {
+  } else if (nodeDev) {
     command = `${pm} run dev`;
     notes.push(`app: \`${command}\` (no start script). A production start command is usually faster to boot.`);
   } else if (denoConfig) {
@@ -198,7 +204,8 @@ export async function detect(root: string): Promise<Detected> {
     command = "flask run --port {{app.port}}";
     notes.push("app: Flask");
   } else if (/\brails\b/.test(gemfile)) {
-    command = "bin/rails server -p {{app.port}}";
+    // Its own pid file: with the default tmp/pids/server.pid, the second test file's server refuses to start.
+    command = "bin/rails server -p {{app.port}} -P tmp/pids/slicetest-{{app.port}}.pid";
     notes.push("app: Rails");
   } else if (dotnet) {
     // Built once, then run without building, so workers don't compile at the same time; launch profiles would override the URL.
@@ -226,6 +233,10 @@ export async function detect(root: string): Promise<Detected> {
     Object.assign(env, { APP_ENV: "local", APP_KEY: LARAVEL_KEY, APP_DEBUG: "true", LOG_CHANNEL: "stderr" });
     if (/health:\s*['"]\/up['"]/.test(await read("bootstrap/app.php"))) readyPath = "/up";
     notes.push("app: Laravel (php artisan serve). DB_* variables point Laravel at the test database; APP_KEY is a fixed test key; logs go to stderr so failures show them");
+    if (pkg?.scripts?.build) {
+      build = `${pm} run build`;
+      notes.push(`app: \`${build}\` once per run, before starting: Blade's @vite fails without the manifest it writes`);
+    }
   } else if (symfony) {
     command = "php -S 127.0.0.1:{{app.port}} -t public";
     delete env.PORT;
@@ -367,11 +378,14 @@ export async function detect(root: string): Promise<Detected> {
     Object.assign(env, { SMTP_HOST: "{{mail.host}}", SMTP_PORT: "{{mail.port}}" });
     notes.push("mail: the app sends mail; slicetest catches it over SMTP (SMTP_HOST / SMTP_PORT, rename them to what your app reads)");
   }
+  const django = has("manage.py") ? await djangoSettings(appRoot) : undefined;
+  const djangoText = django ? await read(django) : "";
+  const djangoPinned = !!django && has(django) && !READS_DATABASE_URL.test(djangoText);
   const sqlite = await detectSqlite(appRoot, read, deps, python, gemfile);
   if (sqlite && !composeDb.engine) {
     composeDb.engine = "sqlite";
     env.DATABASE_URL = sqlite.url;
-    notes.push(`db: SQLite (${sqlite.why}), no container needed. The app gets DATABASE_URL=${sqlite.url}; {{db.path}} is the plain file path`);
+    notes.push(djangoPinned ? `db: SQLite (${sqlite.why}), no container needed` : `db: SQLite (${sqlite.why}), no container needed. The app gets DATABASE_URL=${sqlite.url}; {{db.path}} is the plain file path`);
   }
   let authClerk = false;
   const auth = await authFromEnvExample(appRoot, read, env, notes);
@@ -406,6 +420,25 @@ export async function detect(root: string): Promise<Detected> {
   if (!composeDb.engine && mysqlDeps) {
     composeDb.engine = "mysql";
     notes.push("db: MySQL (a MySQL driver is a dependency). Install mysql2 and @testcontainers/mysql next to slicetest.");
+  }
+  const files: Record<string, string> = {};
+  if (djangoPinned) {
+    if (!composeDb.engine && /django\.db\.backends\.mysql/.test(djangoText)) composeDb.engine = "mysql";
+    const engine = composeDb.engine ?? "postgres";
+    const dbEnv = djangoDbEnv(engine);
+    delete env.DATABASE_URL;
+    Object.assign(env, dbEnv);
+    if (migrate && "command" in migrate) migrate = { ...migrate, env: { ...migrate.env, ...dbEnv } };
+    files[path.posix.join(appDir, "slicetest_settings.py")] = djangoSettingsModule(django!, engine, djangoText);
+    notes.push("db: your Django settings name their own database, so slicetest_settings.py imports them and uses the test database instead (DJANGO_SETTINGS_MODULE). `migrate` never touches your database. Delete the file once your settings read DATABASE_URL");
+  }
+  // SQLAlchemy reads the driver from the URL, and postgresql:// (or mysql://) means one the project may not have.
+  const driver = !has("manage.py") && /\b(sqlalchemy|sqlmodel)\b/.test(python) ? sqlalchemyDriver(composeDb.engine ?? "postgres", python) : undefined;
+  if (driver && env.DATABASE_URL === "{{db.url}}") {
+    const url = `${driver}://{{db.user}}:{{db.password}}@{{db.host}}:{{db.port}}/{{db.name}}`;
+    env.DATABASE_URL = url;
+    if (migrate && "command" in migrate) migrate = { ...migrate, env: { ...migrate.env, DATABASE_URL: url } };
+    notes.push(`db: SQLAlchemy with the ${driver.split("+")[1]} driver, named in DATABASE_URL`);
   }
   if (dotnet) {
     if (!composeDb.engine && [...nuget].some((n) => /^(pomelo\.entityframeworkcore\.mysql|mysqlconnector|mysql\.data|mysql\.entityframeworkcore)$/.test(n))) {
@@ -483,14 +516,83 @@ export async function detect(root: string): Promise<Detected> {
     stubs,
     ...(openapi ? { openapi } : {}),
   };
-  return { config, notes };
+  return { config, notes, ...(Object.keys(files).length ? { files } : {}) };
 }
 
 async function djangoSettings(root: string) {
+  const manage = await readFile(path.join(root, "manage.py"), "utf8").catch(() => "");
+  const named = /DJANGO_SETTINGS_MODULE["'],\s*["']([\w.]+)["']/.exec(manage)?.[1];
+  for (const file of named ? [`${named.replace(/\./g, "/")}.py`, `${named.replace(/\./g, "/")}/__init__.py`] : []) {
+    if (existsSync(path.join(root, file))) return file;
+  }
   for (const dir of await readdir(root, { withFileTypes: true }).catch(() => [])) {
     if (dir.isDirectory() && existsSync(path.join(root, dir.name, "settings.py"))) return path.join(dir.name, "settings.py");
   }
   return "settings.py";
+}
+
+/** Settings that take their database from the environment. */
+const READS_DATABASE_URL = /dj_database_url|DATABASE_URL|\benv\.db(_url)?\(/;
+
+function djangoDbEnv(engine: string): Record<string, string> {
+  const base = { DJANGO_SETTINGS_MODULE: "slicetest_settings" };
+  if (engine === "sqlite") return { ...base, SLICETEST_DB_NAME: "{{db.path}}" };
+  return { ...base, SLICETEST_DB_NAME: "{{db.name}}", SLICETEST_DB_USER: "{{db.user}}", SLICETEST_DB_PASSWORD: "{{db.password}}", SLICETEST_DB_HOST: "{{db.host}}", SLICETEST_DB_PORT: "{{db.port}}" };
+}
+
+/** The project's settings with the test database. Their ENGINE is kept when it fits (PostGIS, SpatiaLite). */
+function djangoSettingsModule(settingsFile: string, engine: string, settings: string) {
+  const module = settingsFile.replace(/(\/__init__)?\.py$/, "").replace(/\//g, ".");
+  const own = /["']ENGINE["']\s*:\s*["']([\w.]+)["']/.exec(settings)?.[1];
+  const family = engine === "sqlite" ? /sqlite|spatialite/ : engine === "mysql" ? /mysql/ : /postgres|postgis|psycopg/;
+  const backend = own && family.test(own) ? own : `django.db.backends.${engine === "sqlite" ? "sqlite3" : engine === "mysql" ? "mysql" : "postgresql"}`;
+  const fields = engine === "sqlite" ? ["NAME"] : ["NAME", "USER", "PASSWORD", "HOST", "PORT"];
+  return [
+    "# Written by `npx slicetest init`: your settings, with the database slicetest makes for each run,",
+    "# so tests and their migrations never reach the database your settings name. Delete this file",
+    "# (and the variables that mention it in slicetest.config.yaml) once your settings read DATABASE_URL.",
+    "import os",
+    "",
+    `from ${module} import *  # noqa: F403`,
+    "",
+    "DATABASES = {",
+    '    "default": {',
+    `        "ENGINE": "${backend}",`,
+    ...fields.map((f) => `        "${f}": os.environ["SLICETEST_DB_${f}"],`),
+    "    }",
+    "}",
+    "",
+  ].join("\n");
+}
+
+/** The `dialect+driver` a SQLAlchemy URL needs, when the driver isn't the dialect's default (psycopg2, mysqlclient). */
+function sqlalchemyDriver(engine: string, python: string) {
+  if (engine === "postgres") {
+    if (/\bpsycopg2/.test(python)) return undefined;
+    if (/\bpsycopg\b/.test(python)) return "postgresql+psycopg";
+    if (/\basyncpg\b/.test(python)) return "postgresql+asyncpg";
+  } else if (engine === "mysql") {
+    if (/\bmysqlclient\b/.test(python)) return undefined;
+    if (/\bpymysql\b/.test(python)) return "mysql+pymysql";
+    if (/\baiomysql\b/.test(python)) return "mysql+aiomysql";
+  }
+  return undefined;
+}
+
+const SQLITE_IN_PYTHON = /^\s*(import|from)\s+sqlite3\b|["']sqlite(\+\w+)?:\/\/\//m;
+const NOT_APP_CODE = new Set(["node_modules", "__pycache__", "venv", "env", "migrations", "tests", "test", "alembic", "scenarios"]);
+
+/** `import sqlite3` or a SQLite URL in the Python files at the root or one directory down. */
+async function pythonUsesSqlite(root: string) {
+  const inDir = async (dir: string, depth: number): Promise<boolean> => {
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name.endsWith(".py") && SQLITE_IN_PYTHON.test(await readFile(full, "utf8").catch(() => ""))) return true;
+      if (depth > 0 && entry.isDirectory() && !entry.name.startsWith(".") && !NOT_APP_CODE.has(entry.name) && (await inDir(full, depth - 1))) return true;
+    }
+    return false;
+  };
+  return inDir(root, 1);
 }
 
 /** Where the project says it uses SQLite, and the URL form its framework reads. */
@@ -498,11 +600,12 @@ async function detectSqlite(root: string, read: (p: string) => Promise<string>, 
   if (/provider\s*=\s*"sqlite"/.test(await read("prisma/schema.prisma"))) return { why: "Prisma provider", url: "file:{{db.path}}" };
   if (/adapter:\s*sqlite3/.test(await read("config/database.yml"))) return { why: "config/database.yml", url: "sqlite3:{{db.path}}" };
   if (/\bgem ['"]sqlite3['"]/.test(gemfile) && !/\bgem ['"](pg|mysql2)['"]/.test(gemfile)) return { why: "sqlite3 gem", url: "sqlite3:{{db.path}}" };
-  if (existsSync(path.join(root, "manage.py")) && /django\.db\.backends\.sqlite3/.test(await read(await djangoSettings(root)))) {
-    return { why: "Django settings; make DATABASES read DATABASE_URL, e.g. with dj-database-url", url: "{{db.url}}" };
-  }
+  const isDjango = existsSync(path.join(root, "manage.py"));
+  if (isDjango && /django\.db\.backends\.sqlite3/.test(await read(await djangoSettings(root)))) return { why: "Django settings", url: "{{db.url}}" };
   const pgOrMysql = deps.pg || deps.postgres || deps.mysql2 || /\b(psycopg|asyncpg|pymysql|mysqlclient)/.test(python);
-  if (!pgOrMysql && (deps["better-sqlite3"] || deps.sqlite3 || deps["@libsql/client"])) return { why: "a SQLite driver is a dependency", url: "{{db.url}}" };
+  if (pgOrMysql) return undefined;
+  if (deps["better-sqlite3"] || deps.sqlite3 || deps["@libsql/client"]) return { why: "a SQLite driver is a dependency", url: "{{db.url}}" };
+  if (!isDjango && python.trim() && (await pythonUsesSqlite(root))) return { why: "sqlite3 or a SQLite URL in the Python code; the app must take its file from DATABASE_URL", url: "{{db.url}}" };
   return undefined;
 }
 
@@ -586,7 +689,7 @@ export async function init(root: string, { force = false } = {}) {
   if (existing.length && !force) {
     throw new Error(`slicetest: ${existing.map((f) => path.relative(root, f)).join(", ")} already exists. Use --force to overwrite.`);
   }
-  const { config, notes } = await detect(root);
+  const { config, notes, files } = await detect(root);
   const header = [
     "# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/config.schema.json",
     "# slicetest config, generated by `npx slicetest init`. Paths are relative to this file.",
@@ -598,7 +701,9 @@ export async function init(root: string, { force = false } = {}) {
   await writeFile(configFile, `${header}${stringify(config)}`);
   await mkdir(path.dirname(scenarioFile), { recursive: true });
   await writeFile(scenarioFile, scenario((config.app.ready as { path?: string } | undefined)?.path ?? "/"));
-  return { files: [configFile, scenarioFile].map((f) => path.relative(root, f)), notes };
+  const extra = Object.entries(files ?? {}).filter(([file]) => force || !existsSync(path.join(root, file)));
+  for (const [file, content] of extra) await writeFile(path.join(root, file), content);
+  return { files: [configFile, scenarioFile].map((f) => path.relative(root, f)).concat(extra.map(([file]) => file)), notes };
 }
 
 const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "podman-compose.yaml"];

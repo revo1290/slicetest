@@ -95,7 +95,7 @@ export async function main(argv = process.argv.slice(2)) {
     const { init } = await import("./init.js");
     const { files, notes } = await init(process.cwd(), { force: values.force });
     process.stdout.write(
-      `Created ${files.join(" and ")}.\n\nWhat was detected (check these in the config):\n${notes.map((n) => `  - ${n}`).join("\n")}\n\nNext: npx slicetest\n`,
+      `Created ${files.join(", ")}.\n\nWhat was detected (check these in the config):\n${notes.map((n) => `  - ${n}`).join("\n")}\n\nNext: npx slicetest\n`,
     );
     return;
   }

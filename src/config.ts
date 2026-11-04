@@ -175,7 +175,7 @@ export interface DbOptions {
    * `postgres` (default), `mysql` or `sqlite`. Inferred from `url` when it starts with `mysql://`.
    * MySQL needs the `mysql2` package, and `@testcontainers/mysql` unless `url` is given.
    * SQLite needs Node.js 22.5+ and nothing else: no server, no container. The app gets
-   * `{{db.url}}` as `sqlite:///path/to/file.db` and `{{db.path}}` as the file path.
+   * `{{db.url}}` as `sqlite:////absolute/path/to/file.db` and `{{db.path}}` as the file path.
    */
   engine?: "postgres" | "mysql" | "sqlite";
   /** Image used when no `url` is given. Default `postgres:17-alpine`, or `mysql:8.4` for MySQL. */

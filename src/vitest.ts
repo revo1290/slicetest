@@ -7,6 +7,7 @@ import { CONFIG_NAMES, resolveOptions, type SlicetestOptions } from "./config.js
 import { SESSION_ENV } from "./record.js";
 import { parse } from "yaml";
 import { parseScenarioFile } from "./yaml.js";
+import { setupFailed } from "./setup-state.js";
 
 /**
  * Reads a slicetest.config.yaml, so the CLI and a vitest.config share one file.
@@ -70,6 +71,15 @@ export function slicetestPlugin(options?: SlicetestOptions | string, cli: { incl
       const doc = { ...parseScenarioFile(code, path.relative(root ?? process.cwd(), file) || file), path: file };
       const runtime = JSON.stringify(path.join(here, `yaml-runtime${ext}`));
       return { code: `import { defineYamlScenarios } from ${runtime};\ndefineYamlScenarios(${JSON.stringify(doc)});\n`, map: null };
+    },
+    // Vitest answers a failed global setup with "No test files found" above the real error, whatever files there are.
+    configureVitest({ vitest }) {
+      const { logger } = vitest;
+      const print = logger.printNoTestFound as typeof logger.printNoTestFound | undefined;
+      if (!print) return;
+      logger.printNoTestFound = (filters) => {
+        if (!setupFailed()) print.call(logger, filters);
+      };
     },
     // `config.root` is often unset; the resolved root is the one relative paths should follow.
     configResolved(resolved) {

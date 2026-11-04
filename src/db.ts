@@ -26,6 +26,9 @@ const MIGRATION_TABLES = [
   "__EFMigrationsHistory",
 ];
 
+/** Rows Django's `migrate` writes through post_migrate, which nothing writes again and no seed can reproduce. */
+const DJANGO_TABLES = ["django_content_type", "auth_permission", "django_site"];
+
 
 export type { Row } from "./drivers/driver.js";
 
@@ -248,11 +251,14 @@ export class Db {
 
   /**
    * Tables to empty: ordinary tables in the configured schemas, minus migration
-   * bookkeeping, `keep` (bare or `schema.table`) and tables owned by extensions
-   * such as PostGIS's `spatial_ref_sys`.
+   * bookkeeping, `keep` (bare or `schema.table`), what Django's migrate fills in
+   * and tables owned by extensions such as PostGIS's `spatial_ref_sys`.
    */
   async #listTables(): Promise<Table[]> {
-    return this.#driver.listTables(this.opts.schemas, [...MIGRATION_TABLES, ...this.opts.keep]);
+    const tables = await this.#driver.listTables(this.opts.schemas, [...MIGRATION_TABLES.filter((t) => t !== "django_migrations"), ...this.opts.keep]);
+    const named = (t: Table) => t.name.split(".").pop()!;
+    const django = tables.some((t) => named(t) === "django_migrations");
+    return tables.filter((t) => named(t) !== "django_migrations" && !(django && DJANGO_TABLES.includes(named(t))));
   }
 
   /** `WHERE ...` for a filter: `null` is IS NULL, an array is IN (...), anything else `=`. */

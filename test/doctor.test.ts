@@ -116,3 +116,13 @@ test("a YAML or JSON seed is read, and one that isn't rows per table fails with 
   expect(seeds[1]!.detail).toContain('"plans" must be a list of rows');
   expect(seeds[2]!.label).toMatch(/broken\.yaml isn't valid/);
 });
+
+test("a command given by a relative path is looked for next to the app, not on PATH", async () => {
+  const found = await project("app: { command: bin/rails server, cwd: backend }\ndb: false\n", { "backend/bin/rails": "" });
+  expect(summary(await doctor(found, healthy, { PATH: "" }))).toContain("ok app: bin/rails found");
+
+  const missing = await project("app: { command: ./gradlew bootRun }\ndb: false\n");
+  const checks = await doctor(missing, healthy, { PATH: "" });
+  expect(summary(checks)).toContain("warn app: ./gradlew not found");
+  expect(checks.find((c) => c.label === "app: ./gradlew not found")?.detail).toContain("relative to");
+});

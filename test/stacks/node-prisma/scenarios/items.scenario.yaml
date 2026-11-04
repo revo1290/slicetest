@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://unpkg.com/slicetest/schema/scenario.schema.json
+scenarios:
+  - name: creating an item stores it
+    steps:
+      - request: POST /items
+        json: { name: tea }
+        expect: { status: 201, json: { id: 1, name: tea } }
+      - db: Item
+        where: { name: tea }
+        expect: { count: 1 }
+      - changes: { Item: { inserted: 1 } }
+  - name: the next scenario starts empty, with ids from 1 again
+    steps:
+      - request: POST /items
+        json: { name: coffee }
+        expect: { status: 201, json: { id: 1 } }
