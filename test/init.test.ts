@@ -34,7 +34,7 @@ test.each([
   [
     "Rails",
     { Gemfile: "gem 'rails'\n", "db/migrate/001_init.rb": "" },
-    { app: { command: "bin/rails server -p {{app.port}}" }, db: { migrate: { command: "bin/rails db:migrate", inputs: ["db/migrate"] } } },
+    { app: { command: "bin/rails server -p {{app.port}} -P tmp/pids/slicetest-{{app.port}}.pid" }, db: { migrate: { command: "bin/rails db:migrate", inputs: ["db/migrate"] } } },
   ],
   [
     "Go + Atlas",
@@ -149,7 +149,7 @@ test("a mail catcher in compose, or a mail library, turns on mail with SMTP vari
 test.each([
   ["Prisma", { "package.json": "{}", "prisma/schema.prisma": 'datasource db {\n  provider = "sqlite"\n  url = env("DATABASE_URL")\n}\n' }, "file:{{db.path}}"],
   ["Rails", { Gemfile: "gem 'rails'\ngem 'sqlite3'\n", "config/database.yml": "default: &default\n  adapter: sqlite3\n" }, "sqlite3:{{db.path}}"],
-  ["Django", { "manage.py": "", "mysite/settings.py": "DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3'}}" }, "{{db.url}}"],
+  ["Django", { "manage.py": "", "mysite/settings.py": "import dj_database_url\nDATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3'}}" }, "{{db.url}}"],
   ["a Node driver", { "package.json": JSON.stringify({ dependencies: { "better-sqlite3": "^11" } }) }, "{{db.url}}"],
 ])("detects SQLite from %s, with the URL form the framework reads", async (_, files, url) => {
   const { config, notes } = await detect(await project(files));
@@ -458,4 +458,107 @@ test("a package.json that isn't valid JSON is named in the error", async () => {
   const root = await project({ "package.json": '{ "name": "x", ' });
 
   await expect(detect(root)).rejects.toThrow(/^slicetest init: package.json isn't valid JSON \(.*\); fix it, or run init from the folder of the app$/);
+});
+
+test("a server framework beats the frontend scripts in its package.json: Laravel's skeleton ships `dev: vite`", async () => {
+  const { config } = await detect(
+    await project({
+      "composer.json": JSON.stringify({ require: { "laravel/framework": "^12.0" } }),
+      artisan: "",
+      "package.json": JSON.stringify({ scripts: { build: "vite build", dev: "vite" } }),
+      ".env.example": "DB_CONNECTION=sqlite\n",
+    }),
+  );
+  // The build stays: Blade's @vite fails without the manifest it writes.
+  expect(config.app).toMatchObject({ command: "php artisan serve --host=127.0.0.1 --port={{app.port}} --no-reload", build: "npm run build" });
+
+  const rails = await detect(await project({ Gemfile: "gem 'rails'\n", "package.json": JSON.stringify({ scripts: { start: "esbuild --watch", dev: "vite" } }) }));
+  expect(rails.config.app.command).toMatch(/^bin\/rails server /);
+  const django = await detect(await project({ "manage.py": "", "package.json": JSON.stringify({ scripts: { dev: "webpack serve" } }) }));
+  expect(django.config.app.command).toMatch(/^python manage\.py runserver /);
+});
+
+test("a `dev` script that only runs a bundler isn't the app; a dev server of a Node framework still is", async () => {
+  const fastapi = await detect(await project({ "requirements.txt": "fastapi\nuvicorn\n", "package.json": JSON.stringify({ scripts: { dev: "vite", build: "vite build" } }) }));
+  expect(fastapi.config.app.command).toBe("uvicorn main:app --port {{app.port}}");
+  const next = await detect(await project({ "package.json": JSON.stringify({ scripts: { dev: "next dev" } }) }));
+  expect(next.config.app.command).toBe("npm run dev");
+  const express = await detect(await project({ "requirements.txt": "flask\n", "package.json": JSON.stringify({ scripts: { start: "node server.js" } }) }));
+  expect(express.config.app.command).toBe("npm start");
+});
+
+test.each([
+  ["the standard library's sqlite3", { "requirements.txt": "flask\n", "app.py": "import sqlite3\n" }],
+  ["a SQLite URL in the code", { "requirements.txt": "fastapi\nsqlalchemy\n", "app/database.py": 'URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")\n' }],
+])("Python on %s runs on SQLite", async (_, files) => {
+  const { config } = await detect(await project(files));
+  expect(config.db).toMatchObject({ engine: "sqlite" });
+  expect(config.app.env).toMatchObject({ DATABASE_URL: "{{db.url}}" });
+});
+
+test("a Postgres driver next to a SQLite URL means Postgres: the URL is usually a local default", async () => {
+  const { config } = await detect(await project({ "requirements.txt": "fastapi\nsqlalchemy\npsycopg2-binary\n", "main.py": 'URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")\n' }));
+  expect(config.db).not.toMatchObject({ engine: "sqlite" });
+});
+
+test.each([
+  ["psycopg", "postgresql+psycopg"],
+  ["psycopg[binary]", "postgresql+psycopg"],
+  ["asyncpg", "postgresql+asyncpg"],
+])("SQLAlchemy with %s gets the driver in its URL, for the app and for Alembic", async (driver, scheme) => {
+  const { config } = await detect(await project({ "requirements.txt": `sqlalchemy\n${driver}\nalembic\nfastapi\n`, "alembic.ini": "[alembic]\nscript_location = alembic\n" }));
+  const url = `${scheme}://{{db.user}}:{{db.password}}@{{db.host}}:{{db.port}}/{{db.name}}`;
+  expect(config.app.env).toMatchObject({ DATABASE_URL: url });
+  expect(config.db).toMatchObject({ migrate: { command: "alembic upgrade head", env: { DATABASE_URL: url } } });
+});
+
+test("SQLAlchemy with psycopg2, the default driver of postgresql://, takes {{db.url}} as it is", async () => {
+  const { config } = await detect(await project({ "requirements.txt": "sqlalchemy\npsycopg2-binary\nfastapi\n" }));
+  expect(config.app.env).toMatchObject({ DATABASE_URL: "{{db.url}}" });
+});
+
+const STOCK_DJANGO = { "manage.py": "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n", "mysite/settings.py": "DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}\n" };
+
+test("Django settings that don't read DATABASE_URL get a settings module for tests, so migrate can't reach the project's own database", async () => {
+  const root = await project(STOCK_DJANGO);
+  const { config, files, notes } = await detect(root);
+
+  const dbEnv = { DJANGO_SETTINGS_MODULE: "slicetest_settings", SLICETEST_DB_NAME: "{{db.path}}" };
+  expect(config.db).toMatchObject({ engine: "sqlite", migrate: { command: "python manage.py migrate", env: dbEnv } });
+  expect(config.app.env).toMatchObject(dbEnv);
+  expect(config.app.env).not.toHaveProperty("DATABASE_URL");
+  expect(files?.["slicetest_settings.py"]).toContain("from mysite.settings import *");
+  expect(files?.["slicetest_settings.py"]).toContain('"ENGINE": "django.db.backends.sqlite3"');
+  expect(notes.join("\n")).toContain("slicetest_settings.py");
+
+  const written = await init(root);
+  expect(written.files).toContain("slicetest_settings.py");
+  expect(await readFile(path.join(root, "slicetest_settings.py"), "utf8")).toContain("from mysite.settings import *");
+});
+
+test("that settings module follows the engine, and isn't written over one you changed", async () => {
+  const root = await project({
+    "manage.py": "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.local')\n",
+    "config/settings/local.py": "DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql', 'HOST': 'db.internal'}}\n",
+    "requirements.txt": "django\npsycopg[binary]\n",
+    "slicetest_settings.py": "# mine\n",
+  });
+  const { config, files } = await detect(root);
+  expect(config.db).not.toHaveProperty("engine", "sqlite");
+  expect(config.app.env).toMatchObject({ DJANGO_SETTINGS_MODULE: "slicetest_settings", SLICETEST_DB_NAME: "{{db.name}}", SLICETEST_DB_HOST: "{{db.host}}", SLICETEST_DB_PORT: "{{db.port}}", SLICETEST_DB_USER: "{{db.user}}", SLICETEST_DB_PASSWORD: "{{db.password}}" });
+  expect(files?.["slicetest_settings.py"]).toContain("from config.settings.local import *");
+  expect(files?.["slicetest_settings.py"]).toContain('"ENGINE": "django.db.backends.postgresql"');
+
+  const written = await init(root);
+  expect(written.files).not.toContain("slicetest_settings.py");
+  expect(await readFile(path.join(root, "slicetest_settings.py"), "utf8")).toBe("# mine\n");
+});
+
+test("Django settings that read DATABASE_URL are left to do so", async () => {
+  const { config, files } = await detect(
+    await project({ "manage.py": "", "requirements.txt": "django\ndj-database-url\npsycopg[binary]\n", "mysite/settings.py": "DATABASES = {'default': dj_database_url.config()}\n" }),
+  );
+  expect(config.app.env).toMatchObject({ DATABASE_URL: "{{db.url}}" });
+  expect(config.app.env).not.toHaveProperty("DJANGO_SETTINGS_MODULE");
+  expect(files).toBeUndefined();
 });
