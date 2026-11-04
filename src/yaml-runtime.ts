@@ -590,7 +590,8 @@ const MATCHERS = ["$absent", "$type", "$regex", "$options", "$contains", "$any",
 
 /** An asymmetric matcher Vitest's `toEqual` / `toMatchObject` call, with a readable name in diffs. */
 function matcher(name: string, test: (v: unknown) => boolean) {
-  return { asymmetricMatch: test, toAsymmetricMatcher: () => name, toString: () => name };
+  // Without $$typeof, Vitest's diff prints the object's functions; without inspect, its message prints `{ …(3) }`.
+  return { $$typeof: Symbol.for("jest.asymmetricMatcher"), asymmetricMatch: test, toAsymmetricMatcher: () => name, toString: () => name, inspect: () => name };
 }
 
 /** A decimal as Postgres `numeric` and MySQL `DECIMAL` columns come back, to keep their precision: `"12.50"`. */

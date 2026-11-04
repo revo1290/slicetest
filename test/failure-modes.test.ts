@@ -65,3 +65,12 @@ test("$absent in expected JSON: passes without the key, fails naming its path", 
   expect(output).toMatch(/[✓√] .*yaml absent key passes when the key is missing/);
   expect(output).toMatch(/yaml absent key fails when the key is there, step 1: GET \/json\)\nresponse JSON: expected no user\.name, got "alice"/);
 });
+
+test("a failed YAML matcher reads as written in the file, not as the object behind it", () => {
+  const block = output.slice(output.indexOf("FAIL  failing.scenario.yaml > yaml matcher failure reads as written"));
+  const failure = block.split("⎯⎯⎯")[0]!;
+  expect(failure).toContain("$len 99");
+  expect(failure).not.toContain("asymmetricMatch");
+  expect(failure).not.toContain("[Function");
+  expect(failure).not.toContain("…(3)");
+});
